@@ -1,11 +1,18 @@
 UC_TOOLS ?= ../uc_tools
 GIT_VERSION ?= "unknown"
 
+BIN2FW := $(UC_TOOLS)/linux/bin2fw.dynamic.host.elf
+
 STM_ELF := \
 	stm32f103/synth.x8ab.f103.elf \
-	stm32f103/main_test.x8ab.f103.elf \
+	stm32f103/synth.x8ab.f103.fw.elf \
+	stm32f103/bp2.x8ab.f103.elf \
+	stm32f103/bp2.x8ab.f103.fw.elf \
+
+STM_ELF_DIS := \
 
 HOST_ELF := \
+        $(BIN2FW) \
 	tools/test.dynamic.host.elf
 
 ALL_ELF := $(STM_ELF) $(HOST_ELF)
@@ -55,6 +62,9 @@ LIB_HOST_A_OBJECTS := \
 GEN_DEPS_COMMON :=
 GEN := $(GEN_DEPS_COMMON)
 
+
+
+
 # Use a script to list the .d files to make this easier to debug.
 DEPS := $(shell find -name '*.d') $(shell find $(UC_TOOLS) -name '*.d')
 -include $(DEPS)
@@ -78,7 +88,7 @@ stm32f103/%.ld: stm32f103/%.ld.sh
 	export ARCH=f103 ; \
 	export BUILD=stm32f103/build.sh ; \
 	export C=$< ; \
-	export CFLAGS="-Itools/ -Istm32f103/ -I$(UC_TOOLS)/ -I$(UC_TOOLS)/gdb/ -I$(UC_TOOLS)/linux/" ; \
+	export CFLAGS="-Itools/ -Istm32f103/ -I./ -I$(UC_TOOLS)/ -I$(UC_TOOLS)/gdb/ -I$(UC_TOOLS)/linux/" ; \
 	export D=$(patsubst %.o,%.d,$@) ; \
 	export FIRMWARE=memory ; \
 	export O=$@ ; \
@@ -135,11 +145,27 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	export VERSION_LINK_GEN=./version.sh ; \
 	$$BUILD 2>&1
 
+%.f103.fw.elf: \
+	%.f103.elf \
+	$(BIN2FW) \
+
+	echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
+	export ARCH=f103 ; \
+	export BUILD=stm32f103/build.sh ; \
+	export ELF=$< ; \
+	export FW=$@ ; \
+	export TYPE=fw ; \
+	export BIN2FW=$(BIN2FW) ; \
+	export UC_TOOLS=$(UC_TOOLS)/ ; \
+	export ELF_CAS=cas ; \
+	$$BUILD 2>/dev/null
+
+
 # Raw binary from elf
 %.bin: \
 	%.elf \
 
-	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
+	echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
 	export ARCH=f103 ; \
 	export BUILD=stm32f103/build.sh ; \
 	export ELF=$< ; \

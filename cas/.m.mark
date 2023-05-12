@@ -1,0 +1,8 @@
+#!/bin/sh
+# Create a new reference to a stored file.
+[ -z "$2" ] && echo "usage: $0 <sha1> <name>" && exit 1
+cd $(dirname $0)
+mkdir -p roots
+cd roots
+[ ! -f "../sha1/$1" ] && echo "ERROR: SHA1 $1 is missing" >&2 && exit 1
+ln -fs ../sha1/$1 $2

@@ -1,0 +1,43 @@
+#!/bin/sh
+set -e
+cd $(dirname $0)
+
+DIR=.mark
+
+# The DIR can be used as a lock.
+while [ -d $DIR ]; do
+    echo "gc already in progress... waiting for $DIR"
+    sleep 1
+done
+
+# Mark phase: create a list of referenced SHA1
+mkdir $DIR
+cd $DIR
+for root in ../roots/*; do
+    SHA1=$(basename $(readlink -f "$root"))
+    echo -n " $(basename "$root")" >>$SHA1
+done
+
+# Sweep phase: delete everything that is not referenced.
+cd ../sha1
+for sha1 in *; do
+    if [ -f ../.mark/$sha1 ]; then
+        echo "$sha1 $(cat ../.mark/$sha1)"
+    else
+        echo "$sha1"
+        rm $sha1
+    fi
+done
+
+# Check that all roots exist
+for root in ../roots/*; do
+    if [ ! -f "$(readlink -f "$root")" ]; then
+        echo "$root does not exist"
+        exit 1
+    fi
+done
+
+rm -rf ../.mark
+
+
+

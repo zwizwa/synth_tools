@@ -1,0 +1,29 @@
+#!/bin/sh
+# set -x
+set -e
+[ -z "$1" ] && echo "usage: $0 <file> [<gc_root>]" && exit 1
+FILE=$(readlink -f "$1")
+GC_ROOT="$2"
+SHA1=$(sha1sum "$FILE" | cut -b -40)
+[ -z "$SHA1" ] && exit 1
+
+cd $(dirname $0)
+mkdir -p sha1
+cd sha1
+
+
+# Maybe use a different method name for "caching" adds?
+# For now let's assume that this file is original.
+# FIXME: This is not a good idea.  Be idempotent instead.
+# [ -f "$SHA1" ] && echo "SHA1 collision $FILE $SHA1" && exit 1
+[ -f "$SHA1" ] && echo "Note: SHA1 collision $FILE $SHA1" && exit 0
+
+cp -av "$FILE" "$SHA1"
+
+if [ ! -z "$GC_ROOT" ]; then
+    mkdir -p ../roots
+    cd ../roots
+    ln -sf ../sha1/$SHA1 $(basename "$GC_ROOT")
+fi
+
+
