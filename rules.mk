@@ -6,6 +6,7 @@ BIN2FW := $(UC_TOOLS)/linux/bin2fw.dynamic.host.elf
 STM_ELF := \
 	stm32f103/synth.x8ab.f103.elf \
 	stm32f103/synth.x8ab.f103.fw.elf \
+	stm32f103/synth.x8ab.f103.fw.bin \
 	stm32f103/bp2.x8ab.f103.elf \
 	stm32f103/bp2.x8ab.f103.fw.elf \
 	stm32f103/bl_open.core.f103.elf \
@@ -14,7 +15,8 @@ STM_ELF_DIS := \
 
 HOST_ELF := \
         $(BIN2FW) \
-	tools/test_pdm.dynamic.host.elf
+	tools/test_pdm.dynamic.host.elf \
+	tools/tether_bl.dynamic.host.elf \
 
 ALL_ELF := $(STM_ELF) $(HOST_ELF)
 

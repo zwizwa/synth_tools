@@ -60,6 +60,8 @@ uint32_t firmware_crc(void) {
 
 /* STARTUP */
 
+#define LED GPIOC,13
+
 
 void start(void) {
     hw_app_init();
@@ -70,7 +72,9 @@ void start(void) {
     slipstub_init(handle_tag);
 
     /* Turn off the LED.  It introduces too much noise. */
-    hw_gpio_config(GPIOC,13,HW_GPIO_CONFIG_INPUT);
+    // hw_gpio_config(GPIOC,13,HW_GPIO_CONFIG_INPUT);
+    hw_gpio_config(LED,HW_GPIO_CONFIG_OUTPUT);
+    hw_gpio_low(LED);
 
     /* Init the synth time stack. */
     synth_init();
@@ -93,6 +97,9 @@ const char config_product[]      CONFIG_DATA_SECTION = "PDM CV Synth";
 const char config_firmware[]     CONFIG_DATA_SECTION = FIRMWARE;
 const char config_protocol[]     CONFIG_DATA_SECTION = "{driver,pdm,slip}";
 
+
+extern struct info_buf_hdr info_buf;
+struct gdbstub_control control CONTROL_SECTION;
 struct gdbstub_config config CONFIG_HEADER_SECTION = {
     .manufacturer    = config_manufacturer,
     .product         = config_product,
@@ -102,9 +109,11 @@ struct gdbstub_config config CONFIG_HEADER_SECTION = {
     .start           = start,
     .stop            = stop,
     .switch_protocol = slipstub_switch_protocol,
-
     .flash_start     = (const void*)&config,
     .flash_endx      = (void*)&_firmware_endx,
-
+    .control         = &control,
+    .fwtag           = 0, // must be 0, used to recognize ecrypted firmware
+    .info_buf        = &info_buf,
+    //.loop            = main_loop,
 };
 
