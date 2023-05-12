@@ -1,0 +1,12 @@
+*~
+*.d
+*.ld
+*.o
+*.a
+*.map
+*.elf
+*.so
+*.build
+cas
+*.bin
+*.tmp
