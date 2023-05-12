@@ -1,4 +1,6 @@
 #!/bin/sh
+# APP=synth
+APP=console
 HERE=$(readlink -f $(dirname "$0"))
 case "$1" in
     load)
@@ -6,7 +8,7 @@ case "$1" in
              /dev/ttyACM0 \
              load \
              0x08004000 \
-             $HERE/../stm32f103/synth.x8ab.f103.fw.bin
+             $HERE/../stm32f103/$APP.x8ab.f103.fw.bin
          ;;
     start)
          $HERE/tether_bl.dynamic.host.elf \

@@ -4,11 +4,10 @@ GIT_VERSION ?= "unknown"
 BIN2FW := $(UC_TOOLS)/linux/bin2fw.dynamic.host.elf
 
 STM_ELF := \
-	stm32f103/synth.x8ab.f103.elf \
 	stm32f103/synth.x8ab.f103.fw.elf \
 	stm32f103/synth.x8ab.f103.fw.bin \
-	stm32f103/bp2.x8ab.f103.elf \
 	stm32f103/bp2.x8ab.f103.fw.elf \
+	stm32f103/console.x8ab.f103.fw.bin \
 	stm32f103/bl_open.core.f103.elf \
 
 STM_ELF_DIS := \
