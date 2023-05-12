@@ -2,6 +2,7 @@ UC_TOOLS ?= ../uc_tools
 GIT_VERSION ?= "unknown"
 
 STM_ELF := \
+	stm32f103/synth.x8ab.f103.elf \
 	stm32f103/main_test.x8ab.f103.elf \
 
 HOST_ELF := \
