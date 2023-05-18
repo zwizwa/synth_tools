@@ -3,309 +3,410 @@
    https://duckduckgo.com/?q=USB_MIDI_SUBTYPE_MIDI_OUT_JACK+opencm3&t=newext&atb=v376-6&ia=web
 */
 
+
+/*
+ * This file is part of the libopencm3 project.
+ *
+ * Copyright (C) 2014 Daniel Thompson <daniel@redfelineninja.org.uk>
+ *
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include <stdlib.h>
-#include <libopencm3/stm32/rcc.h>
-#include <libopencm3/stm32/gpio.h>
 #include <libopencm3/usb/usbd.h>
 #include <libopencm3/usb/audio.h>
 #include <libopencm3/usb/midi.h>
+#include <libopencm3/cm3/scb.h>
+#include <libopencm3/stm32/desig.h>
+#include <libopencm3/stm32/rcc.h>
+#include <libopencm3/stm32/gpio.h>
 
-#include "generic.h"
-#include "hw.h"
+/*
+ * All references in this file come from Universal Serial Bus Device Class
+ * Definition for MIDI Devices, release 1.0.
+ */
 
-
-
-
-static const struct usb_device_descriptor descriptor = {
+/*
+ * Table B-1: MIDI Adapter Device Descriptor
+ */
+static const struct usb_device_descriptor dev = {
 	.bLength = USB_DT_DEVICE_SIZE,
 	.bDescriptorType = USB_DT_DEVICE,
-	.bcdUSB = 0x0200,
-	.bDeviceClass = USB_CLASS_AUDIO,
+	.bcdUSB = 0x0200,    /* was 0x0110 in Table B-1 example descriptor */
+	.bDeviceClass = 0,   /* device defined at interface level */
 	.bDeviceSubClass = 0,
 	.bDeviceProtocol = 0,
 	.bMaxPacketSize0 = 64,
-	.idVendor = 0x0483,
-	.idProduct = 0x5740,
-	.bcdDevice = 0x0200,
-	.iManufacturer = 1,
-	.iProduct = 2,
-	.iSerialNumber = 3,
+	.idVendor = 0x6666,  /* Prototype product vendor ID */
+	.idProduct = 0x5119, /* dd if=/dev/random bs=2 count=1 | hexdump */
+	.bcdDevice = 0x0100,
+	.iManufacturer = 1,  /* index to string desc */
+	.iProduct = 2,       /* index to string desc */
+	.iSerialNumber = 3,  /* index to string desc */
 	.bNumConfigurations = 1,
 };
 
 /*
- * This notification endpoint isn't implemented. According to CDC spec its
- * optional, but its absence causes a NULL pointer dereference in Linux
- * cdc_acm driver.
+ * Midi specific endpoint descriptors.
  */
-static const struct usb_endpoint_descriptor comm_endp[] = {{
-	.bLength = USB_DT_ENDPOINT_SIZE,
-	.bDescriptorType = USB_DT_ENDPOINT,
-	.bEndpointAddress = 0x83,
-	.bmAttributes = USB_ENDPOINT_ATTR_INTERRUPT,
-	.wMaxPacketSize = 16,
-	.bInterval = 255,
-}};
+static const struct usb_midi_endpoint_descriptor midi_bulk_endp[] = {{
+	/* Table B-12: MIDI Adapter Class-specific Bulk OUT Endpoint
+	 * Descriptor
+	 */
+	.head = {
+		.bLength = sizeof(struct usb_midi_endpoint_descriptor),
+		.bDescriptorType = USB_AUDIO_DT_CS_ENDPOINT,
+		.bDescriptorSubType = USB_MIDI_SUBTYPE_MS_GENERAL,
+		.bNumEmbMIDIJack = 1,
+	},
+	.jack[0] = {
+		.baAssocJackID = 0x01,
+	},
+}, {
+	/* Table B-14: MIDI Adapter Class-specific Bulk IN Endpoint
+	 * Descriptor
+	 */
+	.head = {
+		.bLength = sizeof(struct usb_midi_endpoint_descriptor),
+		.bDescriptorType = USB_AUDIO_DT_CS_ENDPOINT,
+		.bDescriptorSubType = USB_MIDI_SUBTYPE_MS_GENERAL,
+		.bNumEmbMIDIJack = 1,
+	},
+	.jack[0] = {
+		.baAssocJackID = 0x03,
+	},
+} };
 
-static const struct usb_endpoint_descriptor data_endp[] = {{
+/*
+ * Standard endpoint descriptors
+ */
+static const struct usb_endpoint_descriptor bulk_endp[] = {{
+	/* Table B-11: MIDI Adapter Standard Bulk OUT Endpoint Descriptor */
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
 	.bEndpointAddress = 0x01,
 	.bmAttributes = USB_ENDPOINT_ATTR_BULK,
-	.wMaxPacketSize = 64,
-	.bInterval = 1,
+	.wMaxPacketSize = 0x40,
+	.bInterval = 0x00,
+
+	.extra = &midi_bulk_endp[0],
+	.extralen = sizeof(midi_bulk_endp[0])
 }, {
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
-	.bEndpointAddress = 0x82,
+	.bEndpointAddress = 0x81,
 	.bmAttributes = USB_ENDPOINT_ATTR_BULK,
-	.wMaxPacketSize = 64,
-	.bInterval = 1,
-}};
+	.wMaxPacketSize = 0x40,
+	.bInterval = 0x00,
 
+	.extra = &midi_bulk_endp[1],
+	.extralen = sizeof(midi_bulk_endp[1])
+} };
+
+/*
+ * Table B-4: MIDI Adapter Class-specific AC Interface Descriptor
+ */
 static const struct {
-	struct usb_cdc_header_descriptor header;
-	struct usb_cdc_call_management_descriptor call_mgmt;
-	struct usb_cdc_acm_descriptor acm;
-	struct usb_cdc_union_descriptor cdc_union;
-} __attribute__((packed)) cdcacm_functional_descriptors = {
-	.header = {
-		.bFunctionLength = sizeof(struct usb_cdc_header_descriptor),
-		.bDescriptorType = CS_INTERFACE,
-		.bDescriptorSubtype = USB_CDC_TYPE_HEADER,
-		.bcdCDC = 0x0110,
+	struct usb_audio_header_descriptor_head header_head;
+	struct usb_audio_header_descriptor_body header_body;
+} __attribute__((packed)) audio_control_functional_descriptors = {
+	.header_head = {
+		.bLength = sizeof(struct usb_audio_header_descriptor_head) +
+		           1 * sizeof(struct usb_audio_header_descriptor_body),
+		.bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+		.bDescriptorSubtype = USB_AUDIO_TYPE_HEADER,
+		.bcdADC = 0x0100,
+		.wTotalLength =
+			   sizeof(struct usb_audio_header_descriptor_head) +
+			   1 * sizeof(struct usb_audio_header_descriptor_body),
+		.binCollection = 1,
 	},
-	.call_mgmt = {
-		.bFunctionLength = 
-			sizeof(struct usb_cdc_call_management_descriptor),
-		.bDescriptorType = CS_INTERFACE,
-		.bDescriptorSubtype = USB_CDC_TYPE_CALL_MANAGEMENT,
-		.bmCapabilities = 0,
-		.bDataInterface = 1,
+	.header_body = {
+		.baInterfaceNr = 0x01,
 	},
-	.acm = {
-		.bFunctionLength = sizeof(struct usb_cdc_acm_descriptor),
-		.bDescriptorType = CS_INTERFACE,
-		.bDescriptorSubtype = USB_CDC_TYPE_ACM,
-		.bmCapabilities = 0,
-	},
-	.cdc_union = {
-		.bFunctionLength = sizeof(struct usb_cdc_union_descriptor),
-		.bDescriptorType = CS_INTERFACE,
-		.bDescriptorSubtype = USB_CDC_TYPE_UNION,
-		.bControlInterface = 0,
-		.bSubordinateInterface0 = 1, 
-	 }
 };
 
-static const struct usb_interface_descriptor comm_iface[] = {{
+/*
+ * Table B-3: MIDI Adapter Standard AC Interface Descriptor
+ */
+static const struct usb_interface_descriptor audio_control_iface[] = {{
 	.bLength = USB_DT_INTERFACE_SIZE,
 	.bDescriptorType = USB_DT_INTERFACE,
 	.bInterfaceNumber = 0,
 	.bAlternateSetting = 0,
-	.bNumEndpoints = 1,
-	.bInterfaceClass = USB_CLASS_CDC,
-	.bInterfaceSubClass = USB_CDC_SUBCLASS_ACM,
-	.bInterfaceProtocol = USB_CDC_PROTOCOL_AT,
+	.bNumEndpoints = 0,
+	.bInterfaceClass = USB_CLASS_AUDIO,
+	.bInterfaceSubClass = USB_AUDIO_SUBCLASS_CONTROL,
+	.bInterfaceProtocol = 0,
 	.iInterface = 0,
 
-	.endpoint = comm_endp,
+	.extra = &audio_control_functional_descriptors,
+	.extralen = sizeof(audio_control_functional_descriptors)
+} };
 
-	.extra = &cdcacm_functional_descriptors,
-	.extralen = sizeof(cdcacm_functional_descriptors)
-}};
+/*
+ * Class-specific MIDI streaming interface descriptor
+ */
+static const struct {
+	struct usb_midi_header_descriptor header;
+	struct usb_midi_in_jack_descriptor in_embedded;
+	struct usb_midi_in_jack_descriptor in_external;
+	struct usb_midi_out_jack_descriptor out_embedded;
+	struct usb_midi_out_jack_descriptor out_external;
+} __attribute__((packed)) midi_streaming_functional_descriptors = {
+	/* Table B-6: Midi Adapter Class-specific MS Interface Descriptor */
+	.header = {
+		.bLength = sizeof(struct usb_midi_header_descriptor),
+		.bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+		.bDescriptorSubtype = USB_MIDI_SUBTYPE_MS_HEADER,
+		.bcdMSC = 0x0100,
+		.wTotalLength = sizeof(midi_streaming_functional_descriptors),
+	},
+	/* Table B-7: MIDI Adapter MIDI IN Jack Descriptor (Embedded) */
+	.in_embedded = {
+		.bLength = sizeof(struct usb_midi_in_jack_descriptor),
+		.bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+		.bDescriptorSubtype = USB_MIDI_SUBTYPE_MIDI_IN_JACK,
+		.bJackType = USB_MIDI_JACK_TYPE_EMBEDDED,
+		.bJackID = 0x01,
+		.iJack = 0x00,
+	},
+	/* Table B-8: MIDI Adapter MIDI IN Jack Descriptor (External) */
+	.in_external = {
+		.bLength = sizeof(struct usb_midi_in_jack_descriptor),
+		.bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+		.bDescriptorSubtype = USB_MIDI_SUBTYPE_MIDI_IN_JACK,
+		.bJackType = USB_MIDI_JACK_TYPE_EXTERNAL,
+		.bJackID = 0x02,
+		.iJack = 0x00,
+	},
+	/* Table B-9: MIDI Adapter MIDI OUT Jack Descriptor (Embedded) */
+	.out_embedded = {
+		.head = {
+			.bLength = sizeof(struct usb_midi_out_jack_descriptor),
+			.bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+			.bDescriptorSubtype = USB_MIDI_SUBTYPE_MIDI_OUT_JACK,
+			.bJackType = USB_MIDI_JACK_TYPE_EMBEDDED,
+			.bJackID = 0x03,
+			.bNrInputPins = 1,
+		},
+		.source[0] = {
+			.baSourceID = 0x02,
+			.baSourcePin = 0x01,
+		},
+		.tail = {
+			.iJack = 0x00,
+		}
+	},
+	/* Table B-10: MIDI Adapter MIDI OUT Jack Descriptor (External) */
+	.out_external = {
+		.head = {
+			.bLength = sizeof(struct usb_midi_out_jack_descriptor),
+			.bDescriptorType = USB_AUDIO_DT_CS_INTERFACE,
+			.bDescriptorSubtype = USB_MIDI_SUBTYPE_MIDI_OUT_JACK,
+			.bJackType = USB_MIDI_JACK_TYPE_EXTERNAL,
+			.bJackID = 0x04,
+			.bNrInputPins = 1,
+		},
+		.source[0] = {
+			.baSourceID = 0x01,
+			.baSourcePin = 0x01,
+		},
+		.tail = {
+			.iJack = 0x00,
+		},
+	},
+};
 
-static const struct usb_interface_descriptor data_iface[] = {{
+/*
+ * Table B-5: MIDI Adapter Standard MS Interface Descriptor
+ */
+static const struct usb_interface_descriptor midi_streaming_iface[] = {{
 	.bLength = USB_DT_INTERFACE_SIZE,
 	.bDescriptorType = USB_DT_INTERFACE,
 	.bInterfaceNumber = 1,
 	.bAlternateSetting = 0,
 	.bNumEndpoints = 2,
-	.bInterfaceClass = USB_CLASS_DATA,
-	.bInterfaceSubClass = 0,
+	.bInterfaceClass = USB_CLASS_AUDIO,
+	.bInterfaceSubClass = USB_AUDIO_SUBCLASS_MIDISTREAMING,
 	.bInterfaceProtocol = 0,
 	.iInterface = 0,
 
-	.endpoint = data_endp,
-}};
+	.endpoint = bulk_endp,
+
+	.extra = &midi_streaming_functional_descriptors,
+	.extralen = sizeof(midi_streaming_functional_descriptors)
+} };
 
 static const struct usb_interface ifaces[] = {{
 	.num_altsetting = 1,
-	.altsetting = comm_iface,
+	.altsetting = audio_control_iface,
 }, {
 	.num_altsetting = 1,
-	.altsetting = data_iface,
-}};
+	.altsetting = midi_streaming_iface,
+} };
 
+/*
+ * Table B-2: MIDI Adapter Configuration Descriptor
+ */
 static const struct usb_config_descriptor config = {
 	.bLength = USB_DT_CONFIGURATION_SIZE,
 	.bDescriptorType = USB_DT_CONFIGURATION,
-	.wTotalLength = 0,
-	.bNumInterfaces = 2,
+	.wTotalLength = 0, /* can be anything, it is updated automatically
+			      when the usb code prepares the descriptor */
+	.bNumInterfaces = 2, /* control and data */
 	.bConfigurationValue = 1,
 	.iConfiguration = 0,
-	.bmAttributes = 0x80,
+	.bmAttributes = 0x80, /* bus powered */
 	.bMaxPower = 0x32,
 
 	.interface = ifaces,
 };
 
+static char usb_serial_number[25]; /* 12 bytes of desig and a \0 */
+
+static const char * usb_strings[] = {
+	"libopencm3.org",
+	"MIDI demo",
+	usb_serial_number
+};
+
 /* Buffer to be used for control requests. */
 uint8_t usbd_control_buffer[128];
 
-static enum usbd_request_return_codes cdcacm_control_request(
-    usbd_device *usbd_dev,
-    struct usb_setup_data *req, uint8_t **buf, uint16_t *len,
-    usbd_control_complete_callback *complete)
+/* SysEx identity message, preformatted with correct USB framing information */
+const uint8_t sysex_identity[] = {
+	0x04,	/* USB Framing (3 byte SysEx) */
+	0xf0,	/* SysEx start */
+	0x7e,	/* non-realtime */
+	0x00,	/* Channel 0 */
+	0x04,	/* USB Framing (3 byte SysEx) */
+	0x7d,	/* Educational/prototype manufacturer ID */
+	0x66,	/* Family code (byte 1) */
+	0x66,	/* Family code (byte 2) */
+	0x04,	/* USB Framing (3 byte SysEx) */
+	0x51,	/* Model number (byte 1) */
+	0x19,	/* Model number (byte 2) */
+	0x00,	/* Version number (byte 1) */
+	0x04,	/* USB Framing (3 byte SysEx) */
+	0x00,	/* Version number (byte 2) */
+	0x01,	/* Version number (byte 3) */
+	0x00,	/* Version number (byte 4) */
+	0x05,	/* USB Framing (1 byte SysEx) */
+	0xf7,	/* SysEx end */
+	0x00,	/* Padding */
+	0x00,	/* Padding */
+};
+
+static void usbmidi_data_rx_cb(usbd_device *usbd_dev, uint8_t ep)
 {
-	(void)complete;
-	(void)buf;
-	(void)usbd_dev;
+	(void)ep;
 
-	switch(req->bRequest) {
-	case USB_CDC_REQ_SET_CONTROL_LINE_STATE: {
-		/*
-		 * This Linux cdc_acm driver requires this to be implemented
-		 * even though it's optional in the CDC spec, and we don't
-		 * advertise it in the ACM functional descriptor.
-		 */
-		char local_buf[10];
-		struct usb_cdc_notification *notif = (void *)local_buf;
+	char buf[64];
+	int len = usbd_ep_read_packet(usbd_dev, 0x01, buf, 64);
 
-		/* We echo signals back to host as notification. */
-		notif->bmRequestType = 0xA1;
-		notif->bNotification = USB_CDC_NOTIFY_SERIAL_STATE;
-		notif->wValue = 0;
-		notif->wIndex = 0;
-		notif->wLength = 2;
-		local_buf[8] = req->wValue & 3;
-		local_buf[9] = 0;
-		// usbd_ep_write_packet(0x83, buf, 10);
-		return 1;
-		}
-	case USB_CDC_REQ_SET_LINE_CODING: 
-		if(*len < sizeof(struct usb_cdc_line_coding))
-			return 0;
-
-		return 1;
+	/* This implementation treats any message from the host as a SysEx
+	 * identity request. This works well enough providing the host
+	 * packs the identify request in a single 8 byte USB message.
+	 */
+	if (len) {
+		while (usbd_ep_write_packet(usbd_dev, 0x81, sysex_identity,
+					    sizeof(sysex_identity)) == 0);
 	}
-	return 0;
+
+	gpio_toggle(GPIOC, GPIO5);
 }
 
+static void usbmidi_set_config(usbd_device *usbd_dev, uint16_t wValue)
+{
+	(void)wValue;
 
-void midi_set_config_with_callbacks(usbd_device *usbd_dev, void *rx_cb, void *tx_cb) {
-	usbd_ep_setup(usbd_dev, 0x01, USB_ENDPOINT_ATTR_BULK, 64, rx_cb);
-	usbd_ep_setup(usbd_dev, 0x82, USB_ENDPOINT_ATTR_BULK, 64, tx_cb);
-	usbd_ep_setup(usbd_dev, 0x83, USB_ENDPOINT_ATTR_INTERRUPT, 16, NULL);
-
-	usbd_register_control_callback(
-				usbd_dev,
-				USB_REQ_TYPE_CLASS | USB_REQ_TYPE_INTERFACE,
-				USB_REQ_TYPE_TYPE | USB_REQ_TYPE_RECIPIENT,
-				cdcacm_control_request);
-
-
+	usbd_ep_setup(usbd_dev, 0x01, USB_ENDPOINT_ATTR_BULK, 64,
+			usbmidi_data_rx_cb);
+	usbd_ep_setup(usbd_dev, 0x81, USB_ENDPOINT_ATTR_BULK, 64, NULL);
 }
-/* Serial data I/O */
-uint8_t rx_buf[64];
-uint8_t tx_buf[64];
-uint32_t tx_buf_sema;
 
-usbd_device *usb_midi;
-static const char * usb_strings[3];
-char serial_hex[25];
+#if 0
+static void button_send_event(usbd_device *usbd_dev, int pressed)
+{
+	char buf[4] = { 0x08, /* USB framing: virtual cable 0, note on */
+			0x80, /* MIDI command: note on, channel 1 */
+			60,   /* Note 60 (middle C) */
+			64,   /* "Normal" velocity */
+	};
 
+	buf[0] |= pressed;
+	buf[1] |= pressed << 4;
 
+	while (usbd_ep_write_packet(usbd_dev, 0x81, buf, sizeof(buf)) == 0);
+}
 
-/* Send len bytes from tx_buf */
-static void data_tx(uint32_t len) {
-    tx_buf_sema++;
-    usbd_ep_write_packet(usb_midi, 0x82, tx_buf, len);
-}
-/* Poll output state machine. */
-static void poll_data_tx(void) {
-    if (tx_buf_sema > 0) return; // busy
-    uint32_t len = io->read(tx_buf, sizeof(tx_buf));
-    if (len) data_tx(len);
-}
-/* USB transmission complete. */
-static void data_tx_cb(usbd_device *usbd_dev, uint8_t ep) {
-    if (usbd_dev != usb_midi) return;
-    tx_buf_sema--;
-    /* Immediately check if there's more. */
-    poll_data_tx();
-}
-/* Receive bytes into rx_buf, return number. */
-static uint32_t data_rx(void) {
-    return usbd_ep_read_packet(usb_midi, 0x01, rx_buf, sizeof(rx_buf));
-}
-/* USB has data available.  Push it to state machine + poll TX. */
-static void data_rx_cb(usbd_device *usbd_dev, uint8_t ep) {
-    if (usbd_dev != usb_midi) return;
-    uint32_t len = data_rx();
-    io->write(rx_buf, len);
-    /* Immediately check if there's anything available. */
-    poll_data_tx();
-}
-/* Stored in Flash, fixed location.  See stm32f1.ld */
-// extern const struct gdbstub_service service;
+static void button_poll(usbd_device *usbd_dev)
+{
+	static uint32_t button_state = 0;
 
-// Instantiate the service struct.  This pulls in all dependencies.
-uint32_t bl_read(uint8_t *buf, uint32_t room) {
-    return 0;
+	/* This is a simple shift based debounce. It's simplistic because
+	 * although this implements debounce adequately it does not have any
+	 * noise suppression. It is also very wide (32-bits) because it can
+	 * be polled in a very tight loop (no debounce timer).
+	 */
+	uint32_t old_button_state = button_state;
+	button_state = (button_state << 1) | (GPIOA_IDR & 1);
+	if ((0 == button_state) != (0 == old_button_state)) {
+		button_send_event(usbd_dev, !!button_state);
+	}
 }
-void bl_write(const uint8_t *buf, uint32_t room) {
-}
-extern unsigned _ebss, _stack;
+#endif
 
-const struct gdbstub_service service SERVICE_SECTION = {
-    .rsp_io = { .read = bl_read, .write = bl_write },
-    .io = &io,
-    .stack_lo = &_ebss,
-    .stack_hi = &_stack,
+struct usb_midi_state {
+    const char * usb_strings[3];
+    usbd_device *usbd_dev;
+    char serial_hex[25];
 };
 
 
-const struct gdbstub_io *io = &service.rsp_io;
-void bootloader_io_reset(void) {
-    //FIXME: linker dep issues
-    //io = &service.rsp_io;
-}
+void usb_midi_init(struct usb_midi_state *s) {
 
-static void midi_set_config(usbd_device *usbd_dev, uint16_t wValue) {
-    (void)wValue;
-    midi_set_config_with_callbacks(usbd_dev, data_rx_cb, data_tx_cb);
-    usbd_register_reset_callback(usbd_dev, bootloader_io_reset);
-}
-usbd_device *usb_midi_init(void *set_config,
-                           const char * const *usb_strings) {
-	usbd_device *usbd_dev = 
-		usbd_init(HW_USB_DRIVER, &descriptor, &config,
-                          (const char **)usb_strings,
-			  3, usbd_control_buffer, sizeof(usbd_control_buffer));
-	usbd_register_set_config_callback(usbd_dev, set_config);
-	return usbd_dev;
-}
+    rcc_periph_clock_enable(RCC_GPIOA);
+    rcc_periph_clock_enable(RCC_AFIO);
 
-void usb_init(void) {
     for (uint32_t i=0; i<12; i++) {
         // FIXME: share this code with smpacket.h
         static const uint8_t digit[] = "0123456789abcdef";
         uint8_t b = ((uint8_t*)0x1FFFF7E8)[i];
         uint8_t hi = digit[(b >> 4) & 0x0f];
         uint8_t lo = digit[(b >> 0) & 0x0f];
-        serial_hex[2*i] = hi;
-        serial_hex[2*i+1] = lo;
+        s->serial_hex[2*i] = hi;
+        s->serial_hex[2*i+1] = lo;
     }
-    rcc_periph_clock_enable(RCC_GPIOA);
-#ifdef RCC_AFIO
-    rcc_periph_clock_enable(RCC_AFIO);
-#endif
-    usb_strings[0] = flash_string(_config.manufacturer, "Zwizwa");
-    usb_strings[1] = flash_string(_config.product,      "Bootloader");
-    usb_strings[2] = flash_string(_config.serial,       serial_hex);
 
-    usb_midi = usb_midi_init(midi_set_config, usb_strings);
+    s->usb_strings[0] = flash_string(_config.manufacturer, "Zwizwa");
+    s->usb_strings[1] = flash_string(_config.product,      "MIDI");
+    s->usb_strings[2] = flash_string(_config.serial,       s->serial_hex);
+
+    s->usbd_dev = usbd_init(
+        HW_USB_DRIVER,
+        &dev, &config,
+        usb_strings, 3,
+        usbd_control_buffer, sizeof(usbd_control_buffer));
+
+    usbd_register_set_config_callback(s->usbd_dev, usbmidi_set_config);
+
+
 }
-void usb_poll(void) {
+void usb_midi_poll(struct usb_midi_state *s) {
+    usbd_poll(s->usbd_dev);
 }
+
+

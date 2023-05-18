@@ -47,6 +47,14 @@ void ensure_started(struct gdbstub_ctrl *stub_ctrl);
 #define GPIOB5_HIGH 1
 #endif
 
+struct bl_state {
+    struct usb_midi_state usb_midi_state;
+};
+struct bl_state bl_state;
+
+void usb_poll(void) {
+    usb_midi_poll(&bl_state.usb_midi_state);
+}
 
 int main(void) {
     rcc_clock_setup_in_hse_8mhz_out_72mhz();
@@ -64,7 +72,7 @@ int main(void) {
     hw_gpio_config(GPIOB,5,HW_GPIO_CONFIG_OUTPUT);
 #endif
 
-    usb_init();
+    usb_midi_init(&bl_state.usb_midi_state);
     monitor_init();
 
     /* When BOOT0==0 (boot from flash), BOOT1 is ignored by the STM
