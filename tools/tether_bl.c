@@ -1,3 +1,8 @@
+/* The synth_tools default is to use the 3if as the main "user
+   interface", meaning the applications will never switch protocol,
+   and all application-level message passing is handled by a 3if
+   intermediate. */
+
 #include "mod_tether_3if.c"
 #include "uct_byteswap.h"
 
@@ -42,6 +47,24 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    /* See mod_monitor_3if.c for more information about async
+       operation.  What we need to know here is: 1) alwys run "flush"
+       before interacting witht he bootloader.  This will disable
+       async poll and will remove all async messages from the
+       queue. */
+
+    /* Wait for event. */
+    if (!strcmp(cmd,"wait")) {
+        tether_read(&s);
+        handle_async(&s);
+        return 0;
+    }
+
+    /* Flush async messages. */
+    if (!strcmp(cmd,"flush")) {
+        tether_flush(&s, handle_async);
+        return 0;
+    }
 
     LOG("unknown cmd '%s'\n", cmd);
     return 1;

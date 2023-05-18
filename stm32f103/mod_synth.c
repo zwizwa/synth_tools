@@ -57,14 +57,14 @@ SYNTH_FOR_PARAMETERS(DEF_PARAMETER_INFO)
 
 
 
-void synth_init(void) {
+void synth_init(struct cbuf *out) {
 
     /* PDM CV outputs */
     pdm_init();
     pdm_start();
 
     /* Main oscillator frequency feedback + subosc. */
-    osc_init(_service.add, slipstub.slip_out);
+    osc_init(_service.add, out);
 
     /* Control rate task. */
     controlrate_init(_service.add);

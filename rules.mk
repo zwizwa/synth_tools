@@ -9,6 +9,8 @@ STM_ELF := \
 	stm32f103/bp2.x8ab.f103.fw.elf \
 	stm32f103/console.x8ab.f103.fw.bin \
 	stm32f103/bl_open.core.f103.elf \
+	stm32f103/bl_midi.core.f103.elf \
+	$(UC_TOOLS)/gdb/test_3if.x8ram.f103.bin \
 
 STM_ELF_DIS := \
 
@@ -146,6 +148,27 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	export VERSION_LINK_GEN=./version.sh ; \
 	$$BUILD 2>&1
+
+# RAM image, e.g. loaded using bl_tether.c
+%.x8ram.f103.elf: \
+	%.f103.o \
+	stm32f103/lib.f103.a \
+	stm32f103/x8ram.f103.ld \
+	$(UC_TOOLS)/gdb/registers_stm32f103.f103.o \
+
+	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
+	export A=stm32f103/lib.f103.a ; \
+	export ARCH=f103 ; \
+	export BUILD=stm32f103/build.sh ; \
+	export ELF=$@ ; \
+	export LD=stm32f103/x8ram.f103.ld ; \
+	export MAP=$(patsubst %.elf,%.map,$@) ; \
+	export O=$< ; \
+	export TYPE=elf ; \
+	export UC_TOOLS=$(UC_TOOLS)/ ; \
+	export VERSION_LINK_GEN=./version.sh ; \
+	$$BUILD 2>&1
+
 
 %.f103.fw.elf: \
 	%.f103.elf \

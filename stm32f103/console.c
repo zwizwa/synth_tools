@@ -1,3 +1,10 @@
+/* Just exploration. Periodically I want to put the text console on
+   the device, and then I start going through the same thought pattern
+   that eventually ends up with the 3 instruction Forth that's already
+   in the loader.  Bottom line: if USB is protocol, use protocol
+   (e.g. midi), if it's only for debugging, stick to the loader
+   language. */
+
 #include "gdbstub_api.h"
 #include "hw_stm32f103.h"
 #include "cbuf.h"
@@ -7,7 +14,7 @@
 struct app {
     void *next;
     struct cbuf console_out; uint8_t console_out_buf[128];
-    struct pbuf console_in;  uint8_t console_in_buf[128];
+    struct pbuf console_in;  uint8_t console_in_buf[64];
     struct {
         uint32_t echo:1;
     } config;
@@ -23,41 +30,53 @@ struct app {
 #define APP_GET(s)                              \
     APP_GET_(s,GENSYM(label_))
 
-void app_out(struct app *app, uint8_t out) {
-    cbuf_write(&app->console_out, &out, 1);
+void app_puts(struct app *app, const char *str) {
+    for(;;) {
+        char c = *str++;
+        if (c) { cbuf_put(&app->console_out, c); }
+        else return;
+    }
 }
+
+// FIXME: This should translate to tag_u32
+
 void app_word(struct app *app) {
     if (app->next) { goto *app->next; }
     for (;;) {
         APP_GET(app);
-        struct pbuf *p = &app->console_in;
-        for(uint32_t i=0; i<p->count; i++) {
-            app_out(app, p->buf[i]);
-        }
-        app_out(app, '\n');
-        app_out(app, '\r');
+        struct pbuf *i = &app->console_in;
+        (void)i;
+        app_puts(app, "gotit\n\r");
     }
 }
 
 static void app_write(struct app *app, const uint8_t *buf, uint32_t len) {
-    for (uint32_t i=0; i<len; i++) {
-        uint8_t in = buf[i];
+    struct pbuf *i = &app->console_in;
+    struct cbuf *o = &app->console_out;
+    for (uint32_t n=0; n<len; n++) {
+        uint8_t in = buf[n];
         if (in == 127) {
-            if (app->console_in.count > 0) {
+            if (i->count > 0) {
                 const uint8_t backspace[] = {8,' ',8};
-                cbuf_write(&app->console_out, backspace, sizeof(backspace));
-                app->console_in.count--;
+                cbuf_write(o, backspace, sizeof(backspace));
+                i->count--;
             }
         }
         else {
-            app_out(app, in);
             if (in == '\r') {
-                app_out(app, '\n');
+                app_puts(app, "\r\n");
                 app_word(app);
-                pbuf_clear(&app->console_in);
+                pbuf_clear(i);
             }
-            else {
-                pbuf_write(&app->console_in, &in, 1);
+            else if ((in < 32) || (in > 127)) {
+                // FIXME: This doesn't handle escape characters, so
+                // ascii part of escape characters will just be
+                // printed so that user can backspace again.
+            }
+            else if (i->count < i->size) {
+                char str[] = {in,0};
+                app_puts(app, str);
+                pbuf_write(i, &in, 1);
             }
         }
     }
@@ -106,7 +125,6 @@ void start() {
 void main_loop(gdbstub_fn_poll bl_poll_fn) {
     for(;;) {
         bl_poll_fn();
-        bl_poll_fn();
     }
 }
 void stop(void) {
@@ -137,6 +155,6 @@ struct gdbstub_config config CONFIG_HEADER_SECTION = {
     .control         = &control,
     .fwtag           = 0, // must be 0, used to recognize ecrypted firmware
     .info_buf        = &info_buf,
-    //.loop            = main_loop,
+    .loop            = main_loop,
 };
 

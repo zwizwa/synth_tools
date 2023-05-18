@@ -1,3 +1,6 @@
+/* Previous version used slipstub.
+   All USB protocol support has been removed.  Use the 3if */
+
 
 #include <stdint.h>
 #include "fixedpoint.h"
@@ -6,14 +9,9 @@
 #include "gdbstub_api.h"
 #include <string.h>
 
-
-
-/* Protocol-wise we don't really need anything special, so use
-   slipstub_buffered to do the basics (SLIP framing, PING, GDB, INFO)
-   and use tag_u32 for app-specific commands. */
-#include "slipstub.h"
-struct slipstub slipstub;
-struct slipstub_buffers slipstub_buffers;
+#include "pbuf.h"
+#include "cbuf.h"
+#include "run_3if.h"
 
 
 /* CONFIGURATION */
@@ -22,11 +20,11 @@ struct slipstub_buffers slipstub_buffers;
 
 
 /* COMMUNICATION */
+struct app {
+    struct cbuf out; uint8_t out_buf[128];
+};
 
-
-
-
-void handle_tag(struct slipstub *s, uint16_t tag, const struct pbuf *p) {
+void handle_tag(struct app *app, uint16_t tag, const struct pbuf *p) {
     //infof("tag %d\n", tag);
     switch(tag) {
     case TAG_U32: {
@@ -43,45 +41,35 @@ void handle_tag(struct slipstub *s, uint16_t tag, const struct pbuf *p) {
     }
 }
 
-#include "crc.h"
-extern uint8_t _firmware_start;
-extern uint8_t _firmware_endx;
-uint32_t firmware_crc(void) {
-    uint32_t size = &_firmware_endx - &_firmware_start;
-    uint32_t crc = crc32b(&_firmware_start, size);
-    infof("_firmware_start: 0x%08x\n", &_firmware_start);
-    infof("_firmware_endx:  0x%08x\n", &_firmware_endx);
-    infof("size:            0x%08x\n", size);
-    infof("crc:             0x%08x\n", crc);
-    return crc;
-}
 
 
-
-/* STARTUP */
+/* STARTUP, HOST */
 
 #define LED GPIOC,13
 
+
+struct app app_;
 
 void start(void) {
     hw_app_init();
     /* FIXME: This assumes it's GPIOA */
     rcc_periph_clock_enable(RCC_GPIOA | RCC_GPIOB | RCC_AFIO);
 
-    /* Use framwork for handling incoming USB SLIP commands. */
-    slipstub_init(handle_tag);
+    /* App struct init */
+    CBUF_INIT(app_.out);
 
-    /* Turn off the LED.  It introduces too much noise. */
-    // hw_gpio_config(GPIOC,13,HW_GPIO_CONFIG_INPUT);
+    /* Turn on the LED to indicate we have started. */
     hw_gpio_config(LED,HW_GPIO_CONFIG_OUTPUT);
     hw_gpio_low(LED);
 
     /* Init the synth time stack. */
-    synth_init();
+    synth_init(&app_.out);
 
-    //infof("C_CONTROL.div = %d\n", C_CONTROL.div);
-    firmware_crc();
-
+}
+void main_loop(gdbstub_fn_poll bl_poll_fn) {
+    for(;;) {
+        bl_poll_fn();
+    }
 }
 void stop(void) {
     hw_app_stop();
@@ -98,6 +86,7 @@ const char config_firmware[]     CONFIG_DATA_SECTION = FIRMWARE;
 const char config_protocol[]     CONFIG_DATA_SECTION = "{driver,pdm,slip}";
 
 
+extern uint8_t _firmware_endx;
 extern struct info_buf_hdr info_buf;
 struct gdbstub_control control CONTROL_SECTION;
 struct gdbstub_config config CONFIG_HEADER_SECTION = {
@@ -108,12 +97,12 @@ struct gdbstub_config config CONFIG_HEADER_SECTION = {
     .protocol        = config_protocol,
     .start           = start,
     .stop            = stop,
-    .switch_protocol = slipstub_switch_protocol,
+    .switch_protocol = NULL,
     .flash_start     = (const void*)&config,
     .flash_endx      = (void*)&_firmware_endx,
     .control         = &control,
     .fwtag           = 0, // must be 0, used to recognize ecrypted firmware
     .info_buf        = &info_buf,
-    //.loop            = main_loop,
+    .loop            = main_loop,
 };
 
