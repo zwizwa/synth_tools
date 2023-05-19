@@ -130,6 +130,7 @@ void bl_3if_push(struct bl_state *s, uint8_t byte) {
 }
 void bl_app_push(struct bl_state *s, uint8_t byte) {
 }
+
 #define BL_MIDI_SYSEX_NEXT_LABEL(s,label) {              \
         (s)->next = &&label; return; label:{}            \
     }
