@@ -18,6 +18,7 @@ HOST_ELF := \
         $(BIN2FW) \
 	tools/test_pdm.dynamic.host.elf \
 	tools/tether_bl.dynamic.host.elf \
+	tools/tether_bl_midi.dynamic.host.elf \
 
 ALL_ELF := $(STM_ELF) $(HOST_ELF)
 

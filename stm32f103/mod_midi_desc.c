@@ -1,6 +1,8 @@
 /* USB Midi port
-   Cobbled together from old CDC ACM code and:
+   Cobbled together from old CDC ACM code and
    https://github.com/libopencm3/libopencm3-examples/blob/master/examples/stm32/f4/stm32f4-discovery/usb_midi/usbmidi.c
+   https://www.usb.org/sites/default/files/USB%20MIDI%20v2_0.pdf
+   https://datahacker.blog/index.php?option=com_dropfiles&format=&task=frontfile.download&catid=86&id=96&Itemid=1000000000000
 
 tom@luna:/proc/asound$ cat cards
 ...
@@ -17,6 +19,9 @@ Input 0
   Rx bytes     : 0
 
 
+  Some remarks:
+  - message type determins message size
+  - "whenever possible" messages should stay within 1 bulk transaction
 
 */
 
@@ -349,14 +354,8 @@ struct usb_midi_state {
     uint8_t usbd_control_buffer[128];
     const char * usb_strings[3];
     usbd_device *usbd_dev;
-    uint32_t (*poll_tx)(struct usb_midi_state *s, uint8_t *buf, uint32_t room);
     char serial_hex[25];
-    uint8_t tx_buf_sema:1;
-
-    // FIXME: These can just go on the stack.
-    uint8_t rx_buf[64];
-    uint8_t tx_buf[64];
-
+    uint8_t tx_buf_sema;
 };
 struct usb_midi_state usb_midi_state;
 
@@ -374,20 +373,16 @@ uint32_t usb_midi_read(uint8_t *buf, uint32_t room);
 void     usb_midi_write(const uint8_t *buf, uint32_t room);
 
 
-/* The functions here have been cloned from cdcacm_desc.c */
-
-/* Send len bytes from tx_buf */
-static void usbmidi_data_tx(uint32_t len) {
-    struct usb_midi_state *s = &usb_midi_state;
-    s->tx_buf_sema++;
-    usbd_ep_write_packet(s->usbd_dev, 0x81, s->tx_buf, len);
-}
 /* Poll output state machine. */
-static void usbmidi_poll_data_tx(void) {
-    struct usb_midi_state *s = &usb_midi_state;
+static void usbmidi_poll_data_tx(struct usb_midi_state *s) {
     if (s->tx_buf_sema > 0) return; // busy
-    uint32_t len = usb_midi_read(s->tx_buf, sizeof(s->tx_buf));
-    if (len) usbmidi_data_tx(len);
+    uint8_t tx_buf[64];
+    uint32_t len = usb_midi_read(tx_buf, sizeof(tx_buf));
+    if (len) {
+        /* Send len bytes from tx_buf */
+        s->tx_buf_sema++;
+        usbd_ep_write_packet(s->usbd_dev, 0x81, tx_buf, len);
+    }
 }
 /* USB transmission complete. */
 static void usbmidi_tx_cb(usbd_device *usbd_dev, uint8_t ep) {
@@ -395,23 +390,24 @@ static void usbmidi_tx_cb(usbd_device *usbd_dev, uint8_t ep) {
     if (usbd_dev != s->usbd_dev) return;
     s->tx_buf_sema--;
     /* Immediately check if there's more. */
-    usbmidi_poll_data_tx();
-}
-/* Receive bytes into rx_buf, return number. */
-static uint32_t usbmidi_data_rx(void) {
-    struct usb_midi_state *s = &usb_midi_state;
-    return usbd_ep_read_packet(s->usbd_dev, 0x01, s->rx_buf, sizeof(s->rx_buf));
+    usbmidi_poll_data_tx(s);
 }
 /* USB has data available.  Push it to state machine + poll TX. */
 static void usbmidi_rx_cb(usbd_device *usbd_dev, uint8_t ep) {
     struct usb_midi_state *s = &usb_midi_state;
     if (usbd_dev != s->usbd_dev) return;
-    uint32_t len = usbmidi_data_rx();
-    io->write(s->rx_buf, len);
+    uint8_t rx_buf[64];
+    uint32_t len = usbd_ep_read_packet(s->usbd_dev, 0x01, rx_buf, sizeof(rx_buf));
+    usb_midi_write(rx_buf, len);
     /* Immediately check if there's anything available. */
-    usbmidi_poll_data_tx();
+    usbmidi_poll_data_tx(s);
 }
-
+/* Called by application. */
+void usb_midi_poll(void) {
+    struct usb_midi_state *s = &usb_midi_state;
+    usbd_poll(s->usbd_dev);
+    usbmidi_poll_data_tx(s);
+}
 
 
 static void usbmidi_set_config(usbd_device *usbd_dev, uint16_t wValue) {
@@ -465,10 +461,6 @@ void usb_midi_init(void) {
 
 
 }
-void usb_midi_poll(void) {
-    struct usb_midi_state *s = &usb_midi_state;
-    usbd_poll(s->usbd_dev);
-    usbmidi_poll_data_tx();
-}
+
 
 
