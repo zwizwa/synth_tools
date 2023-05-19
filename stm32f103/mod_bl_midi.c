@@ -48,12 +48,19 @@ void ensure_started(struct gdbstub_ctrl *stub_ctrl);
 #endif
 
 struct bl_state {
-    struct usb_midi_state usb_midi_state;
 };
 struct bl_state bl_state;
 
+uint32_t usb_midi_read(uint8_t *buf, uint32_t room) {
+    return 0;
+}
+void usb_midi_write(const uint8_t *buf, uint32_t room) {
+}
+
+struct gdbstub_service service;
+
 void usb_poll(void) {
-    usb_midi_poll(&bl_state.usb_midi_state);
+    usb_midi_poll();
 }
 
 int main(void) {
@@ -72,7 +79,7 @@ int main(void) {
     hw_gpio_config(GPIOB,5,HW_GPIO_CONFIG_OUTPUT);
 #endif
 
-    usb_midi_init(&bl_state.usb_midi_state);
+    usb_midi_init();
     monitor_init();
 
     /* When BOOT0==0 (boot from flash), BOOT1 is ignored by the STM

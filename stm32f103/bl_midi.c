@@ -10,7 +10,7 @@
 #define MONITOR_ENABLED 1
 #define TRAMPOLINE_IN_BOOTLOADER
 #define MANUFACTURER "Zwizwa"
-#define PRODUCT "Generic STM32F103 loader"
+#define PRODUCT "MIDI Synth"
 #include "mod_trampoline.c"
 #define CONFIG_DEFAULT 1
 const char config_version[] = "bl_midi.c";
