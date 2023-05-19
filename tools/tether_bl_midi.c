@@ -27,7 +27,7 @@ void test(int fd) {
 #endif
 
 
-#if 1
+#if 0
     SEND(fd,
          0xf0,
          1,
@@ -36,6 +36,16 @@ void test(int fd) {
     // Yields two packets:
     //   04 F0 01 02
     //   05 F7 00 00
+
+#endif
+
+#if 1
+    SEND(fd,
+         0xf0,
+         0x12,  // Manufacturer code
+         0,     // byte with MSBs
+         0,     // LSBs of first byte
+         0xf7);
 
 #endif
 

@@ -48,10 +48,19 @@ void ensure_started(struct gdbstub_ctrl *stub_ctrl);
 #endif
 
 struct bl_state {
+    void *next;
     struct {
         uint32_t nb_rx;
+        uint32_t nb_rx_3if;
         uint32_t nb_rx_sysex;
     } stats;
+    /* Decoder buffer for sysex.  The encoding used is: first byte
+       contains high bits of subsequent 7 bytes (LSB is bit of first
+       byte), then followed by up to 7 bytes containing the low 7
+       bits.  That's simplest to decode. */
+    uint8_t sysex_high_bits;
+    uint8_t sysex_count;
+
 };
 struct bl_state bl_state;
 
@@ -100,14 +109,82 @@ const uint8_t message_type_to_size[] = {
 
 */
 
-/* FIXME: I don't feel like reading the specs. Most of it can be
-   ignored. I go by example and what I can test.  The simplest
-   approach seems to be to use /dev/midiX and send regular midi, then
-   see what ends up here. */
+/* MIDI 1.0 was simple. MIDI 2.0 is not. I don't feel like reading all
+   the documentation, so I just test by writing to /dev/midiX and see
+   what arrives here.  The "old school" approach of treating midi as 2
+   different streams (low-priority sysex and everything else
+   pre-empting that) seems to be ok, so that is what we provide to the
+   app. */
+
+/* The first byte after 0xF0 is a dispatch code.  I'm going to use
+   0x12 which seems to be a defunct company. Change it later if
+   needed.
+
+   https://www.midi.org/specifications/midi-reference-tables/manufacturer-sysex-id-numbers
+*/
+
+#define BL_MIDI_SYSEX_MANUFACTURER 0x12
+
+void bl_3if_push(struct bl_state *s, uint8_t byte) {
+    s->stats.nb_rx_3if++;
+}
+void bl_app_push(struct bl_state *s, uint8_t byte) {
+}
+#define BL_MIDI_SYSEX_NEXT_LABEL(s,label) {              \
+        (s)->next = &&label; return; label:{}            \
+    }
+#define BL_MIDI_SYSEX_NEXT(s)                   \
+    BL_MIDI_SYSEX_NEXT_LABEL(s,GENSYM(label_))
+
+
+void bl_midi_sysex_push(struct bl_state *s, uint8_t byte) {
+    if (byte == 0xF0) goto packet_start;
+    if (unlikely(!s->next)) return;
+    goto *s->next;
+
+  packet:
+    BL_MIDI_SYSEX_NEXT(s);
+    if (byte != 0xF0) {
+        /* Ignore everything up to the sysex start byte. */
+        goto packet;
+    }
+  packet_start:
+    /* byte == 0x0F0 sysex start */
+    /* First byte after start byte is manufacturer. */
+    BL_MIDI_SYSEX_NEXT(s);
+    if (byte == BL_MIDI_SYSEX_MANUFACTURER) {
+        /* 3IF is addressed.  Perform conversion to 8-bit data and
+           push it into the interpreter. */
+        for (;;) {
+            BL_MIDI_SYSEX_NEXT(s);
+            if (byte == 0xF7) goto packet;
+            s->sysex_high_bits = byte;
+            for (s->sysex_count = 0;
+                 s->sysex_count < 7;
+                 s->sysex_count++) {
+                BL_MIDI_SYSEX_NEXT(s);
+                if (byte == 0xF7) goto packet;
+                if (s->sysex_high_bits & (1 << s->sysex_count)) {
+                    byte |= 0x80;
+                }
+                bl_3if_push(s, byte);
+            }
+        }
+    }
+    /* Everything else goes to the application. */
+    bl_app_push(s, 0xF0);
+    for(;;) {
+        bl_app_push(s, byte);
+        if (byte == 0xF7) goto packet;
+        BL_MIDI_SYSEX_NEXT(s);
+    }
+}
 
 
 void bl_midi_write_sysex(struct bl_state *s, const uint8_t *buf, uint32_t len) {
-    s->stats.nb_rx_sysex += len;
+    for (uint32_t i=0; i< len; i++) {
+        bl_midi_sysex_push(s, buf[i]);
+    }
 }
 
 void bl_midi_write(struct bl_state *s, const uint8_t *buf, uint32_t len) {
