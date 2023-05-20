@@ -5,23 +5,26 @@
         assert_write(fd, midi, sizeof(midi));   \
     }
 
-void send_3if(int fd, const uint8_t *buf, uint32_t len) {
-    SEND(fd, 0xF0 /* sysex start */, 0x12 /* manufacturer */);
-    while(len > 0) {
-        uint32_t n = (len > 7) ? 7 : len;
-        uint8_t msbs = 0;
-        for (uint32_t i=0; i<n; i++) {
-            if (buf[i] & 0x80) {
-                msbs |= (1 << i);
-            }
-        }
-        assert_write(fd, &msbs, 1);
-        assert_write(fd, buf, n);
+#include "sysex.h"
 
-        buf += n;
-        len -= n;
+void send_3if(int fd, const uint8_t *buf, uint32_t len) {
+    const_slice_uint8_t in = { .buf = buf, .len = len };
+
+    uint8_t out_buf[len * 2];
+    uint8_t *out = out_buf;
+
+    *out++ = 0xF0; /* sysex start */
+    *out++ = 0x12; /* manufacturer */
+    while(in.len > 0) {
+        uintptr_t nb = sysex_encode_8bit_to_7bit(out, &in);
+        out += nb;
     }
-    SEND(fd, 0xF7);
+    *out++ = 0xF7;
+
+    uintptr_t n_out = out - out_buf;
+    for(uint32_t i=0; i<n_out; i++) { LOG(" %02x", out_buf[i]); } LOG("\n");
+
+    assert_write(fd, out_buf, n_out);
 }
 
 #define SEND_3IF(fd, ...) {                    \
@@ -73,7 +76,8 @@ void test(int fd) {
 
 #endif
 
-    SEND_3IF(fd, 3, 10,20,30);
+    SEND_3IF(fd, 3, 201,202,203);
+    //SEND_3IF(fd, 3, 10,20,30);
 
 }
 

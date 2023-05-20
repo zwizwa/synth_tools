@@ -17,6 +17,7 @@ STM_ELF_DIS := \
 HOST_ELF := \
         $(BIN2FW) \
 	tools/test_pdm.dynamic.host.elf \
+	tools/test_bl_midi.dynamic.host.elf \
 	tools/tether_bl.dynamic.host.elf \
 	tools/tether_bl_midi.dynamic.host.elf \
 
@@ -207,7 +208,7 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	export ARCH=host ; \
 	export BUILD=tools/build.sh ; \
 	export C=$< ; \
-	export CFLAGS=\ -std=gnu99\ -Itools/\ -Inano1/\ -Istm32f103/\ -I/usr/include/lua5.1\ -I$(UC_TOOLS)/\ -I$(UC_TOOLS)/gdb/\ -I$(UC_TOOLS)/linux/\ -DVERSION="\"$(GIT_VERSION)\""; \
+	export CFLAGS=\ -std=gnu99\ -I./\ -Itools/\ -Istm32f103/\ -I/usr/include/lua5.1\ -I$(UC_TOOLS)/\ -I$(UC_TOOLS)/gdb/\ -I$(UC_TOOLS)/linux/\ -DVERSION="\"$(GIT_VERSION)\""; \
 	export D=$(patsubst %.o,%.d,$@) ; \
 	export FIRMWARE=$$(basename $< .c) ; \
 	export O=$@ ; \
