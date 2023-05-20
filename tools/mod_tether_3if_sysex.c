@@ -1,3 +1,5 @@
+/* Host end of 3if over sysex */
+
 #ifndef MOD_TETHER_3IF_SYSEX
 #define MOD_TETHER_3IF_SYSEX
 
@@ -13,7 +15,7 @@ void tether_sysex_write(struct tether *s, const uint8_t *buf, size_t len) {
     sysex_encode_8bit_to_7bit(sysex + 2, &in);
     sysex[2 + nb_data] = 0xF7;
 
-    for(uint32_t i=0; i<sizeof(sysex); i++) { LOG(" %02x", sysex[i]); } LOG("\n");
+    // for(uint32_t i=0; i<sizeof(sysex); i++) { LOG(" %02x", sysex[i]); } LOG("\n");
 
     assert_write(s->fd, sysex, sizeof(sysex));
 }
