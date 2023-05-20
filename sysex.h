@@ -120,7 +120,7 @@ void sysex_stream_from_cbuf(uint8_t tag, slice_uint8_t *out, struct cbuf *in) {
     /* Add sysex framing */
     sysex[0] = 0xF0;
     sysex[1] = tag;
-    sysex[2 + nb_sysex_data] = 0xF9;
+    sysex[2 + nb_sysex_data] = 0xF7;
 
     /* Chunk it out. */
     const_slice_uint8_t sysex_slice = { .buf = sysex, .len = nb_sysex_data + 3 };

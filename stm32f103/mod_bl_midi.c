@@ -4,6 +4,8 @@
 
 #include <stdint.h>
 
+#define BL_MIDI_SYSEX_MANUFACTURER 0x12
+
 #ifndef BL_MIDI_LOG
 #define BL_MIDI_LOG(...)
 #endif
@@ -51,27 +53,21 @@ struct bl_state bl_state;
 
 #include "sysex.h"
 
+uint32_t monitor_read_sysex(uint8_t *buf, uint32_t room) {
+    slice_uint8_t buf_slice = { .buf=buf, .len=room };
+    sysex_stream_from_cbuf(BL_MIDI_SYSEX_MANUFACTURER,
+                           &buf_slice, monitor.monitor_3if.out);
+    return buf_slice.buf - buf;
+}
+
 uint32_t __attribute__((noinline)) usb_midi_read(uint8_t *buf, uint32_t room) {
-#if 0
-    /* 1. Get high priority data first. */
+    uint32_t nb = 0;
+    /* Get high priority data first. */
     // FIXME
 
-    /* If there is room, add sysex chunks.  This encoding is
-       relatively inefficient, using 16 USB bytes to transfer 7 data
-       bytes, but it keeps the encoder simple.  There is just too much
-       layering going on. */
-
-    /* 2. If there is room, add sysex reply. */
-    if (room >= 8) {
-        // FIXME: incorporate poll, see monitor_read()
-        // Rest is cloned from monitor_read()
-        struct cbuf *c = monitor.monitor_3if.out;
-        uint32_t n = cbuf_elements(c);
-        if (n > 0) {
-        }
-    }
-#endif
-    return 0;
+    /* Fill the rest with sysex. */
+    nb += monitor_read_sysex(buf, room);
+    return nb;
 }
 
 
@@ -138,14 +134,17 @@ void bl_app_push(struct bl_state *s, uint8_t byte) {
 #define BL_MIDI_SYSEX_NEXT(s)                   \
     BL_MIDI_SYSEX_NEXT_LABEL(s,GENSYM(label_))
 
-#define BL_MIDI_SYSEX_MANUFACTURER 0x12
 
 void __attribute__((noinline)) bl_3if_push(struct bl_state *s, uint8_t byte) {
     s->stats.nb_rx_3if++;
+    BL_MIDI_LOG(s, "3if_push: %02x\n", byte);
     monitor_write(&byte, 1);
 }
 
 void bl_midi_sysex_push(struct bl_state *s, uint8_t byte) {
+
+    BL_MIDI_LOG(s, "sysex_push: %02x\n", byte);
+
     if (byte == 0xF0) goto packet_start;
     if (unlikely(!s->next)) return;
     goto *s->next;
@@ -205,6 +204,7 @@ void __attribute__((noinline)) bl_midi_write(struct bl_state *s, const uint8_t *
         uint8_t group = msg0 & 0xF;
         uint8_t message_size = 4 * message_type_to_size[message_type];
         switch(group) {
+        case 0x7:
         case 0x4: bl_midi_write_sysex(s, &buf[1], 3); break;
         case 0x5: bl_midi_write_sysex(s, &buf[1], 1); break;
         case 0x6: bl_midi_write_sysex(s, &buf[1], 2); break;

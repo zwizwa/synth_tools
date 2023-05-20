@@ -63,6 +63,10 @@ void ensure_started(struct gdbstub_ctrl *stub_ctrl);
 #define GPIOB5_HIGH 1
 #endif
 
+void bl_poll() {
+    usb_midi_poll();
+}
+
 
 int main(void) {
     rcc_clock_setup_in_hse_8mhz_out_72mhz();
@@ -98,13 +102,13 @@ int main(void) {
     for (;;) {
         if ((bootloader_stub_ctrl.flags & GDBSTUB_FLAG_STARTED) && (_config.loop)) {
             bootloader_stub_ctrl.flags |= GDBSTUB_FLAG_LOOP;
-            _config.loop(&usb_midi_poll);
+            _config.loop(&bl_poll);
             /* If .loop() is implemented correctly this should not
                return.  However, in case it does, we fall through to
                bootloader_poll() below. */
         }
         /* By default, poll USB in the main loop. */
-        usb_midi_poll();
+        bl_poll();
     }
     return 0;
 }

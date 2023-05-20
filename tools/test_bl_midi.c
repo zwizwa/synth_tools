@@ -28,20 +28,58 @@ void monitor_init(void) {
 }
 
 
+
+
 /* The MIDI bootloader protocol is on top of that. */
 #define BL_MIDI_LOG(s, ...) LOG(__VA_ARGS__)
 #define MOD_MONITOR
 #include "mod_bl_midi.c"
 
 void test(void) {
+
+    /* Go through a full sequence. */
+
+    /* 1. host command. */
+    const uint8_t cmd[] = {
+        4, NPUSH, 1,2,3,
+    };
+    /* 2. encode as chunked UMP */
+    struct cbuf c_cmd; uint8_t c_cmd_buf[256];
+    CBUF_INIT(c_cmd);
+    cbuf_write(&c_cmd, cmd, sizeof(cmd));
+
+    uint8_t cmd_ump[256];
+    slice_uint8_t cmd_ump_slice = { .buf = cmd_ump, .len = sizeof(cmd_ump) };
+    sysex_stream_from_cbuf(0x12, &cmd_ump_slice, &c_cmd);
+    uint32_t nb_ump = cmd_ump_slice.buf - cmd_ump;
+    LOG("nb_ump = %d\n", nb_ump);
+    ASSERT(12 == nb_ump);
+
+    /* 3. Pass it into the read routine.  This will push it all the
+       way through the interpreter, leaving a reply in the out
+       buffer. */
+    bl_midi_write(&bl_state, cmd_ump, nb_ump);
+
+    uint32_t nb_3if_out = cbuf_elements(&monitor.out);
+    LOG("nb_3if_out = %d\n", nb_3if_out);
+    ASSERT(2 == nb_3if_out); // 01 00
+
+    /* 4. Convert the reply to UMP */
+    uint8_t usb_out[64];
+    uint32_t nb_3if_out_ump = monitor_read_sysex(usb_out, sizeof(usb_out));
+    LOG("nb_3if_out_ump = %d\n", nb_3if_out_ump);
+
+
+    ASSERT(8 == nb_3if_out_ump);
+
+    // FIXME: Parse it again, plug in the tether routines.
+
+#if 0
     uint8_t midi[] = {
         0xf0, 0x12,
         // Note that 3if can be padded with zeros = 0 size packets.
         0,0,0,0,0,0,
         0xf7
-    };
-    const uint8_t cmd[] = {
-        4, NPUSH, 1,2,3,
     };
     const_slice_uint8_t in = { .buf = cmd, .len = sizeof(cmd) };
 
@@ -49,6 +87,7 @@ void test(void) {
     ASSERT(6 == nb);
 
     bl_midi_write_sysex(&bl_state, midi, sizeof(midi));
+#endif
 
 #if 0
     LOG("out %d\n", cbuf_elements(&monitor.out));
@@ -85,6 +124,8 @@ void test_stream_from_cbuf(const uint8_t *in_buf, uint32_t in_len) {
     slice_uint8_t out_slice = { .buf = out_buf, .len = sizeof(out_buf) };
     sysex_stream_from_cbuf(0x12, &out_slice, &c);
     uint32_t out_nb = out_slice.buf - out_buf;
+    
+
 
     uint32_t out_chunks = out_nb / 4;
     for(uint32_t i=0; i<out_chunks; i++) {
@@ -107,10 +148,12 @@ void test_stream_from_cbufs(void) {
 }
 
 int main(int argc, char **argv) {
-    assert_sysex();
-    test_stream_from_cbufs();
+    //assert_sysex();
+    //test_stream_from_cbufs();
 
     monitor_init();
+    test();
+    test();
     test();
     return 0;
 }

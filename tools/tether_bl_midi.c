@@ -1,4 +1,5 @@
 #include "assert_write.h"
+#include "assert_read.h"
 
 #define SEND(fd, ...) {                         \
         uint8_t midi[] = { __VA_ARGS__ };       \
@@ -76,7 +77,17 @@ void test(int fd) {
 
 #endif
 
-    SEND_3IF(fd, 3, 201,202,203);
+
+#define NPUSH 0x81
+    SEND_3IF(fd, 4, NPUSH, 1, 2, 3);
+
+    for(;;) {
+        uint8_t byte = 0;
+        assert_read_fixed(fd, &byte, 1);
+        LOG(" %02x\n", byte);
+    }
+    
+
     //SEND_3IF(fd, 3, 10,20,30);
 
 }
