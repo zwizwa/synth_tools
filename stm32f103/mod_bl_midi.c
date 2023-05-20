@@ -204,6 +204,9 @@ void __attribute__((noinline)) bl_midi_write(struct bl_state *s, const uint8_t *
         uint8_t group = msg0 & 0xF;
         uint8_t message_size = 4 * message_type_to_size[message_type];
         switch(group) {
+        /* Figure out where these group tags are specified.  These
+           have just been reverse engineered from what Linux sends to
+           the USB endpoint. */
         case 0x7:
         case 0x4: bl_midi_write_sysex(s, &buf[1], 3); break;
         case 0x5: bl_midi_write_sysex(s, &buf[1], 1); break;
