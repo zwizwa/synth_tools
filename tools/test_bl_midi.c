@@ -6,23 +6,18 @@
 
 #define MONITOR_3IF_LOG(s, ...) LOG(__VA_ARGS__)
 #include "mod_monitor_3if.c"
-#define FLASH_BUFSIZE_LOG 1
-#define FLASH_BUFSIZE (1 << FLASH_BUFSIZE_LOG)
 struct monitor {
     struct monitor_3if monitor_3if;
     uint8_t out_buf[256 + 16];
     struct cbuf out;
     uint8_t ds_buf[32];
-    uint8_t flash_buf[FLASH_BUFSIZE];
-    uint8_t last_read_was_full:1;
 };
 struct monitor monitor;
 void monitor_write(const uint8_t *buf, uintptr_t size) {
     for (uintptr_t i=0; i<size; i++) {
         LOG("M: %02x\n", buf[i]);
     }
-    int rv = monitor_3if_write(&monitor.monitor_3if, buf, size);
-    (void)rv;
+    ASSERT(0 == monitor_3if_write(&monitor.monitor_3if, buf, size));
 }
 void monitor_init(void) {
     CBUF_INIT(monitor.out);
@@ -39,13 +34,82 @@ void monitor_init(void) {
 #include "mod_bl_midi.c"
 
 void test(void) {
-    const uint8_t midi[] = {
-        0xf0, 0x12, 0x0e, 0x03, 0x49, 0x4a, 0x4b, 0xf7
+    uint8_t midi[] = {
+        0xf0, 0x12,
+        // Note that 3if can be padded with zeros = 0 size packets.
+        0,0,0,0,0,0,
+        0xf7
     };
+    const uint8_t cmd[] = {
+        4, NPUSH, 1,2,3,
+    };
+    const_slice_uint8_t in = { .buf = cmd, .len = sizeof(cmd) };
+
+    uintptr_t nb = sysex_encode_8bit_to_7bit(&midi[2], &in);
+    ASSERT(6 == nb);
+
     bl_midi_write_sysex(&bl_state, midi, sizeof(midi));
+
+#if 0
+    LOG("out %d\n", cbuf_elements(&monitor.out));
+    uint8_t reply[8 * 3];
+    slice_uint8_t reply_slice = { .buf = reply, .len = sizeof(reply) };
+    sysex_stream_from_cbuf(0x12, &reply_slice, &monitor.out);
+    uint32_t nb_reply = reply_slice.buf - reply;
+    LOG("nb_reply %d\n", nb_reply);
+#endif
+
+}
+
+/* The sysex.h subroutines */
+void assert_sysex(void) {
+    ASSERT(0 == sysex_encode_8bit_to_7bit_payload_available(0));
+    ASSERT(0 == sysex_encode_8bit_to_7bit_payload_available(1));
+    ASSERT(1 == sysex_encode_8bit_to_7bit_payload_available(2));
+    ASSERT(2 == sysex_encode_8bit_to_7bit_payload_available(3));
+    ASSERT(7 == sysex_encode_8bit_to_7bit_payload_available(8));
+    ASSERT(7 == sysex_encode_8bit_to_7bit_payload_available(9));
+    ASSERT(8 == sysex_encode_8bit_to_7bit_payload_available(10));
+}
+
+void test_stream_from_cbuf(const uint8_t *in_buf, uint32_t in_len) {
+    LOG("i:");
+    for(uint32_t i=0; i<in_len; i++) {
+        LOG(" %02x", in_buf[i]);
+    }
+    LOG("\n");
+    struct cbuf c; uint8_t c_buf[256];
+    CBUF_INIT(c);
+    cbuf_write(&c, in_buf, in_len);
+    uint8_t out_buf[64] = {};
+    slice_uint8_t out_slice = { .buf = out_buf, .len = sizeof(out_buf) };
+    sysex_stream_from_cbuf(0x12, &out_slice, &c);
+    uint32_t out_nb = out_slice.buf - out_buf;
+
+    uint32_t out_chunks = out_nb / 4;
+    for(uint32_t i=0; i<out_chunks; i++) {
+        LOG("o:");
+        for(uint32_t j=0; j<4; j++) {
+            LOG(" %02x", out_buf[j + 4 * i]);
+        }
+        LOG("\n");
+    }
+}
+#define TEST_STREAM_FROM_CBUF(...) {                    \
+        const uint8_t msg[] = { __VA_ARGS__ };          \
+        test_stream_from_cbuf(msg, sizeof(msg));        \
+    }
+
+void test_stream_from_cbufs(void) {
+    TEST_STREAM_FROM_CBUF(4, NPUSH, 1, 2, 3);
+    TEST_STREAM_FROM_CBUF(3, 201, 202, 203);
+    TEST_STREAM_FROM_CBUF(2, 201, 202);
 }
 
 int main(int argc, char **argv) {
+    assert_sysex();
+    test_stream_from_cbufs();
+
     monitor_init();
     test();
     return 0;
