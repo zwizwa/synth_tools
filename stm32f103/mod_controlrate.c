@@ -70,14 +70,16 @@ void controlrate_beat_poll(void) {
         //infof("log_period = %d\n", log_period);
     }
 }
+void controlrate_poll(void) {
+    controlrate_beat_poll();
+}
 
 
 static inline void control_trigger(void) {
     hw_swi_trigger(C_CONTROL);
 }
-void controlrate_init(gdbstub_fn_add service_add) {
+void controlrate_init(void) {
     hw_swi_init(C_CONTROL);
-    service_add(controlrate_beat_poll);
 }
 
 

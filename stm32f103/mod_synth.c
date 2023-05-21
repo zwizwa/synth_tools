@@ -55,7 +55,10 @@ struct parameter_info parameter_info[] = {
 SYNTH_FOR_PARAMETERS(DEF_PARAMETER_INFO)
 };
 
-
+void synth_poll(void) {
+    osc_poll();
+    controlrate_poll();
+}
 
 void synth_init(struct cbuf *out) {
 
@@ -64,10 +67,10 @@ void synth_init(struct cbuf *out) {
     pdm_start();
 
     /* Main oscillator frequency feedback + subosc. */
-    osc_init(_service.add, out);
+    osc_init(out);
 
     /* Control rate task. */
-    controlrate_init(_service.add);
+    controlrate_init();
 
     /* Smaller values mean higher priorities.  STM32F103 strips the
        low 4 bits, so these have increments of 16.  Print the actual
@@ -78,6 +81,8 @@ void synth_init(struct cbuf *out) {
     infof("pri: pdm     %d\n", NVIC_IPR(C_PDM.irq));
     infof("pri: osc     %d\n", NVIC_IPR(C_OSC.irq));
     infof("pri: control %d\n", NVIC_IPR(C_CONTROL.irq));
+
+    _service.add(synth_poll);
 }
 
 /* Ad-hoc multi-argument messages are not in the table. */
@@ -136,6 +141,25 @@ void midi_write(const uint8_t *buf, uint32_t len) {
 uint32_t midi_read(uint8_t *buf, uint32_t room) {
     return 0;
 }
+
+
+#include "cmd_3if.h"
+
+void cmd_3if_info(struct cmd_3if *s) {
+    uint8_t buf[256] = {};
+    uint8_t nb = info_read(buf+2, sizeof(buf)-2);
+    buf[0] = nb + 1;
+    /* Empty replies are always discarded, so we send one extra byte
+       which later could be a status code. */
+    buf[1] = 0; // FIXME: more avalaible = 1
+    cbuf_write(s->out, buf, nb + 2);
+}
+
+#include "synth_cmd.h"
+
+#define CMD_ARRAY_ENTRY(id,name) [id] = cmd_3if_##name,
+
+const cmd_3if cmd_3if_list[] = { for_synth_cmd(CMD_ARRAY_ENTRY) };
 
 
 #endif

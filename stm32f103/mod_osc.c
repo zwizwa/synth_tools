@@ -79,7 +79,10 @@ void osc_pmeas_state_poll(void) {
 }
 
 
-void osc_init(gdbstub_fn_add service_add, struct cbuf *b_reply) {
+void osc_poll(void) {
+    osc_pmeas_state_poll();
+}
+void osc_init(struct cbuf *b_reply) {
     /* External input interrupt for discharge pulse.  This needs to be
        lower priority than the PDM because it will cause modulation
        effects. */
@@ -96,9 +99,6 @@ void osc_init(gdbstub_fn_add service_add, struct cbuf *b_reply) {
 
     /* Suboscillator */
     osc_sub_init();
-
-    /* Register polling routine. */
-    service_add(osc_pmeas_state_poll);
 
 }
 

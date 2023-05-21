@@ -40,8 +40,10 @@ struct gdbstub_config _config_default __attribute__ ((section (".config_header")
 };
 
 
-/* FIXME: synth still uses this */
+/* Only one _service.add() poll routine is supported. */
+void (*app_poll)(void);
 void bl_poll_add(void (*poll)(void)) {
+    app_poll = poll;
 }
 const struct gdbstub_service service SERVICE_SECTION = {
     .add = bl_poll_add,
@@ -50,6 +52,7 @@ const struct gdbstub_service service SERVICE_SECTION = {
 
 void bl_poll() {
     usb_midi_poll();
+    if (app_poll) app_poll();
 }
 
 

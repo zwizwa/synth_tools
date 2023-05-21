@@ -11,7 +11,7 @@
 
 #include "pbuf.h"
 #include "cbuf.h"
-#include "run_3if.h"
+#include "cmd_3if.h"
 
 
 /* CONFIGURATION */
@@ -98,5 +98,6 @@ struct gdbstub_config config CONFIG_HEADER_SECTION = {
     .fwtag           = 0, // must be 0, used to recognize ecrypted firmware
     .info_buf        = &info_buf,
     .io              = &midi_io,
+    .cmd_3if         = cmd_3if_list,
 };
 

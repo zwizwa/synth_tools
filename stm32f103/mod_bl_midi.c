@@ -52,6 +52,7 @@ uint32_t __attribute__((noinline)) usb_midi_read(uint8_t *buf, uint32_t room) {
 
     /* Fill the rest with sysex. */
     nb += monitor_read_sysex(buf+nb, room-nb);
+    // FIXME: this still has the "full buffer" USB issue.
     return nb;
 }
 
