@@ -69,7 +69,7 @@ static inline uint32_t sysex_encode_8bit_to_7bit_payload_available(uint32_t nb_s
 static inline void sysex_to_ump(slice_uint8_t *out, const_slice_uint8_t *sysex) {
     while (sysex->len > 0) {
         uint32_t chunk_size = sysex->len > 3 ? 3 : sysex->len;
-        LOG("chunk_size = %d, sysex->len=%d\n", chunk_size, sysex->len);
+        // LOG("chunk_size = %d, sysex->len=%d\n", chunk_size, sysex->len);
         const uint8_t chunk_size_to_group[] = { -1, 0x5, 0x6, 0x4 };
         uint8_t chunk[4] = { chunk_size_to_group[chunk_size], 0, 0, 0 };
         memcpy(chunk + 1, sysex->buf, chunk_size);

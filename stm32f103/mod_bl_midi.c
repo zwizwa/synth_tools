@@ -24,35 +24,18 @@ struct bl_state {
     uint8_t sysex_high_bits;
     uint8_t sysex_count;
 
+    uint8_t started:1;
+
 };
 struct bl_state bl_state;
 
 
-/* I see 2 ways: do wrapping before writing to cbuf, or re-generate
-   the wrapping here.  A sysex packet and a 3if packet do not need to
-   correspond.  The 3if is self-delimiting stream.  Some constraints:
 
-   - Include the F0 12 ... F7 framing in a single USB packet.  That
-     makes the bookkeeping simpler.  This way there is room for a
-     total of 48 7 bit bytes.  Minus 3 for the framing, that is (* 7
-     (/ 45 8.0)) 39 bytes per 64 bytes of USB frame.
-
-     This this is not simple.  There is packetizing, prefix, 8-to-7
-     conversion, and we need to multiplex sysex streams also.  So
-     maybe write the entire read operation as a protothread.
-
-     Also the 64-byte bulk boundary needs to be respected.  How to do
-     that?  That would be the main.
-
-  -  Keep it simple: the 3if data can be chunked.  Later figure out how
-     to incorporate app data as well.
-
-
-*/
-
-
+/* Sysex pack/unpack routines */
 #include "sysex.h"
 
+
+/* Read monitor's out buffer, convert it to UMP format. */
 uint32_t monitor_read_sysex(uint8_t *buf, uint32_t room) {
     slice_uint8_t buf_slice = { .buf=buf, .len=room };
     sysex_stream_from_cbuf(BL_MIDI_SYSEX_MANUFACTURER,
@@ -62,11 +45,13 @@ uint32_t monitor_read_sysex(uint8_t *buf, uint32_t room) {
 
 uint32_t __attribute__((noinline)) usb_midi_read(uint8_t *buf, uint32_t room) {
     uint32_t nb = 0;
-    /* Get high priority data first. */
-    // FIXME
+    /* Get high priority app data first. */
+
+    // FIXME: use _config.io->read() to read midi.  App needs to
+    // ensure that this reads complete midi messages. 
 
     /* Fill the rest with sysex. */
-    nb += monitor_read_sysex(buf, room);
+    nb += monitor_read_sysex(buf+nb, room-nb);
     return nb;
 }
 
@@ -195,6 +180,14 @@ void bl_midi_write_sysex(struct bl_state *s, const uint8_t *buf, uint32_t len) {
     }
 }
 
+
+/* Re-implement this behavior that used to be in gdbstub.c */
+void __attribute__((noinline)) bl_ensure_started(struct bl_state *s) {
+    if (likely(s->started)) return;
+    _config.start();
+    s->started = 1;
+}
+
 void __attribute__((noinline)) bl_midi_write(struct bl_state *s, const uint8_t *buf, uint32_t len) {
     s->stats.nb_rx += len;
     while(len > 0) {
@@ -211,8 +204,20 @@ void __attribute__((noinline)) bl_midi_write(struct bl_state *s, const uint8_t *
         case 0x4: bl_midi_write_sysex(s, &buf[1], 3); break;
         case 0x5: bl_midi_write_sysex(s, &buf[1], 1); break;
         case 0x6: bl_midi_write_sysex(s, &buf[1], 2); break;
-        case 0x8: // Note off
-        case 0x9: // Note on
+        case 0x8:
+        case 0x9:
+        case 0xa:
+        case 0xb:
+        case 0xe:
+            bl_ensure_started(s);
+            if (_config.io) _config.io->write(buf+1, 3);
+            break;
+        case 0xc:
+        case 0xd:
+            bl_ensure_started(s);
+            if (_config.io) _config.io->write(buf+1, 2);
+            break;
+        default:
             break;
         }
         buf += message_size;

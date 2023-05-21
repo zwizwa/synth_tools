@@ -5,7 +5,7 @@ HERE=$(readlink -f $(dirname "$0"))
 CMD="$HERE/tether_bl_midi.dynamic.host.elf /dev/midi3"
 
 load_app() {
-    $CMD load 0x08004000 $HERE/../stm32f103/$1.x8ab.f103.fw.bin
+    $CMD load 0x08002800 $HERE/../stm32f103/$1.x8.f103.bin
 }
 
 case "$1" in
@@ -15,15 +15,12 @@ case "$1" in
     synth)
         load_app synth
         ;;
-    console)
-        load_app console
-        ;;
     start)
         $CMD start
         ;;
     *)
-        echo "unknown command: $*" >&2
-        exit 1
+        # Pass it on
+        $CMD "$@"
         ;;
 esac
 

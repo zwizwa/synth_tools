@@ -131,5 +131,11 @@ int synth_handle_tag_u32(struct tag_u32 *s) {
     }
 }
 
+void midi_write(const uint8_t *buf, uint32_t len) {
+}
+uint32_t midi_read(uint8_t *buf, uint32_t room) {
+    return 0;
+}
+
 
 #endif

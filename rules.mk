@@ -1,21 +1,20 @@
 UC_TOOLS ?= ../uc_tools
 GIT_VERSION ?= "unknown"
 
-BIN2FW := $(UC_TOOLS)/linux/bin2fw.dynamic.host.elf
+# Note that bl_midi does not use the A/B partitions with crc, just the
+# original x8 slot.
 
 STM_ELF := \
-	stm32f103/synth.x8ab.f103.fw.elf \
-	stm32f103/synth.x8ab.f103.fw.bin \
-	stm32f103/bp2.x8ab.f103.fw.elf \
-	stm32f103/console.x8ab.f103.fw.bin \
-	stm32f103/bl_open.core.f103.elf \
 	stm32f103/bl_midi.core.f103.elf \
-	$(UC_TOOLS)/gdb/test_3if.x8ram.f103.bin \
+	stm32f103/synth.x8.f103.elf \
+	stm32f103/synth.x8.f103.bin \
 
 STM_ELF_DIS := \
+	stm32f103/bp2.x8.f103.elf \
+	stm32f103/console.x8.f103.bin \
+	$(UC_TOOLS)/gdb/test_3if.x8ram.f103.bin \
 
 HOST_ELF := \
-        $(BIN2FW) \
 	tools/test_pdm.dynamic.host.elf \
 	tools/test_bl_midi.dynamic.host.elf \
 	tools/tether_bl.dynamic.host.elf \
@@ -132,10 +131,10 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	$$BUILD 2>&1
 
 # Application, linked to addresses for partition A and spillover into B.  Only for debugging.
-%.x8ab.f103.elf: \
+%.x8.f103.elf: \
 	%.f103.o \
 	stm32f103/lib.f103.a \
-	stm32f103/x8ab.f103.ld \
+	stm32f103/x8.f103.ld \
 	$(UC_TOOLS)/gdb/registers_stm32f103.f103.o \
 
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
@@ -143,7 +142,7 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	export ARCH=f103 ; \
 	export BUILD=stm32f103/build.sh ; \
 	export ELF=$@ ; \
-	export LD=stm32f103/x8ab.f103.ld ; \
+	export LD=stm32f103/x8.f103.ld ; \
 	export MAP=$(patsubst %.elf,%.map,$@) ; \
 	export O=$< ; \
 	export TYPE=elf ; \
@@ -172,20 +171,6 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	$$BUILD 2>&1
 
 
-%.f103.fw.elf: \
-	%.f103.elf \
-	$(BIN2FW) \
-
-	echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
-	export ARCH=f103 ; \
-	export BUILD=stm32f103/build.sh ; \
-	export ELF=$< ; \
-	export FW=$@ ; \
-	export TYPE=fw ; \
-	export BIN2FW=$(BIN2FW) ; \
-	export UC_TOOLS=$(UC_TOOLS)/ ; \
-	export ELF_CAS=cas ; \
-	$$BUILD 2>/dev/null
 
 
 # Raw binary from elf

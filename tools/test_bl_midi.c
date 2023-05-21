@@ -28,12 +28,30 @@ void monitor_init(void) {
 }
 
 
+#include "gdbstub_api.h"
+void start(void) {
+    LOG("start()\n");
+}
+void midi_write(const uint8_t *buf, uint32_t len) {
+}
+uint32_t midi_read(uint8_t *buf, uint32_t room) {
+    return 0;
+}
+const struct gdbstub_io midi_io = {
+    .read  = midi_read,
+    .write = midi_write,
+};
 
+struct gdbstub_config _config = {
+    .start = start,
+    .io = &midi_io,
+};
 
 /* The MIDI bootloader protocol is on top of that. */
 #define BL_MIDI_LOG(s, ...) LOG(__VA_ARGS__)
 #define MOD_MONITOR
 #include "mod_bl_midi.c"
+
 
 void test(void) {
 
@@ -124,8 +142,6 @@ void test_stream_from_cbuf(const uint8_t *in_buf, uint32_t in_len) {
     slice_uint8_t out_slice = { .buf = out_buf, .len = sizeof(out_buf) };
     sysex_stream_from_cbuf(0x12, &out_slice, &c);
     uint32_t out_nb = out_slice.buf - out_buf;
-    
-
 
     uint32_t out_chunks = out_nb / 4;
     for(uint32_t i=0; i<out_chunks; i++) {
@@ -148,8 +164,8 @@ void test_stream_from_cbufs(void) {
 }
 
 int main(int argc, char **argv) {
-    //assert_sysex();
-    //test_stream_from_cbufs();
+    assert_sysex();
+    test_stream_from_cbufs();
 
     monitor_init();
     test();

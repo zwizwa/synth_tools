@@ -66,15 +66,6 @@ void start(void) {
     synth_init(&app_.out);
 
 }
-void main_loop(gdbstub_fn_poll bl_poll_fn) {
-    for(;;) {
-        bl_poll_fn();
-    }
-}
-void stop(void) {
-    hw_app_stop();
-    _service.reset();
-}
 
 #ifndef VERSION
 #define VERSION "current"
@@ -85,6 +76,10 @@ const char config_product[]      CONFIG_DATA_SECTION = "PDM CV Synth";
 const char config_firmware[]     CONFIG_DATA_SECTION = FIRMWARE;
 const char config_protocol[]     CONFIG_DATA_SECTION = "{driver,pdm,slip}";
 
+const struct gdbstub_io midi_io = {
+    .read  = midi_read,
+    .write = midi_write,
+};
 
 extern uint8_t _firmware_endx;
 extern struct info_buf_hdr info_buf;
@@ -96,13 +91,12 @@ struct gdbstub_config config CONFIG_HEADER_SECTION = {
     .version         = config_version,
     .protocol        = config_protocol,
     .start           = start,
-    .stop            = stop,
-    .switch_protocol = NULL,
+    .switch_protocol = NULL, // we use .io
     .flash_start     = (const void*)&config,
     .flash_endx      = (void*)&_firmware_endx,
     .control         = &control,
     .fwtag           = 0, // must be 0, used to recognize ecrypted firmware
     .info_buf        = &info_buf,
-    .loop            = main_loop,
+    .io              = &midi_io,
 };
 
