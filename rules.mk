@@ -19,6 +19,7 @@ HOST_ELF := \
 	tools/test_bl_midi.dynamic.host.elf \
 	tools/tether_bl_midi.dynamic.host.elf \
 	tools/jack_synth.dynamic.host.elf \
+	tools/jack_info.dynamic.host.elf \
 
 
 ALL_ELF := $(STM_ELF) $(HOST_ELF)

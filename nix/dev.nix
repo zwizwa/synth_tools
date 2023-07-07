@@ -1,8 +1,11 @@
+# This binds standar nixpkgs package descriptions in pkgs/* with the
+# toplevel nixpkgs repo (zwizwa mod against old unstable), and some
+# overlays recorded in this repository.
+
 {}:
 let
 pkgs =
 	import (builtins.fetchTarball
-    # https://github.com/zwizwa/nixpkgs/archive/185f435e47804014e408936d386bc6baf5358083.tar.gz
     https://github.com/zwizwa/nixpkgs/archive/zwizwa.tar.gz
   )
     {
