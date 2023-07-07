@@ -17,9 +17,9 @@ STM_ELF_DIS := \
 HOST_ELF := \
 	tools/test_pdm.dynamic.host.elf \
 	tools/test_bl_midi.dynamic.host.elf \
-	tools/tether_bl.dynamic.host.elf \
 	tools/tether_bl_midi.dynamic.host.elf \
 	tools/jack_synth.dynamic.host.elf \
+
 
 ALL_ELF := $(STM_ELF) $(HOST_ELF)
 
@@ -224,7 +224,7 @@ tools/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	export LD=tools/dynamic.host.ld ; \
 	export MAP=$(patsubst %.elf,%.map,$@) ; \
 	export O=$< ; \
-	export LDLIBS=\ -lgpiod\ -lpthread\ -lluajit-5.1 ; \
+	export LDLIBS="-lpthread -ljack" ; \
 	export TYPE=elf ; \
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1
