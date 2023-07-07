@@ -156,9 +156,7 @@ void cmd_3if_info(struct cmd_3if *s) {
 }
 
 #include "synth_cmd.h"
-
 #define CMD_ARRAY_ENTRY(id,name) [id] = cmd_3if_##name,
-
 const cmd_3if cmd_3if_list[] = { for_synth_cmd(CMD_ARRAY_ENTRY) };
 
 
