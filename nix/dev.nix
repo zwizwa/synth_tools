@@ -7,6 +7,7 @@ let
 pkgs =
 	import (builtins.fetchTarball
     https://github.com/zwizwa/nixpkgs/archive/zwizwa.tar.gz
+    # https://channels.nixos.org/nixos-23.05
   )
     {
       overlays = [

@@ -17,6 +17,7 @@ STM_ELF_DIS := \
 HOST_ELF := \
 	tools/test_pdm.dynamic.host.elf \
 	tools/test_bl_midi.dynamic.host.elf \
+	tools/test_cproc.dynamic.host.elf \
 	tools/tether_bl_midi.dynamic.host.elf \
 	tools/jack_synth.dynamic.host.elf \
 	tools/jack_info.dynamic.host.elf \
