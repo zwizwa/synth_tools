@@ -21,6 +21,7 @@ HOST_ELF := \
 	tools/tether_bl_midi.dynamic.host.elf \
 	tools/jack_synth.dynamic.host.elf \
 	tools/jack_info.dynamic.host.elf \
+	tools/test_drum.dynamic.host.elf \
 
 
 ALL_ELF := $(STM_ELF) $(HOST_ELF)
@@ -196,7 +197,7 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	export ARCH=host ; \
 	export BUILD=tools/build.sh ; \
 	export C=$< ; \
-	export CFLAGS=\ -std=gnu99\ -I./\ -Itools/\ -Istm32f103/\ -I/usr/include/lua5.1\ -I$(UC_TOOLS)/\ -I$(UC_TOOLS)/gdb/\ -I$(UC_TOOLS)/linux/\ -I$${ZWIZWA_DEV}/include\ -DVERSION="\"$(GIT_VERSION)\""; \
+	export CFLAGS=\ -std=gnu99\ -I./\ -Igeneric\ -Itools/\ -Istm32f103/\ -I/usr/include/lua5.1\ -I$(UC_TOOLS)/\ -I$(UC_TOOLS)/gdb/\ -I$(UC_TOOLS)/linux/\ -I$${ZWIZWA_DEV}/include\ -DVERSION="\"$(GIT_VERSION)\""; \
 	export D=$(patsubst %.o,%.d,$@) ; \
 	export FIRMWARE=$$(basename $< .c) ; \
 	export O=$@ ; \
