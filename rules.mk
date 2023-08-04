@@ -15,13 +15,13 @@ STM_ELF_DIS := \
 	$(UC_TOOLS)/gdb/test_3if.x8ram.f103.bin \
 
 HOST_ELF := \
-	tools/test_pdm.dynamic.host.elf \
-	tools/test_bl_midi.dynamic.host.elf \
-	tools/test_cproc.dynamic.host.elf \
-	tools/tether_bl_midi.dynamic.host.elf \
-	tools/jack_synth.dynamic.host.elf \
-	tools/jack_info.dynamic.host.elf \
-	tools/test_drum.dynamic.host.elf \
+	linux/test_pdm.dynamic.host.elf \
+	linux/test_bl_midi.dynamic.host.elf \
+	linux/test_cproc.dynamic.host.elf \
+	linux/tether_bl_midi.dynamic.host.elf \
+	linux/jack_synth.dynamic.host.elf \
+	linux/jack_info.dynamic.host.elf \
+	linux/test_drum.dynamic.host.elf \
 
 
 ALL_ELF := $(STM_ELF) $(HOST_ELF)
@@ -97,7 +97,7 @@ stm32f103/%.ld: stm32f103/%.ld.sh
 	export ARCH=f103 ; \
 	export BUILD=stm32f103/build.sh ; \
 	export C=$< ; \
-	export CFLAGS="-Itools/ -Istm32f103/ -I./ -I$(UC_TOOLS)/ -I$(UC_TOOLS)/gdb/ -I$(UC_TOOLS)/linux/" ; \
+	export CFLAGS="-Ilinux/ -Istm32f103/ -Igeneric/ -I$(UC_TOOLS)/ -I$(UC_TOOLS)/gdb/ -I$(UC_TOOLS)/linux/" ; \
 	export D=$(patsubst %.o,%.d,$@) ; \
 	export FIRMWARE=memory ; \
 	export O=$@ ; \
@@ -195,9 +195,9 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 %.host.o: %.c $(GEN)
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
 	export ARCH=host ; \
-	export BUILD=tools/build.sh ; \
+	export BUILD=linux/build.sh ; \
 	export C=$< ; \
-	export CFLAGS=\ -std=gnu99\ -I./\ -Igeneric\ -Itools/\ -Istm32f103/\ -I/usr/include/lua5.1\ -I$(UC_TOOLS)/\ -I$(UC_TOOLS)/gdb/\ -I$(UC_TOOLS)/linux/\ -I$${ZWIZWA_DEV}/include\ -DVERSION="\"$(GIT_VERSION)\""; \
+	export CFLAGS=\ -std=gnu99\ -Igeneric\ -Ilinux/\ -Istm32f103/\ -I/usr/include/lua5.1\ -I$(UC_TOOLS)/\ -I$(UC_TOOLS)/gdb/\ -I$(UC_TOOLS)/linux/\ -I$${ZWIZWA_DEV}/include\ -DVERSION="\"$(GIT_VERSION)\""; \
 	export D=$(patsubst %.o,%.d,$@) ; \
 	export FIRMWARE=$$(basename $< .c) ; \
 	export O=$@ ; \
@@ -206,10 +206,10 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	$$BUILD 2>&1
 
 
-tools/lib.host.a: $(LIB_HOST_A_OBJECTS)
+linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
-	export A=tools/lib.host.a ; \
-	export BUILD=tools/build.sh ; \
+	export A=linux/lib.host.a ; \
+	export BUILD=linux/build.sh ; \
 	export OBJECTS="$(LIB_HOST_A_OBJECTS)" ; \
 	export TYPE=a ; \
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
@@ -217,14 +217,14 @@ tools/lib.host.a: $(LIB_HOST_A_OBJECTS)
 
 %.dynamic.host.elf: \
 	%.host.o \
-	tools/lib.host.a \
+	linux/lib.host.a \
 
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
-	export A=tools/lib.host.a ; \
+	export A=linux/lib.host.a ; \
 	export ARCH=host ; \
-	export BUILD=tools/build.sh ; \
+	export BUILD=linux/build.sh ; \
 	export ELF=$@ ; \
-	export LD=tools/dynamic.host.ld ; \
+	export LD=linux/dynamic.host.ld ; \
 	export MAP=$(patsubst %.elf,%.map,$@) ; \
 	export O=$< ; \
 	export LDLIBS="-lpthread -ljack" ; \
@@ -234,14 +234,14 @@ tools/lib.host.a: $(LIB_HOST_A_OBJECTS)
 
 %.dynamic.host.so: \
 	%.host.o \
-	tools/lib.host.a \
+	linux/lib.host.a \
 
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
-	export A=tools/lib.host.a ; \
+	export A=linux/lib.host.a ; \
 	export ARCH=host ; \
-	export BUILD=tools/build.sh ; \
+	export BUILD=linux/build.sh ; \
 	export SO=$@ ; \
-	export LD=tools/dynamic.host.ld ; \
+	export LD=linux/dynamic.host.ld ; \
 	export LDLIBS="-lelf -ldw" ; \
 	export MAP=$(patsubst %.so,%.map,$@) ; \
 	export O=$< ; \
@@ -266,4 +266,4 @@ ALL_PRODUCTS := \
 	$(ALL_ELF) \
 	stm32f103/x8.f103.ld \
 	stm32f103/lib.f103.a \
-	tools/lib.host.a \
+	linux/lib.host.a \
