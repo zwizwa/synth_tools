@@ -20,6 +20,7 @@ HOST_ELF := \
 	linux/test_cproc.dynamic.host.elf \
 	linux/tether_bl_midi.dynamic.host.elf \
 	linux/jack_synth.dynamic.host.elf \
+	linux/jack_netsend.dynamic.host.elf \
 	linux/jack_info.dynamic.host.elf \
 	linux/test_drum.dynamic.host.elf \
 
