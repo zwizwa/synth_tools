@@ -2,8 +2,12 @@
 // Midi part is cloned from jack_midi.c
 
 
+
+
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 1
+
+#include "mod_pattern.c"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -97,8 +101,8 @@ int main(int argc, char **argv) {
 
     /* Jack client setup */
     const char *client_name = "jack_netsend"; // argv[1];
-    nb_midi_in = 1;
-    midi_in = calloc(nb_midi_in,   sizeof(void*));
+    nb_midi_in = 2;
+    midi_in = calloc(nb_midi_in, sizeof(void*));
 
     jack_status_t status = 0;
     client = jack_client_open (client_name, JackNullOption, &status);
