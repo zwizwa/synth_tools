@@ -12,6 +12,7 @@
 #include "pbuf.h"
 
 /* AKAI FIRE */
+int need_update;
 
 
 /* JACK */
@@ -49,6 +50,9 @@ const uint8_t sysex_footer[] = {
 // all pads have been toched.
 
 void pad_update(void *out_buf) {
+    if (!need_update) return;
+    need_update = 0;
+
     struct pbuf p = { .size = sizeof(sysex_header) + 2 + 256 + 1 };
     p.buf = jack_midi_event_reserve(out_buf, 0 /*time*/, p.size);
     if(!p.buf) {
@@ -72,10 +76,10 @@ void pad_update(void *out_buf) {
     };
     pbuf_write(&p, sysex_footer, sizeof(sysex_footer));
 }
-void pad_event(void *out_buf, uint8_t row, uint8_t col) {
+void pad_event(uint8_t row, uint8_t col) {
     pads[row][col] ^= 1;
     LOG("%d %d = %d\n", row, col, pads[row][col]);
-    pad_update(out_buf);
+    need_update = 1;
 }
 
 
@@ -102,7 +106,7 @@ static int process (jack_nframes_t nframes, void *arg) {
                     uint8_t col = note - PAD_OFFSET;
                     uint8_t row = col / 16;
                     col -= row * 16;
-                    pad_event(midi_out_buf, row, col);
+                    pad_event(row, col);
                 }
             }
             else if (msg[0] == 0x80) { // Note off channel 0
@@ -113,11 +117,15 @@ static int process (jack_nframes_t nframes, void *arg) {
         }
     }
 
+    pad_update(midi_out_buf);
+
     return 0;
 }
 
 
 int main(int argc, char **argv) {
+
+    need_update = 1;
 
     /* Jack client setup */
     const char *client_name = "jack_akai_fire"; // argv[1];
