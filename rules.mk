@@ -22,6 +22,7 @@ HOST_ELF := \
 	linux/jack_synth.dynamic.host.elf \
 	linux/jack_netsend.dynamic.host.elf \
 	linux/jack_info.dynamic.host.elf \
+	linux/jack_clock.dynamic.host.elf \
 	linux/test_drum.dynamic.host.elf \
 
 
