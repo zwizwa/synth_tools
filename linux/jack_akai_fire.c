@@ -34,46 +34,55 @@ uint8_t pad_nb(uint8_t row, uint8_t col) {
     return PAD_OFFSET + col + row * 16;
 }
 
-#define SYSEX_HEADER_INIT { \
-    0xF0, /* System Exclusive */ \
-    0x47, /* Akai Manufacturer ID (see the MMA site for a list) */ \
-    0x7F, /* The All-Call address */ \
-    0x43, /* Sub-ID byte #1 identifies "Fire" product */ \
-    0x65, /* Sub-ID byte #2 identifies the command */ \
+const uint8_t sysex_header[] = {
+    0xF0, /* System Exclusive */
+    0x47, /* Akai Manufacturer ID (see the MMA site for a list) */
+    0x7F, /* The All-Call address */
+    0x43, /* Sub-ID byte #1 identifies "Fire" product */
+    0x65, /* Sub-ID byte #2 identifies the command */
+};
+const uint8_t sysex_footer[] = {
+    0xF7
+};
+
+// Odd: writing one byte at a time the controller seems to crash after
+// all pads have been toched.
+
+void pad_update(void *out_buf) {
+    struct pbuf p = { .size = sizeof(sysex_header) + 2 + 256 + 1 };
+    p.buf = jack_midi_event_reserve(out_buf, 0 /*time*/, p.size);
+    if(!p.buf) {
+        ERROR("Can't reserve %d midi bytes\n", p.size);
+    }
+    pbuf_write(&p, sysex_header, sizeof(sysex_header));
+    uint8_t size_hdr[] = {0x02, 0x00 /* size in 7-7 */};
+    pbuf_write(&p, size_hdr, sizeof(size_hdr));
+    for(int row=0; row<4; row++) {
+        for(int col=0; col<16; col++) {
+            int nb = col + 16 * row;
+            int on = pads[row][col];
+            uint8_t frame[] = {
+                nb,
+                on * 0x40, // r
+                on * 0x40, // g
+                on * 0x40, // b
+            };
+            pbuf_write(&p, frame, sizeof(frame));
+        }
+    };
+    pbuf_write(&p, sysex_footer, sizeof(sysex_footer));
 }
-
-const uint8_t sysex_header[] = SYSEX_HEADER_INIT;
-
-#define SYSEX_FOOTER_BYTE 0xF7
-
 void pad_event(void *out_buf, uint8_t row, uint8_t col) {
     pads[row][col] ^= 1;
     LOG("%d %d = %d\n", row, col, pads[row][col]);
-    int on = pads[row][col];
-    uint8_t data[] = {
-        0x00, 0x04, // size in 7-7
-        col + row * 16,   // pad nb
-        on * 0x40, // r
-        on * 0x40, // g
-        on * 0x40, // b
-    };
-    int nb = sizeof(sysex_header) + sizeof(data) + 1;
-    uint8_t *buf = jack_midi_event_reserve(out_buf, 0 /*time*/, nb);
-    if (buf) {
-        memcpy(buf, sysex_header, sizeof(sysex_header));
-        buf += sizeof(sysex_header);
-        memcpy(buf, data, sizeof(data));
-        buf += sizeof(data);
-        buf[0] = SYSEX_FOOTER_BYTE;
-    }
-    else {
-        ERROR("Can't reserve %d midi bytes\n", nb);
-    }
+    pad_update(out_buf);
 }
 
 
 static int process (jack_nframes_t nframes, void *arg) {
     void *midi_out_buf = jack_port_get_buffer(midi_out, nframes);
+    jack_midi_clear_buffer(midi_out_buf);
+
     void *midi_in_buf  = jack_port_get_buffer(midi_in, nframes);
     jack_nframes_t n = jack_midi_get_event_count(midi_in_buf);
     for (jack_nframes_t i = 0; i < n; i++) {
