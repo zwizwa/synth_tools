@@ -245,7 +245,7 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	export BUILD=linux/build.sh ; \
 	export SO=$@ ; \
 	export LD=linux/dynamic.host.ld ; \
-	export LDLIBS="-lelf -ldw" ; \
+	export LDLIBS="-lsqlite3" ; \
 	export MAP=$(patsubst %.so,%.map,$@) ; \
 	export O=$< ; \
 	export TYPE=so ; \

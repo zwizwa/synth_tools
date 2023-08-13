@@ -1,4 +1,4 @@
-.PHONY: all clean stm host all_products klstr
+.PHONY: all clean host stm all_products
 
 ALL ?= all_products
 

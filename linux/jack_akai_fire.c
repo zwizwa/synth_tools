@@ -5,11 +5,13 @@
 
 #include "macros.h"
 #include "assert_read.h"
+#include "assert_write.h"
 
 #include <jack/jack.h>
 #include <jack/midiport.h>
 
 #include "pbuf.h"
+#include "midi_frame.h"
 
 /* AKAI FIRE */
 int need_update;
@@ -122,6 +124,9 @@ static int process (jack_nframes_t nframes, void *arg) {
     return 0;
 }
 
+void midi(struct midi_frame *f) {
+}
+
 
 int main(int argc, char **argv) {
 
@@ -146,16 +151,37 @@ int main(int argc, char **argv) {
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
     ASSERT(!jack_activate(client));
 
-    /* The main thread blocks on stdin.  The protocol is lowest common
-       denominator.  While these are written to interface to Erlang,
-       let's use midi as the main protocol so it is easier to reuse in
-       different configurations. */
+    /* The main thread blocks on stdin.  The protocol should be lowest
+       common denominator.  While these are written to interface to
+       Erlang, let's use midi as the main protocol so it is easier to
+       reuse in different configurations. */
+
+    /* However, that is too much work for what I need to do now, so
+       use framing. */
+
+    /* Send something to signal the other end we're all set, i.e. all
+       jack ports are available.  The Active Sensing message is ideal
+       for this. */
+
+#if 1
+    ASSERT_WRITE(1, 0,0,0,2, 0xff,0xfc); // ping
     for(;;) {
-        // FIXME: Current function is just to exit when stdin is closed.
-        uint8_t buf[1];
-        assert_read(0, buf, sizeof(buf));
+        uint8_t buf[1024];
+        ssize_t nb_read = read(0, buf, sizeof(buf));
+        (void)nb_read;
         exit(1);
     }
+#else
+    ASSERT_WRITE(1, 0xFE);
+    struct midi_frame f;
+    midi_frame_init(&f, midi);
+    for(;;) {
+        uint8_t buf[1024];
+        ssize_t nb_read = read(0, buf, sizeof(buf));
+        ASSERT(nb_read > 0);
+        midi_frame_push_buf(&f, buf, nb_read);
+    }
+#endif
     return 0;
 }
 
