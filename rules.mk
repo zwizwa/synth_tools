@@ -25,6 +25,7 @@ HOST_ELF := \
 	linux/jack_clock.dynamic.host.elf \
 	linux/jack_erl.dynamic.host.elf \
 	linux/jack_akai_fire.dynamic.host.elf \
+	linux/jack_snapshot.dynamic.host.elf \
 	linux/test_drum.dynamic.host.elf \
 
 
