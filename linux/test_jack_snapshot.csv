@@ -1,0 +1,4 @@
+src_client,src_port,dst_client,dst_port
+jack_synth,audio_out_0,system,playback_1
+jack_synth,audio_out_0,system,playback_2
+jack_clock,out,a2j,USB Midi 4i4o (playback): USB Midi 4i4o MIDI 3
