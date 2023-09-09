@@ -23,6 +23,8 @@ HOST_ELF := \
 	linux/jack_netsend.dynamic.host.elf \
 	linux/jack_info.dynamic.host.elf \
 	linux/jack_clock.dynamic.host.elf \
+	linux/jack_midi.dynamic.host.elf \
+	linux/jack_control.dynamic.host.elf \
 	linux/jack_erl.dynamic.host.elf \
 	linux/jack_akai_fire.dynamic.host.elf \
 	linux/jack_snapshot.dynamic.host.elf \

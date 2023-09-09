@@ -80,7 +80,7 @@ int main (int argc, char *argv[]) {
 
     ports = jack_get_ports (client, NULL, NULL, 0);
 
-
+    printf("src_client,src_port,dst_client,dst_port\n");
     for (int i = 0; ports && ports[i]; ++i) {
 
         /* Print out -> in only. */
