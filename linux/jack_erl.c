@@ -65,7 +65,7 @@ static int process (jack_nframes_t nframes, void *arg) {
 int main(int argc, char **argv) {
 
     /* Jack client setup */
-    const char *client_name = "jack_clock"; // argv[1];
+    const char *client_name = "jack_erl"; // argv[1];
 
     jack_status_t status = 0;
     client = jack_client_open (client_name, JackNullOption, &status);
