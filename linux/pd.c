@@ -66,12 +66,16 @@ int main(int argc, char **argv) {
     int rv = system("i.pd.exo");
     (void)rv;
 
+    /* FIXME: Would be nice to have this also capture Jack Midi, since
+       Pd doesn't seem to do that. */
+
     pd_fd = assert_tcp_connect("localhost", 3001);
     PD_WRITE("startup;\n");
 
     /* Start Pd in the background, open the exo patch. */
     for(;;) {
         uint8_t buf[1024]; // FIXME overflow
+        /* FIXME: Add 2 protocols to uc_tools: Pd FUDI and framed MIDI */
         erl_read_msg(buf);
     }
     return 0;
