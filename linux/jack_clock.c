@@ -82,6 +82,7 @@ int main(int argc, char **argv) {
         // FIXME: Current function is just to exit when stdin is closed.
         uint8_t buf[1];
         assert_read(0, buf, sizeof(buf));
+        // jack_client_close(client);
         exit(1);
     }
     return 0;
