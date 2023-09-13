@@ -63,7 +63,8 @@ static inline ssize_t erl_read_msg(void *vbuf) {
 
 int main(int argc, char **argv) {
 
-    system("i.pd.exo");
+    int rv = system("i.pd.exo");
+    (void)rv;
 
     pd_fd = assert_tcp_connect("localhost", 3001);
     PD_WRITE("startup;\n");
