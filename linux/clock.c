@@ -1,4 +1,5 @@
-// MIDI Clock code lifted from studio/c_src/jack_midi.c
+/* MIDI Clock code lifted from studio/c_src/jack_midi.c
+   TODO: Add groove, sample sync. */
 
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 1

@@ -19,15 +19,15 @@ HOST_ELF := \
 	linux/test_bl_midi.dynamic.host.elf \
 	linux/test_cproc.dynamic.host.elf \
 	linux/tether_bl_midi.dynamic.host.elf \
-	linux/jack_synth.dynamic.host.elf \
 	linux/jack_netsend.dynamic.host.elf \
 	linux/jack_info.dynamic.host.elf \
-	linux/jack_clock.dynamic.host.elf \
 	linux/jack_midi.dynamic.host.elf \
 	linux/jack_control.dynamic.host.elf \
-	linux/jack_erl.dynamic.host.elf \
-	linux/jack_akai_fire.dynamic.host.elf \
 	linux/jack_snapshot.dynamic.host.elf \
+	linux/synth.dynamic.host.elf \
+	linux/erl.dynamic.host.elf \
+	linux/akai_fire.dynamic.host.elf \
+	linux/clock.dynamic.host.elf \
 	linux/pd.dynamic.host.elf \
 	linux/test_drum.dynamic.host.elf \
 
