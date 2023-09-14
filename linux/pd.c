@@ -1,12 +1,31 @@
 /* Wrapper to start/stop Pd and provide a data channel on stdin.
    start: Set up Pd with netreceive and connect to it here.
    stop:  When stdin closes, ask Pd to shut down via netreceive channel */
+#include <jack/jack.h>
+#include <jack/midiport.h>
 #include "tcp_tools.h"
 #include "assert_write.h"
 #include "assert_read.h"
 #include "macros.h"
 #include "uct_byteswap.h"
 
+
+/* Jack */
+static jack_port_t *midi_out = NULL;
+static jack_port_t *midi_in = NULL;
+static jack_client_t *client = NULL;
+
+static int process (jack_nframes_t nframes, void *arg) {
+    /* Order is important. */
+    void *midi_out_buf = jack_port_get_buffer(midi_out, nframes);
+    jack_midi_clear_buffer(midi_out_buf);
+    jack_nframes_t f = jack_last_frame_time(client);
+    (void)f;
+    return 0;
+}
+
+
+/* Pd */
 int pd_fd = -1;
 
 #define PD_WRITE(str) {                                 \
@@ -66,8 +85,25 @@ int main(int argc, char **argv) {
     int rv = system("i.pd.exo");
     (void)rv;
 
-    /* FIXME: Would be nice to have this also capture Jack Midi, since
-       Pd doesn't seem to do that. */
+    /* Pd midi is problematic, so solve it in this adapter. */
+    const char *client_name = "pd_midi";
+
+    jack_status_t status = 0;
+    client = jack_client_open (client_name, JackNullOption, &status);
+    ASSERT(client);
+
+    ASSERT(midi_in = jack_port_register(
+               client, "in",
+               JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, 0));
+
+    ASSERT(midi_out = jack_port_register(
+               client, "out",
+               JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0));
+
+    jack_set_process_callback (client, process, 0);
+    ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
+    ASSERT(!jack_activate(client));
+
 
     pd_fd = assert_tcp_connect("localhost", 3001);
     PD_WRITE("startup;\n");

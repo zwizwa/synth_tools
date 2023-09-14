@@ -284,7 +284,7 @@ static int process (jack_nframes_t nframes, void *arg) {
 int main(int argc, char **argv) {
 
     /* Jack client setup */
-    const char *client_name = "jack_synth"; // argv[1];
+    const char *client_name = "synth"; // argv[1];
     nb_midi_in   = 1;
     nb_audio_out = 1;
     midi_in   = calloc(nb_midi_in,   sizeof(void*));
