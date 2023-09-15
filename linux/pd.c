@@ -16,9 +16,12 @@
 #include "macros.h"
 #include "uct_byteswap.h"
 
+#define CLOCK_OUT 0
 
 /* Jack */
+#if CLOCK_OUT
 static jack_port_t *audio_out = NULL;
+#endif
 static jack_port_t *midi_in = NULL;
 static jack_client_t *client = NULL;
 
@@ -64,6 +67,9 @@ static inline void process_midi(jack_nframes_t nframes) {
     }
 }
 
+#if CLOCK_OUT
+/* Note that generating audio from midi gives a jittery clock signal.
+   Best to do it the other way around.  See clock.c */
 
 static inline void process_audio(jack_nframes_t nframes) {
     //LOG("\raudio %d ", count++);
@@ -81,9 +87,6 @@ static inline void process_audio(jack_nframes_t nframes) {
         return;
     }
 
-    /* It's ok to just use integer math here, which will cause the
-       last segment to be slightly longer in some cases. We don't care
-       much about jitter. */
     jack_nframes_t nsegments = 2 * nb_clock;
     nb_clock = 0;
 
@@ -98,11 +101,14 @@ static inline void process_audio(jack_nframes_t nframes) {
         dst[t] = phase;
     }
 }
+#endif
 
 static int process (jack_nframes_t nframes, void *arg) {
     /* Order is important. */
     process_midi(nframes);
+#if AUDIO_CLOCK
     process_audio(nframes);
+#endif
     return 0;
 }
 
@@ -177,10 +183,11 @@ int main(int argc, char **argv) {
     ASSERT(midi_in = jack_port_register(
                client, "in",
                JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, 0));
-
+#if AUDIO_CLOCK
     ASSERT(audio_out = jack_port_register(
                client, "out",
                JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0));
+#endif
 
     jack_set_process_callback (client, process, 0);
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));

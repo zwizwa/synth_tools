@@ -12,6 +12,7 @@
 
 
 /* JACK */
+static jack_port_t *audio_out = NULL;
 static jack_port_t *midi_out = NULL;
 static jack_port_t *midi_in = NULL;
 static jack_client_t *client = NULL;
@@ -24,36 +25,41 @@ static inline void send_midi(void *out_buf, jack_nframes_t time,
     if (buf) memcpy(buf, data_buf, nb_bytes);
 }
 
-#define BPM_TO_PERIOD(sr,bpm) ((sr*60)/(bpm*24))
-static jack_nframes_t clock_time;
+#define BPM_TO_HPERIOD(sr,bpm) ((sr*30)/(bpm*24))
 static jack_nframes_t bpm = 120;
+static float clock_phase = 0.0f;
+static int clock_pol = 1;
 
-static inline void process_clock_out(void *midi_out_buf, jack_nframes_t nframes, uint8_t stamp) {
+static int process (jack_nframes_t nframes, void *arg) {
 
     jack_nframes_t sr = jack_get_sample_rate(client);
-    jack_nframes_t clock_period = BPM_TO_PERIOD(sr, bpm);
+    float clock_hperiod = BPM_TO_HPERIOD(sr, bpm);
 
-    /* Send out the MIDI clock bytes at the designated time slots */
-    while(clock_time < nframes) {
-        /* Clock pulse fits in current frame. */
-        const uint8_t clock[] = {0xF8};
-        send_midi(midi_out_buf, clock_time, clock, sizeof(clock));
+    int nb_pos_edge = 0;
 
-        /* Advance clock */
-        clock_time += clock_period;
+    /* Generate quare wave output, cound nb positive clock edges. */
+    jack_default_audio_sample_t *audio_out_buf =
+        jack_port_get_buffer(audio_out, nframes);
+    for (int t=0; t<nframes; t++) {
+        if (clock_phase >= clock_hperiod) {
+            clock_phase -= clock_hperiod;
+            clock_pol ^= 1;
+            if (clock_pol == 1) {
+                nb_pos_edge++;
+            }
+        }
+        audio_out_buf[t] = clock_pol;
+        clock_phase += 1;
     }
-    /* Account for this frame */
-    clock_time -= nframes;
 
-}
-static int process (jack_nframes_t nframes, void *arg) {
-    /* Order is important. */
-
+    /* Send out the MIDI clock bytes. */
     void *midi_out_buf = jack_port_get_buffer(midi_out, nframes);
     jack_midi_clear_buffer(midi_out_buf);
-    jack_nframes_t f = jack_last_frame_time(client);
-    uint8_t stamp = (f / nframes);
-    process_clock_out(midi_out_buf, nframes, stamp);
+    while(nb_pos_edge-- > 0) {
+        const uint8_t clock[] = {0xF8};
+        jack_nframes_t clock_time = 0; // Does this matter?  See old implementation.
+        send_midi(midi_out_buf, clock_time, clock, sizeof(clock));
+    }
     return 0;
 }
 
@@ -68,12 +74,16 @@ int main(int argc, char **argv) {
     ASSERT(client);
 
     ASSERT(midi_in = jack_port_register(
-               client, "in",
+               client, "control",
                JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, 0));
 
     ASSERT(midi_out = jack_port_register(
-               client, "out",
+               client, "midi",
                JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0));
+
+    ASSERT(audio_out = jack_port_register(
+               client, "wave",
+               JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0));
 
     jack_set_process_callback (client, process, 0);
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
