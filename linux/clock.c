@@ -35,30 +35,21 @@ static int process (jack_nframes_t nframes, void *arg) {
     jack_nframes_t sr = jack_get_sample_rate(client);
     float clock_hperiod = BPM_TO_HPERIOD(sr, bpm);
 
-    int nb_pos_edge = 0;
-
-    /* Generate quare wave output, cound nb positive clock edges. */
-    jack_default_audio_sample_t *audio_out_buf =
-        jack_port_get_buffer(audio_out, nframes);
+    /* Generate quare wave output, send midi on positive edge. */
+    jack_default_audio_sample_t *audio_out_buf = jack_port_get_buffer(audio_out, nframes);
+    void *midi_out_buf = jack_port_get_buffer(midi_out, nframes);
+    jack_midi_clear_buffer(midi_out_buf);
     for (int t=0; t<nframes; t++) {
         if (clock_phase >= clock_hperiod) {
             clock_phase -= clock_hperiod;
             clock_pol ^= 1;
             if (clock_pol == 1) {
-                nb_pos_edge++;
+                const uint8_t clock[] = {0xF8};
+                send_midi(midi_out_buf, t, clock, sizeof(clock));
             }
         }
         audio_out_buf[t] = clock_pol;
         clock_phase += 1;
-    }
-
-    /* Send out the MIDI clock bytes. */
-    void *midi_out_buf = jack_port_get_buffer(midi_out, nframes);
-    jack_midi_clear_buffer(midi_out_buf);
-    while(nb_pos_edge-- > 0) {
-        const uint8_t clock[] = {0xF8};
-        jack_nframes_t clock_time = 0; // Does this matter?  See old implementation.
-        send_midi(midi_out_buf, clock_time, clock, sizeof(clock));
     }
     return 0;
 }
