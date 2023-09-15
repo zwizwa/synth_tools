@@ -25,11 +25,14 @@ static inline void send_midi(void *out_buf, jack_nframes_t time,
 }
 
 #define BPM_TO_PERIOD(sr,bpm) ((sr*60)/(bpm*24))
-
-static jack_nframes_t clock_period = BPM_TO_PERIOD(48000, 120);
 static jack_nframes_t clock_time;
+static jack_nframes_t bpm = 120;
 
 static inline void process_clock_out(void *midi_out_buf, jack_nframes_t nframes, uint8_t stamp) {
+
+    jack_nframes_t sr = jack_get_sample_rate(client);
+    jack_nframes_t clock_period = BPM_TO_PERIOD(sr, bpm);
+
     /* Send out the MIDI clock bytes at the designated time slots */
     while(clock_time < nframes) {
         /* Clock pulse fits in current frame. */
@@ -45,6 +48,7 @@ static inline void process_clock_out(void *midi_out_buf, jack_nframes_t nframes,
 }
 static int process (jack_nframes_t nframes, void *arg) {
     /* Order is important. */
+
     void *midi_out_buf = jack_port_get_buffer(midi_out, nframes);
     jack_midi_clear_buffer(midi_out_buf);
     jack_nframes_t f = jack_last_frame_time(client);
