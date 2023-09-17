@@ -1,11 +1,9 @@
-/* Erlang jack port bridge.
+/* Erlang MIDI hub.
 
-   For now, just midi, but might be interesting to also add sample
-   triggering here.  This binary is here to make building simpler.
-   Erlang code is in studio.erl project.
+   Handles all midi/Erlang routing.
 
-   This will make a dedicated in/out port on demand, and connect to
-   the remote port.
+   This should probably have clock as well, but for now that is kept
+   separate.
 
 */
 
@@ -65,7 +63,7 @@ static int process (jack_nframes_t nframes, void *arg) {
 int main(int argc, char **argv) {
 
     /* Jack client setup */
-    const char *client_name = "erl"; // argv[1];
+    const char *client_name = "hub"; // argv[1];
 
     jack_status_t status = 0;
     client = jack_client_open (client_name, JackNullOption, &status);

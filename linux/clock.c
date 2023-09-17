@@ -50,7 +50,7 @@ static inline void send_midi(void *out_buf, jack_nframes_t time,
 
 #define BPM_TO_HPERIOD(sr,bpm) ((sr*30)/(bpm*24))
 static jack_nframes_t bpm = 120;
-static float clock_phase = 0.0f;
+static int clock_phase = 0.0;
 static int clock_pol = 1;
 
 static int process (jack_nframes_t nframes, void *arg) {
@@ -71,10 +71,10 @@ static int process (jack_nframes_t nframes, void *arg) {
         from_erl_read = (from_erl_read + 1) % NB_FROM_ERL_BUFS;
     }
 
-    /* FIXME: It's probably best to make it so that drum clock can be
-       derived from sample clock using an integer ratio.  That way
-       only wordclock needs to be distributed to isolated hardware. */
-    float clock_hperiod = BPM_TO_HPERIOD(sr, bpm);
+    /* This is an integer divisor of the sample clock, which makes it
+       possible to have perfect lock for devices that only receive
+       word clock in. */
+    int clock_hperiod = BPM_TO_HPERIOD(sr, bpm);
 
     /* Generate quare wave output, send midi on positive edge. */
     for (int t=0; t<nframes; t++) {
