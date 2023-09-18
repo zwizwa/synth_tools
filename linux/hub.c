@@ -20,7 +20,7 @@
 #include "macros.h"
 #include "assert_read.h"
 
-#include "jack_macros.h"
+#include "jack_tools.h"
 
 
 /* JACK */
@@ -68,16 +68,14 @@ static inline void send_cc(void *out_buf, int chan, int cc, int val) {
 static uint32_t phase = 0;
 static uint32_t running = 0;
 
+
+
 static inline void process_clock_in(jack_nframes_t nframes) {
     void *pd_out_buf = midi_out_buf(pd_out, nframes);
 
-    void *clock_in_buf  = jack_port_get_buffer(clock_in, nframes);
-    jack_nframes_t n = jack_midi_get_event_count(clock_in_buf);
-    for (jack_nframes_t i = 0; i < n; i++) {
-        jack_midi_event_t event;
-        jack_midi_event_get(&event, clock_in_buf, i);
-        const uint8_t *msg = event.buffer;
-        if (event.size == 1) {
+    FOR_MIDI_EVENTS(iter, clock_in, nframes) {
+        const uint8_t *msg = iter.event.buffer;
+        if (iter.event.size == 1) {
             switch(msg[0]) {
             case 0xFA: // start
                 running = 1;
@@ -110,13 +108,27 @@ static inline void process_clock_in(jack_nframes_t nframes) {
         }
     }
 }
-static inline void process_midi_in(jack_nframes_t nframes) {
-    process_clock_in(nframes);
+
+static inline void process_easycontrol_in(jack_nframes_t nframes) {
+    FOR_MIDI_EVENTS(iter, easycontrol, nframes) {
+        const uint8_t *msg = iter.event.buffer;
+        if (iter.event.size == 3) {
+            if ((msg[0] & 0xF0) == 0xB0) { // CC
+                uint8_t cc  = msg[1];
+                uint8_t val = msg[2];
+                LOG("cc=%d, val=%d\n", cc, val);
+                // I want this to go to Erlang so I can log it in emacs.
+            }
+        }
+    }
 }
+
 
 static int process (jack_nframes_t nframes, void *arg) {
     /* Order is important. */
-    process_midi_in(nframes);
+    process_clock_in(nframes);
+    process_easycontrol_in(nframes);
+
     return 0;
 }
 

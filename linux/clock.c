@@ -33,6 +33,7 @@ static jack_port_t *midi_out = NULL;
 static jack_port_t *midi_in = NULL;
 static jack_client_t *client = NULL;
 int nb_midi_drop = 0;
+jack_nframes_t clock_hperiod = 0;
 
 // Send midi data out over a jack port.
 static inline void send_midi(void *out_buf, jack_nframes_t time,
@@ -48,7 +49,8 @@ static inline void send_midi(void *out_buf, jack_nframes_t time,
     }
 }
 
-#define BPM_TO_HPERIOD(sr,bpm) ((sr*30)/(bpm*24))
+#define BPM_TO_HPERIOD(sr,bpm) ((sr*5)/(bpm*4))
+
 static jack_nframes_t bpm = 120;
 static int clock_phase = 0.0;
 static int clock_pol = 1;
@@ -74,7 +76,14 @@ static int process (jack_nframes_t nframes, void *arg) {
     /* This is an integer divisor of the sample clock, which makes it
        possible to have perfect lock for devices that only receive
        word clock in. */
-    int clock_hperiod = BPM_TO_HPERIOD(sr, bpm);
+    if (!clock_hperiod) {
+        /* It seems that sr is only valid in side the process thread,
+           so set it here once. */
+        clock_hperiod = BPM_TO_HPERIOD(sr, bpm);
+        float bpm_actual = (((float)sr)*1.25f) / ((float)clock_hperiod);
+        LOG("clock: bpm_set = %d, sr = %d -> clock_hperiod = %d, bpm_actual = %3.6f\n", bpm, sr, clock_hperiod, bpm_actual);
+        // FIXME: Send out an NRPN as well?
+    }
 
     /* Generate quare wave output, send midi on positive edge. */
     for (int t=0; t<nframes; t++) {
