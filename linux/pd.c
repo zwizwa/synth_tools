@@ -18,6 +18,15 @@
 
 #define CLOCK_OUT 0
 
+/* Pd */
+int pd_fd = -1;
+#define PD_WRITE(str) {                                 \
+        const uint8_t buf[] = { str };                  \
+        assert_write(pd_fd, buf, sizeof(buf)-1);        \
+    }
+
+
+
 /* Jack */
 #if CLOCK_OUT
 static jack_port_t *audio_out = NULL;
@@ -34,9 +43,32 @@ static inline void process_midi(jack_nframes_t nframes) {
         jack_midi_event_t event;
         jack_midi_event_get(&event, midi_in_buf, i);
         const uint8_t *msg = event.buffer;
-        if (event.size == 1 &&
-            msg[0] == 0xF8) {
-            nb_clock++;
+        if (event.size == 1) {
+            if (msg[0] == 0xF8) {
+                nb_clock++;
+            }
+            /* Convert some midi messages to PD messages. Just write
+               it to the socket.  This should not block in realistic
+               situations. */
+            else if (msg[0] == 0xFA) {
+                PD_WRITE("start;\n");
+            }
+            else if (msg[0] == 0xFB) {
+                PD_WRITE("continue;\n");
+            }
+            else if (msg[0] == 0xFC) {
+                PD_WRITE("stop;\n");
+            }
+        }
+        else if (event.size == 3) {
+            uint8_t type = msg[0] & 0xF0;
+            uint8_t chan = msg[0] & 0x0F;
+            if (type == 0xB0) {
+                char fudi[32];
+                int nb = sprintf(fudi, "cc %d %d %d;\n", chan, msg[1], msg[2]);
+                assert_write(pd_fd, (void*)fudi, nb);
+                // LOG("pd_io %s", msg);
+            }
         }
 
 #if 0 // FIXME: Later, maybe convert control messages to FUDI
@@ -113,13 +145,6 @@ static int process (jack_nframes_t nframes, void *arg) {
 }
 
 
-/* Pd */
-int pd_fd = -1;
-
-#define PD_WRITE(str) {                                 \
-        const uint8_t buf[] = { str };                  \
-        assert_write(pd_fd, buf, sizeof(buf)-1);        \
-    }
 
 
 static inline ssize_t erl_read(void *vbuf, size_t nb) {
@@ -137,7 +162,7 @@ static inline ssize_t erl_read(void *vbuf, size_t nb) {
         /* Erlang side closed the pipe, which means we need to shut
            down.  Send a message to Pd then shut down this wrapper. */
         LOG("EOF on stdin. Sending shutdown to Pd.\n");
-        PD_WRITE("shutdown;\r\n");
+        PD_WRITE("shutdown;\n");
         close(pd_fd);
         exit(0);
     }

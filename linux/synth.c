@@ -13,14 +13,15 @@
 #include "macros.h"
 
 #include "sysex.h"
-#include <jack/jack.h>
-#include <jack/midiport.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <pthread.h>
 #include <semaphore.h>
 
 #include "assert_read.h"
+
+#include "jack_macros.h"
+
 
 /* SYNTH */
 
@@ -209,49 +210,49 @@ struct synth synth;
 
 /* JACK */
 
-static int nb_midi_in;   static jack_port_t **midi_in   = NULL;
-static int nb_audio_out; static jack_port_t **audio_out = NULL;
+#define FOR_MIDI_IN(m) \
+    m(midi_in)         \
+
+#define FOR_AUDIO_OUT(m) \
+    m(audio_out)
+
+FOR_MIDI_IN(DEF_JACK_PORT)
+FOR_AUDIO_OUT(DEF_JACK_PORT)
 
 static jack_client_t *client = NULL;
 
 static int count = 0;
 
 static inline void process_midi(jack_nframes_t nframes) {
-    for (int in=0; in<nb_midi_in; in++) {
-        void *midi_in_buf  = jack_port_get_buffer(midi_in[in], nframes);
-        jack_nframes_t n = jack_midi_get_event_count(midi_in_buf);
-        for (jack_nframes_t i = 0; i < n; i++) {
+    void *midi_in_buf  = jack_port_get_buffer(midi_in, nframes);
+    jack_nframes_t n = jack_midi_get_event_count(midi_in_buf);
+    for (jack_nframes_t i = 0; i < n; i++) {
         LOG("\rmidi %d ", count++);
-            jack_midi_event_t event;
-            jack_midi_event_get(&event, midi_in_buf, i);
-            const uint8_t *msg = event.buffer;
-            if (in == 0 &&
-                event.size == 3 &&
-                msg[0] == 0xB0 && // CC channel 0
-                (msg[1] >= 23) && // CC num on Easycontrol 9
-                (msg[1] <= 31)) {
-                // ...
-            }
-            else if (in == 0 &&
-                event.size == 3 &&
-                msg[0] == 0x90) { // Note on channel 0
-                uint8_t note = msg[1];
-                uint8_t vel  = msg[2];
-                if (vel == 0) {
-                    synth_note_off(&synth, note);
-                }
-                else {
-                    synth_note_on(&synth, note);
-                }
-            }
-            else if (in == 0 &&
-                event.size == 3 &&
-                msg[0] == 0x80) { // Note off channel 0
-                uint8_t note = msg[1];
-                // uint8_t vel  = msg[2];
+        jack_midi_event_t event;
+        jack_midi_event_get(&event, midi_in_buf, i);
+        const uint8_t *msg = event.buffer;
+        if (event.size == 3 &&
+            msg[0] == 0xB0 && // CC channel 0
+            (msg[1] >= 23) && // CC num on Easycontrol 9
+            (msg[1] <= 31)) {
+            // ...
+        }
+        else if (event.size == 3 &&
+                 msg[0] == 0x90) { // Note on channel 0
+            uint8_t note = msg[1];
+            uint8_t vel  = msg[2];
+            if (vel == 0) {
                 synth_note_off(&synth, note);
-
             }
+            else {
+                synth_note_on(&synth, note);
+            }
+        }
+        else if (event.size == 3 &&
+                 msg[0] == 0x80) { // Note off channel 0
+            uint8_t note = msg[1];
+            // uint8_t vel  = msg[2];
+            synth_note_off(&synth, note);
         }
     }
 }
@@ -260,18 +261,16 @@ static inline void process_audio(jack_nframes_t nframes) {
     float sig = 0;
     (void)sig;
 
-    for (int out=0; out<nb_audio_out; out++) {
-        jack_default_audio_sample_t *dst =
-            jack_port_get_buffer(audio_out[out], nframes);
+    jack_default_audio_sample_t *dst =
+        jack_port_get_buffer(audio_out, nframes);
 #if 1
-        synth_run(&synth, dst, nframes);
+    synth_run(&synth, dst, nframes);
 #else
-        for (int t=0; t<nframes; t++) {
-            dst[t] = sig;
-            sig += 0.01;  // quick and dirty buzz
-        }
-#endif
+    for (int t=0; t<nframes; t++) {
+        dst[t] = sig;
+        sig += 0.01;  // quick and dirty buzz
     }
+#endif
 }
 static int process (jack_nframes_t nframes, void *arg) {
     /* Order is important. */
@@ -285,30 +284,14 @@ int main(int argc, char **argv) {
 
     /* Jack client setup */
     const char *client_name = "synth"; // argv[1];
-    nb_midi_in   = 1;
-    nb_audio_out = 1;
-    midi_in   = calloc(nb_midi_in,   sizeof(void*));
-    audio_out = calloc(nb_audio_out, sizeof(void*));
 
     jack_status_t status = 0;
     client = jack_client_open (client_name, JackNullOption, &status);
     ASSERT(client);
 
-    char port_name[32] = {};
-    for (int in = 0; in < nb_midi_in; in++) {
-        snprintf(port_name,sizeof(port_name)-1,"midi_in_%d",in);
-        LOG("i: %s\n", port_name);
-        ASSERT(midi_in[in] = jack_port_register(
-                   client, port_name,
-                   JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, 0));
-    }
-    for (int out = 0; out < nb_audio_out; out++) {
-        snprintf(port_name,sizeof(port_name)-1,"audio_out_%d",out);
-        LOG("o: %s\n", port_name);
-        ASSERT(audio_out[out] = jack_port_register(
-                   client, port_name,
-                   JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0));
-    }
+    FOR_MIDI_IN(REGISTER_JACK_MIDI_IN);
+    FOR_AUDIO_OUT(REGISTER_JACK_AUDIO_OUT);
+
     jack_set_process_callback (client, process, 0);
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
     ASSERT(!jack_activate(client));

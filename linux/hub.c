@@ -1,9 +1,16 @@
 /* Erlang MIDI hub.
 
    Handles all midi/Erlang routing.
+   Hosts sequencer / arpeggiator.
 
-   This should probably have clock as well, but for now that is kept
-   separate.
+   Clock is always slave mode here to keep things flexible.
+   In my setup, clock.c is master clock.
+
+   Note that this has all equipment hardcoded.  I currently do not see
+   the point in adding a layer of configuration abstraction.  Easy
+   enough to recompile in the current setup, so all config is in C, or
+   C generated from compile-time config.  Later it might become
+   obvious how to separate this out into config and generic code.
 
 */
 
@@ -13,15 +20,37 @@
 #include "macros.h"
 #include "assert_read.h"
 
-#include <jack/jack.h>
-#include <jack/midiport.h>
+#include "jack_macros.h"
 
 
 /* JACK */
-static jack_port_t *midi_out = NULL;
-static jack_port_t *midi_in = NULL;
+#define FOR_MIDI_IN(m) \
+    m(clock_in)     \
+    m(fire_in)      \
+    m(easycontrol)  \
+
+#define FOR_MIDI_OUT(m) \
+    m(tb03)         \
+    m(fire_out)     \
+    m(volca_keys)   \
+    m(volca_bass)   \
+    m(volca_beats)  \
+    m(synth)        \
+    m(pd_out)       \
+
+
+FOR_MIDI_IN(DEF_JACK_PORT)
+FOR_MIDI_OUT(DEF_JACK_PORT)
+
 static jack_client_t *client = NULL;
 
+#define BPM_TO_PERIOD(sr,bpm) ((sr*60)/(bpm*24))
+
+static inline void *midi_out_buf(jack_port_t *port, jack_nframes_t nframes) {
+    void *buf = jack_port_get_buffer(port, nframes);
+    jack_midi_clear_buffer(buf);
+    return buf;
+}
 // Send midi data out over a jack port.
 static inline void send_midi(void *out_buf, jack_nframes_t time,
                              const void *data_buf, size_t nb_bytes) {
@@ -29,33 +58,65 @@ static inline void send_midi(void *out_buf, jack_nframes_t time,
     void *buf = jack_midi_event_reserve(out_buf, time, nb_bytes);
     if (buf) memcpy(buf, data_buf, nb_bytes);
 }
-
-#define BPM_TO_PERIOD(sr,bpm) ((sr*60)/(bpm*24))
-
-static jack_nframes_t clock_period = BPM_TO_PERIOD(48000, 120);
-static jack_nframes_t clock_time;
-
-static inline void process_clock_out(void *midi_out_buf, jack_nframes_t nframes, uint8_t stamp) {
-    /* Send out the MIDI clock bytes at the designated time slots */
-    while(clock_time < nframes) {
-        /* Clock pulse fits in current frame. */
-        const uint8_t clock[] = {0xF8};
-        send_midi(midi_out_buf, clock_time, clock, sizeof(clock));
-
-        /* Advance clock */
-        clock_time += clock_period;
-    }
-    /* Account for this frame */
-    clock_time -= nframes;
-
+static inline void send_cc(void *out_buf, int chan, int cc, int val) {
+    const uint8_t midi[] = {0xB0 + (chan & 0x0F), cc & 0x7F, val & 0x7F};
+    send_midi(out_buf, 0, midi, sizeof(midi));
 }
+
+
+
+static uint32_t phase = 0;
+static uint32_t running = 0;
+
+static inline void process_clock_in(jack_nframes_t nframes) {
+    void *pd_out_buf = midi_out_buf(pd_out, nframes);
+
+    void *clock_in_buf  = jack_port_get_buffer(clock_in, nframes);
+    jack_nframes_t n = jack_midi_get_event_count(clock_in_buf);
+    for (jack_nframes_t i = 0; i < n; i++) {
+        jack_midi_event_t event;
+        jack_midi_event_get(&event, clock_in_buf, i);
+        const uint8_t *msg = event.buffer;
+        if (event.size == 1) {
+            switch(msg[0]) {
+            case 0xFA: // start
+                running = 1;
+                phase = 0;
+                break;
+            case 0xFB: // continue
+                running = 1;
+                break;
+            case 0xFC: // stop
+                running = 0;
+                break;
+            case 0xF8: { // clock
+                if (running) {
+                    uint32_t qn = phase == 0; // one quarter note
+                    uint32_t en = (phase % 12) == 0; // one eight note
+
+                    /* For Pd Note On/Off is not used as it requires begin/end of events.
+                       Use CC to map better to single-ended events. */
+                    if (qn) {
+                        send_cc(pd_out_buf, 0, 0, 0);
+                    }
+                    if (en) {
+                        send_cc(pd_out_buf, 0, 0, 1);
+                    }
+                }
+                phase = (phase + 1) % 24;
+                break;
+            }
+            }
+        }
+    }
+}
+static inline void process_midi_in(jack_nframes_t nframes) {
+    process_clock_in(nframes);
+}
+
 static int process (jack_nframes_t nframes, void *arg) {
     /* Order is important. */
-    void *midi_out_buf = jack_port_get_buffer(midi_out, nframes);
-    jack_midi_clear_buffer(midi_out_buf);
-    jack_nframes_t f = jack_last_frame_time(client);
-    uint8_t stamp = (f / nframes);
-    process_clock_out(midi_out_buf, nframes, stamp);
+    process_midi_in(nframes);
     return 0;
 }
 
@@ -68,14 +129,8 @@ int main(int argc, char **argv) {
     jack_status_t status = 0;
     client = jack_client_open (client_name, JackNullOption, &status);
     ASSERT(client);
-
-    ASSERT(midi_in = jack_port_register(
-               client, "in",
-               JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, 0));
-
-    ASSERT(midi_out = jack_port_register(
-               client, "out",
-               JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0));
+    FOR_MIDI_IN(REGISTER_JACK_MIDI_IN);
+    FOR_MIDI_OUT(REGISTER_JACK_MIDI_OUT);
 
     jack_set_process_callback (client, process, 0);
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
