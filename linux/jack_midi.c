@@ -1,4 +1,5 @@
-// FIXME: No longer used.  Some functionality will need to be split out.
+// FIXME: No longer used.  Some functionality has been recycled in
+// other clients.  Delete this when everything is ported.
 
 #define _DEFAULT_SOURCE
 

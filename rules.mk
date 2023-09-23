@@ -29,6 +29,7 @@ HOST_ELF := \
 	linux/akai_fire.dynamic.host.elf \
 	linux/clock.dynamic.host.elf \
 	linux/pd.dynamic.host.elf \
+	linux/envy24.dynamic.host.elf \
 	linux/test_drum.dynamic.host.elf \
 
 
@@ -235,7 +236,7 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	export LD=linux/dynamic.host.ld ; \
 	export MAP=$(patsubst %.elf,%.map,$@) ; \
 	export O=$< ; \
-	export LDLIBS="-lpthread -ljack" ; \
+	export LDLIBS="-lpthread -ljack -lasound" ; \
 	export TYPE=elf ; \
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1

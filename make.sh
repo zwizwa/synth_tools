@@ -4,7 +4,8 @@ NPROC=$(nproc)
 cd $(dirname $0)
 
 #EXO_DEV=/nix/store/0lzwzl9ysckfmrn71dhcyp6g9q2474la-exo-dev
-EXO_DEV=/nix/store/pa18q4jq3yy037l6g8pz3hq74v2n956f-exo-dev
+#EXO_DEV=/nix/store/pa18q4jq3yy037l6g8pz3hq74v2n956f-exo-dev
+EXO_DEV=/nix/store/c4fp2c3y81qfkih4cx9nhq0wyvnwr1d1-exo-dev
 . $EXO_DEV/env
 
 export PATH=$EXO_DEV_PATH

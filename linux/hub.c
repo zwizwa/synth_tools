@@ -18,9 +18,11 @@
 #define _POSIX_C_SOURCE 1
 
 #include "macros.h"
-#include "assert_read.h"
-
 #include "jack_tools.h"
+#include "erl_port.h"
+#include "assert_read.h"
+#include "assert_write.h"
+
 
 
 /* JACK */
@@ -63,6 +65,34 @@ static inline void send_cc(void *out_buf, int chan, int cc, int val) {
     send_midi(out_buf, 0, midi, sizeof(midi));
 }
 
+
+/* Erlang */
+#define TO_ERL_SIZE_LOG 12
+#define TO_ERL_SIZE (1 << TO_ERL_SIZE_LOG)
+static uint8_t to_erl_buf[TO_ERL_SIZE];
+static size_t to_erl_buf_bytes = 0;
+//static uint32_t to_erl_room(void) {
+//    uint32_t free_bytes = sizeof(to_erl_buf) - to_erl_buf_bytes;
+//    if (free_bytes >= 6) return free_bytes - 6;
+//    return 0;
+//}
+static uint8_t *to_erl_hole(int nb, uint16_t port) {
+    size_t msg_size = 6 + nb;
+    if (to_erl_buf_bytes + msg_size > sizeof(to_erl_buf)) {
+        LOG("midi buffer overflow\n");
+        return NULL;
+    }
+    uint8_t *msg = &to_erl_buf[to_erl_buf_bytes];
+    set_u32be(msg, msg_size - 4); // {packet,4}
+    msg[4] = (port >> 8);
+    msg[5] = port;
+    to_erl_buf_bytes += msg_size;
+    return &msg[6];
+}
+static void to_erl(const uint8_t *buf, int nb, uint8_t port) {
+    uint8_t *hole = to_erl_hole(nb, port);
+    if (hole) { memcpy(hole, buf, nb); }
+}
 
 
 static uint32_t phase = 0;
@@ -109,25 +139,58 @@ static inline void process_clock_in(jack_nframes_t nframes) {
     }
 }
 
-static inline void process_easycontrol_in(jack_nframes_t nframes) {
+static inline void process_easycontrol_in(jack_nframes_t nframes, uint8_t stamp) {
     FOR_MIDI_EVENTS(iter, easycontrol, nframes) {
         const uint8_t *msg = iter.event.buffer;
-        if (iter.event.size == 3) {
+        int n = iter.event.size;
+        to_erl(msg, n, 0/*port?*/);
+#if 0
+        if (n == 3) {
             if ((msg[0] & 0xF0) == 0xB0) { // CC
                 uint8_t cc  = msg[1];
                 uint8_t val = msg[2];
-                LOG("cc=%d, val=%d\n", cc, val);
-                // I want this to go to Erlang so I can log it in emacs.
+                // FIXME: Route to pd etc...
             }
         }
+#endif
     }
 }
 
 
+
+
+static inline void process_erl_out(jack_nframes_t nframes) {
+    /* Send to Erlang
+
+       Note: I'm not exactly sure whether it is a good idea to perform
+       the write() call from this thread, but it seems the difference
+       between a single semaphore system call and a single write to an
+       Erlang port pipe accessing a single page of memory is not going
+       to be big.  So revisit if it ever becomes a problem.
+
+       This will buffer all midi messages and perform only a single
+       write() call.
+
+    */
+
+    if (to_erl_buf_bytes) {
+        //LOG("buf_bytes = %d\n", (int)to_erl_buf_bytes);
+        assert_write(1, to_erl_buf, to_erl_buf_bytes);
+        to_erl_buf_bytes = 0;
+    }
+
+}
+
 static int process (jack_nframes_t nframes, void *arg) {
+
+    /* Erlang out is tagged with a rolling time stamp. */
+    jack_nframes_t f = jack_last_frame_time(client);
+    uint8_t stamp = (f / nframes);
+
     /* Order is important. */
     process_clock_in(nframes);
-    process_easycontrol_in(nframes);
+    process_easycontrol_in(nframes, stamp);
+    process_erl_out(nframes);
 
     return 0;
 }

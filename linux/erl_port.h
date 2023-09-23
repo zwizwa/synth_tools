@@ -22,44 +22,7 @@
 #endif
 
 /* RAW READ / ASSERT */
-
-// FIXME: this is also defined in uc_tools/macros.h
-static inline ssize_t assert_read(int fd, void *vbuf, size_t nb) {
-    unsigned char *buf = vbuf;
-    //LOG("assert_read(%d,%p,%d)\n", fd, buf, nb);
-    if (nb == 0) return 0;
-    ssize_t rv;
-    do {
-        rv = read(fd, buf, nb);
-    } while(rv == -1 && errno == EINTR); // Haskell uses signals
-
-    if (rv > 0) {
-        //LOG("%2d: rv=%d\n", fd, rv);
-    }
-    else if (rv == 0) {
-        LOG("fd %2d: EOF\n", fd);
-        exit(0);
-    }
-    else if (rv < 0) {
-        int e = errno;
-        LOG("fd %2d: errno=%d\n", fd, e);
-        //char *msg = strerror(e);
-        //LOG("%d: errno=%d: %s\n", fd, e, msg); // SIGSEGV?
-    }
-    ASSERT(rv > 0);
-    return rv;
-}
-static inline ssize_t assert_read_fixed(int fd, void *vbuf, size_t nb) {
-    unsigned char *buf = vbuf;
-    size_t got = 0;
-    while (got < nb) {
-        ssize_t rv = assert_read(fd, buf+got, nb-got);
-        ASSERT(rv > 0);
-        got += rv;
-    }
-    ASSERT_EQ(got, nb);
-    return got;
-}
+#include "assert_read.h"
 
 
 // FIXME: compat
@@ -107,22 +70,11 @@ static inline void assert_read_packet4_static(int fd, void *buf, ssize_t buf_siz
 
 
 /* RAW WRITE / ASSERT */
-
-/* Non-buffered */
-static inline int assert_write(int fd, const uint8_t *buf, uint32_t nb) {
-    int left = nb;
-    while(left > 0) {
-        int rv;
-        ASSERT_ERRNO(rv = WRITE(fd, buf, left));
-        buf  += rv;
-        left -= rv;
-    }
-    return nb;
-}
-static inline void assert_write_port8(int fd, void *buf, uint8_t nb_bytes) {
-    assert_write(fd, &nb_bytes, 1);
-    assert_write(fd, buf, nb_bytes);
-}
+#include "assert_write.h"
+//static inline void assert_write_port8(int fd, void *buf, uint8_t nb_bytes) {
+//    assert_write(fd, &nb_bytes, 1);
+//    assert_write(fd, buf, nb_bytes);
+//}
 
 static inline void set_u32be(uint8_t *buf, uint32_t val) {
     buf[0] = val >> 24;
