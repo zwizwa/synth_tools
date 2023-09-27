@@ -109,7 +109,16 @@ int main(int argc, char **argv) {
         ERROR("No ICE1712 cards found\n");
     }
     /* FIXME: It seems possible to change the default state.
-       See original source. */
+       See original envy24control source. */
+
+    /* Mixer elements are accessed by name.  See kernel source:
+
+       ~/git/linux/sound$ grep -re "Multi Track Internal Clock" *
+       pci/ice1712/ice1712.c:	.name = "Multi Track Internal Clock",
+
+       ~/git/linux/sound/pci$ grep -re 'Word Clock Sync' *
+       ice1712/delta.c:ICE1712_GPIO(SNDRV_CTL_ELEM_IFACE_MIXER, "Word Clock Sync", 0, ICE1712_DELTA_WORD_CLOCK_SELECT, 1, 0);
+    */
 
     ASSERT(0 == snd_ctl_elem_value_malloc(&internal_clock));
     snd_ctl_elem_value_set_interface(internal_clock, SND_CTL_ELEM_IFACE_MIXER);
