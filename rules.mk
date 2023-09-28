@@ -32,6 +32,7 @@ HOST_ELF := \
 	linux/pd.dynamic.host.elf \
 	linux/envy24.dynamic.host.elf \
 	linux/test_drum.dynamic.host.elf \
+	linux/gen_max11300.dynamic.host.elf \
 
 
 ALL_ELF := $(STM_ELF) $(HOST_ELF)
@@ -214,7 +215,6 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	export TYPE=o ; \
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1
-
 
 linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
