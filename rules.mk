@@ -9,6 +9,7 @@ STM_ELF := \
 	stm32f103/synth.x8.f103.elf \
 	stm32f103/synth.x8.f103.bin \
 	stm32f103/pixi.x8.f103.elf \
+	stm32f103/pixi.x8.f103.dasm \
 
 STM_ELF_DIS := \
 	stm32f103/bp2.x8.f103.elf \
@@ -183,6 +184,18 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	export TYPE=elf ; \
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	export VERSION_LINK_GEN=./version.sh ; \
+	$$BUILD 2>&1
+
+%.f103.dasm: \
+	%.f103.elf \
+
+	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
+	export ARCH=f103 ; \
+	export BUILD=stm32f103/build.sh ; \
+	export DASM=$@ ; \
+	export ELF=$< ; \
+	export TYPE=dasm ; \
+	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1
 
 

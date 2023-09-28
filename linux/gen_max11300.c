@@ -308,5 +308,6 @@ void init() {
 int main(int argc, char **argv) {
     W("// generated from MAX11300Hex.h by gen_max11300.c\n");
     W("#define MAX11300_INIT(write, delay) \\\n");
+    W("\n");
     init();
 }
