@@ -11,7 +11,8 @@
 
 
 # TCP_PORT=3307
-TCP_PORT=3306
+# TCP_PORT=3306
+TCP_PORT=3309
 
 HERE=$(readlink -f $(dirname "$0"))
 STM32F103=$HERE/../stm32f103
