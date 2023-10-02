@@ -31,6 +31,7 @@
 #include "jack_tools.h"
 #include "mod_tether_3if_sysex.c"
 #include "gdbstub_api.h"
+#include "assert_write.h"
 #include <poll.h>
 
 /* JACK */
@@ -39,39 +40,49 @@
 static jack_client_t *client = NULL;
 FOR_MIDI_IN(DEF_JACK_PORT)
 FOR_MIDI_OUT(DEF_JACK_PORT)
-static struct jack_pipes jack_pipes;
+struct process_state {
+    struct jack_pipes p; // base object
+    void *midi_out_buf;
+};
+struct process_state process_state;
+void send_midi_packet(struct jack_pipes *p,
+                      const uint8_t *midi_data, uintptr_t nb_bytes) {
+    // for(uintptr_t i=0; i<nb_bytes; i++) LOG(" %02x", midi_data[i]); LOG("\n");
+    struct process_state *s = (void*)p;
+    void *buf = jack_midi_event_reserve(s->midi_out_buf, 0, nb_bytes);
+    if (buf) memcpy(buf, midi_data, nb_bytes);
+}
+
+static inline void *midi_out_buf(jack_port_t *port, jack_nframes_t nframes) {
+    void *buf = jack_port_get_buffer(port, nframes);
+    jack_midi_clear_buffer(buf);
+    return buf;
+}
+
 static int process (jack_nframes_t nframes, void *arg) {
-    /* Perform a non-blocking read on the pipe.  The pipe contains
-       stream data that we convert to midi messages here. */
-    int timeout_ms = 0;
-    struct pollfd pfd = {
-        .fd = jack_pipes.from_main_fd, .events = POLLIN,
-    };
-    int rv;
-    ASSERT_ERRNO(rv = poll(&pfd, 1, timeout_ms));
-    if( pfd.revents & POLLIN) {
-        uint8_t buf[1024];
-        size_t size = assert_read(pfd.fd, buf, sizeof(buf));
-        for (size_t i=0; i<size; i++) {
-            LOG("%d 0x%02\n", i, buf[i]);
-        }
+    process_state.midi_out_buf = midi_out_buf(midi_out, nframes);
+
+    // FIXME: CLEAR!
+    jack_pipes_handle(&process_state.p, send_midi_packet);
+    FOR_MIDI_EVENTS(iter, midi_in, nframes) {
+        const uint8_t *msg = iter.event.buffer;
+        uintptr_t len = iter.event.size;
+        // for(uintptr_t i=0; i<len; i++) LOG(" %02x", msg[i]); LOG("\n");
+        assert_write(process_state.p.to_main_fd, msg, len);
     }
     return 0;
 }
 
 
+/* 3IF */
 typedef void (*push_fn)(struct tether *s, uint8_t byte);
-
 /* Non-blocking mode: listen to both console input and midi port.  Not
    sure yet what to do with this. */
 void push_cmd(struct tether *s, uint8_t byte) {
 }
 void push_midi(struct tether *s, uint8_t byte) {
 }
-
 /* Application defines 3if command extensions. */
-
-
 int main(int argc, char **argv) {
 
     ASSERT(argc >= 3);
@@ -92,11 +103,11 @@ int main(int argc, char **argv) {
     else {
         // Otherwise it is a jack client name.
         const char *client_name = argv[1];
-        jack_pipes_init(&jack_pipes);
+        jack_pipes_init(&process_state.p);
         tether_set_midi_fds(
             &s_,
-            /*fd_in*/  jack_pipes.from_jack_fd,
-            /*fd_out*/ jack_pipes.to_jack_fd);
+            /*fd_in*/  process_state.p.from_jack_fd,
+            /*fd_out*/ process_state.p.to_jack_fd);
         jack_status_t status = 0;
         client = jack_client_open (client_name, JackNullOption, &status);
         ASSERT(client);
@@ -109,7 +120,7 @@ int main(int argc, char **argv) {
 
     struct tether *s = &s_.tether;
     s->progress = 1;
-    s->verbose = 0;
+    s->verbose = 1;
 
     if (!strcmp(cmd,"load")) {
         ASSERT(argc == 5);
@@ -166,7 +177,16 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (!strcmp(cmd, "sync")) {
+        /* Perform a couple of RPCs to ensure we're still in lock
+           step. */
+    }
+
+
     if (!strcmp(cmd, "info")) {
+        sleep(1);
+        LOG("info\n");
+
         /* Address of the list if 3if command extensions. */
         uint32_t cmd_3if = tether_read_flash_u32(
             s, 0x08002800 + 4 * GDBSTUB_CONFIG_INDEX_CMD_3IF);

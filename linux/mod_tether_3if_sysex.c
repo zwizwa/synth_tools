@@ -47,20 +47,31 @@ struct tether_sysex {
 #define TETHER_SYSEX_PUT(s,byte) {                      \
         TETHER_SYSEX_PUT_LABEL(s,byte,GENSYM(label_))   \
 }
+
+/* FIXME: Add buffering, so it is compatible with O_DIRECT read. */
+uint8_t tether_sysex_get_byte(struct tether_sysex *s) {
+    uint8_t byte;
+    assert_read_fixed(s->tether.fd_in, &byte, 1);
+    // LOG("get %02x\n", byte);
+    return byte;
+}
+
 uint8_t tether_sysex_get(struct tether_sysex *s) {
     uint8_t byte;
     if (s->next) goto *s->next;
   next_packet:
-    do assert_read_fixed(s->tether.fd_in, &byte, 1); while(byte != 0xF0);
-    assert_read_fixed(s->tether.fd_in, &byte, 1);
+    do { byte = tether_sysex_get_byte(s); } while(byte != 0xF0);
+    byte = tether_sysex_get_byte(s);
     if (byte == 0xF7) { goto next_packet; }
-    ASSERT(byte == 0x12);
+    if (byte != 0x12) {
+        ERROR("0x%02x != 0x12\n", byte);
+    }
     for(;;) {
-        assert_read_fixed(s->tether.fd_in, &byte, 1);
+        byte = tether_sysex_get_byte(s);
         if (byte == 0xF7) { goto next_packet; }
         s->msbs = byte;
         for(s->count = 0; s->count < 7; s->count++) {
-            assert_read_fixed(s->tether.fd_in, &byte, 1);
+            byte = tether_sysex_get_byte(s);
             if (byte == 0xF7) { goto next_packet; }
             if (s->msbs & (1 << s->count)) { byte |= 0x80; }
             TETHER_SYSEX_PUT(s, byte);

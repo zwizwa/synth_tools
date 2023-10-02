@@ -63,12 +63,28 @@ struct jack_pipes {
 };
 static inline
 void jack_pipes_init(struct jack_pipes *p) {
-    int main_to_jack[2]; ASSERT(0 == pipe2(main_to_jack, O_DIRECT));
+    /* To jack is in packet mode. */
+    int main_to_jack[2]; ASSERT(0 == pipe2(main_to_jack, O_DIRECT | O_NONBLOCK));
     p->from_main_fd = main_to_jack[0];
     p->to_jack_fd   = main_to_jack[1];
-    int jack_to_main[2]; ASSERT(0 == pipe2(jack_to_main, O_DIRECT));
+    /* Return is NOT in packet mode.  FIXME: This feels ugly, but
+       that's what the tether_3if code wants.  Maybe add buffering. */
+    int jack_to_main[2]; ASSERT(0 == pipe2(jack_to_main, 0));
     p->from_jack_fd = jack_to_main[0];
     p->to_main_fd   = jack_to_main[1];
+}
+void jack_pipes_handle(struct jack_pipes *p,
+                       void (*handle)(struct jack_pipes *,
+                                      const uint8_t *, uintptr_t)) {
+    int rv;
+    uint8_t buf[1024]; // What is a good size?
+    /* We only expect two conditions: non-zero size packet and no
+       data.  Anything else is an error. */
+    while ((rv = read(p->from_main_fd, buf, sizeof(buf))) > 0) {
+        handle(p, buf, rv);
+    }
+    ASSERT(rv == -1);
+    ASSERT(errno == EAGAIN);
 }
 #else
 #error jack_pipes needs _GNU_SOURCE for pipe2()
