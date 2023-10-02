@@ -28,11 +28,101 @@
 // #define TETHER_3IF_LOG_DBG LOG
 
 #define _GNU_SOURCE // Needed for pipe2 in jack_tools.h
+#include <poll.h>
 #include "jack_tools.h"
 #include "mod_tether_3if_sysex.c"
 #include "gdbstub_api.h"
 #include "assert_write.h"
-#include <poll.h>
+#include "tcp_tools.h"
+
+
+/* 3IF */
+struct tether_sysex s_ = {};
+struct tether *s = &s_.tether;
+
+/* TARGET READ CACHE */
+#define CACHE_LOGSIZE 7 /* 7 fits in a single 3IF read command */
+#define CACHE_SIZE (1 << CACHE_LOGSIZE)
+#define CACHE_ADDR_MASK (~(CACHE_SIZE-1))
+uint8_t cache_buf[CACHE_SIZE];
+uint32_t cache_addr;
+
+/* GDBSTUB */
+#include "gdb/gdbstub.h"
+const char gdbstub_memory_map[] = GDBSTUB_MEMORY_MAP_STM32F103CB;
+struct gdbstub_config _config;
+#include "gdb/rsp_packet.c"
+#include "gdb/gdbstub.c"
+GDBSTUB_INSTANCE(gdbstub, gdbstub_default_commands);
+// All write access is stubbed out.
+int32_t flash_erase(uint32_t addr, uint32_t size) {
+    return 0;
+}
+int32_t flash_write(uint32_t addr, const uint8_t *b_buf, uint32_t len) {
+    return 0;
+}
+int32_t mem_write(uint32_t addr, uint8_t val) {
+    return E_OK;
+}
+int32_t mem_write32(uint32_t addr, uint32_t val) {
+    return E_OK;
+}
+static inline int cached(uint32_t addr) {
+    if (!cache_addr) return 0;
+    return ((addr >= cache_addr) &&
+            (addr < cache_addr + CACHE_SIZE));
+}
+
+void clear_cache(void) {
+    cache_addr = 0;
+}
+void mem_prefetch(uint32_t addr) {
+    if (cached(addr)) {
+        // Already have this region
+        return;
+    }
+    cache_addr = CACHE_ADDR_MASK & addr;
+    if ((addr >= 0x20000000) &&
+        (addr <  0x20005000)) {
+        tether_read_mem(s, cache_buf, cache_addr, CACHE_SIZE, LDA, NAL);
+        return;
+    }
+    if ((addr >= 0x08000000) &&
+        (addr <  0x08020000)) {
+        tether_read_mem(s, cache_buf, cache_addr, CACHE_SIZE, LDF, NFL);
+        return;
+    }
+    clear_cache();
+}
+uint8_t mem_read(uint32_t addr) {
+    mem_prefetch(addr);
+    if (cached(addr)) {
+        return cache_buf[addr - cache_addr];
+    }
+    else {
+        LOG("bad addr 0x%08x\n", addr);
+        return 0x55;
+    }
+}
+void serve(int fd_in, int fd_out) {
+    uint8_t buf[1024];
+    for(;;) {
+        ssize_t n_stdin = read(fd_in, buf, sizeof(buf)-1);
+        if (n_stdin == 0) break;
+        ASSERT(n_stdin > 0);
+        buf[n_stdin] = 0;
+        // LOG("I:%d:%s\n",n_stdin,buf);
+        gdbstub_write(&gdbstub, buf, n_stdin);
+        uint32_t n_stub = gdbstub_read_ready(&gdbstub);
+        if (n_stub > sizeof(buf)-1) { n_stub = sizeof(buf)-1; }
+        gdbstub_read(&gdbstub, buf, n_stub);
+        buf[n_stub] = 0;
+        // LOG("O:%d:%s\n", n_stub, buf);
+        assert_write(fd_out, buf, n_stub);
+        // FLUSH?
+    }
+}
+
 
 /* JACK */
 #define FOR_MIDI_IN(m)  m(midi_in)
@@ -58,7 +148,6 @@ static inline void *midi_out_buf(jack_port_t *port, jack_nframes_t nframes) {
     jack_midi_clear_buffer(buf);
     return buf;
 }
-
 static int process (jack_nframes_t nframes, void *arg) {
     process_state.midi_out_buf = midi_out_buf(midi_out, nframes);
 
@@ -74,7 +163,8 @@ static int process (jack_nframes_t nframes, void *arg) {
 }
 
 
-/* 3IF */
+/* START & COMMAND DISPATCH */
+
 typedef void (*push_fn)(struct tether *s, uint8_t byte);
 /* Non-blocking mode: listen to both console input and midi port.  Not
    sure yet what to do with this. */
@@ -82,7 +172,7 @@ void push_cmd(struct tether *s, uint8_t byte) {
 }
 void push_midi(struct tether *s, uint8_t byte) {
 }
-/* Application defines 3if command extensions. */
+
 int main(int argc, char **argv) {
 
     ASSERT(argc >= 3);
@@ -90,8 +180,6 @@ int main(int argc, char **argv) {
 
     const char *log_tag = getenv("TETHER_BL_TAG");
     if (log_tag) { tether_3if_tag = log_tag; }
-
-    struct tether_sysex s_ = {};
 
     ASSERT(argv[1][0]);
     if (argv[1][0] == '/') {
@@ -118,7 +206,6 @@ int main(int argc, char **argv) {
         ASSERT(!jack_activate(client));
     }
 
-    struct tether *s = &s_.tether;
     s->progress = 1;
     s->verbose = 1;
 
@@ -177,9 +264,19 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (!strcmp(cmd, "sync")) {
-        /* Perform a couple of RPCs to ensure we're still in lock
-           step. */
+    if (!strcmp(cmd, "gdbstub")) {
+        /* Serve gdbstub on stdio */
+        // serve(0, 1);
+
+        /* Serve gdbstub on TCP */
+        uint16_t listen_port = 20000;
+        int fd_listen = assert_tcp_listen(listen_port);
+        int rv = 0;
+        while (rv == 0) {
+            int fd_con = assert_accept(fd_listen);
+            LOG("accepted %d\n", listen_port);
+            serve(fd_con, fd_con);
+        }
     }
 
 
