@@ -1,3 +1,8 @@
+/* Generic MIDI framing code.  Takes a MIDI byte stream as input and
+   invokes a callback for each complete message.  This should be
+   designed for the lowest level, to be run from microcontroller UART
+   ISR. */
+
 #ifndef MIDI_FRAME_H
 #define MIDI_FRAME_H
 

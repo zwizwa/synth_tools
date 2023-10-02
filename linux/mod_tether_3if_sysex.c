@@ -3,6 +3,10 @@
 #ifndef MOD_TETHER_3IF_SYSEX
 #define MOD_TETHER_3IF_SYSEX
 
+#ifndef TETHER_3IF_LOG_DBG
+#define TETHER_3IF_LOG_DBG(...)
+#endif
+
 #include "mod_tether_3if.c"
 #include "sysex.h"
 
@@ -14,10 +18,13 @@ void tether_sysex_write(struct tether *s, const uint8_t *buf, size_t len) {
     const_slice_uint8_t in = { .buf = buf, .len = len };
     sysex_encode_8bit_to_7bit(sysex + 2, &in);
     sysex[2 + nb_data] = 0xF7;
+    for(uint32_t i=0; i<sizeof(sysex); i++) {
+        TETHER_3IF_LOG_DBG(" %02x", sysex[i]);
+    }
+    TETHER_3IF_LOG_DBG("\n");
 
-    // for(uint32_t i=0; i<sizeof(sysex); i++) { LOG(" %02x", sysex[i]); } LOG("\n");
-
-    assert_write(s->fd, sysex, sizeof(sysex));
+    /* Use a single write call to allow pipe2 O_DIRECT packet mode. */
+    assert_write(s->fd_out, sysex, sizeof(sysex));
 }
 
 struct tether_sysex {
@@ -44,16 +51,16 @@ uint8_t tether_sysex_get(struct tether_sysex *s) {
     uint8_t byte;
     if (s->next) goto *s->next;
   next_packet:
-    do assert_read_fixed(s->tether.fd, &byte, 1); while(byte != 0xF0);
-    assert_read_fixed(s->tether.fd, &byte, 1);
+    do assert_read_fixed(s->tether.fd_in, &byte, 1); while(byte != 0xF0);
+    assert_read_fixed(s->tether.fd_in, &byte, 1);
     if (byte == 0xF7) { goto next_packet; }
     ASSERT(byte == 0x12);
     for(;;) {
-        assert_read_fixed(s->tether.fd, &byte, 1);
+        assert_read_fixed(s->tether.fd_in, &byte, 1);
         if (byte == 0xF7) { goto next_packet; }
         s->msbs = byte;
         for(s->count = 0; s->count < 7; s->count++) {
-            assert_read_fixed(s->tether.fd, &byte, 1);
+            assert_read_fixed(s->tether.fd_in, &byte, 1);
             if (byte == 0xF7) { goto next_packet; }
             if (s->msbs & (1 << s->count)) { byte |= 0x80; }
             TETHER_SYSEX_PUT(s, byte);
@@ -69,12 +76,19 @@ ssize_t tether_sysex_read(struct tether *s_, void *vbuf, size_t nb) {
     return nb;
 }
 
-void tether_open_midi(struct tether_sysex *s, const char *dev) {
-    ASSERT_ERRNO(s->tether.fd = open(dev, O_RDWR));
-
+void tether_set_midi_fds(struct tether_sysex *s, int fd_in, int fd_out) {
+    s->tether.fd_in = fd_in;
+    s->tether.fd_out = fd_out;
     // FIXME: This should probably use an explicit init.
     if (!s->tether.read)  { s->tether.read  = tether_sysex_read; }
     if (!s->tether.write) { s->tether.write = tether_sysex_write; }
+}
+
+
+void tether_open_midi(struct tether_sysex *s, const char *dev) {
+    int fd;
+    ASSERT_ERRNO(fd = open(dev, O_RDWR));
+    tether_set_midi_fds(s, fd, fd);
 }
 
 

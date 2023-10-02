@@ -28,6 +28,7 @@ HOST_ELF := \
 	linux/jack_snapshot.dynamic.host.elf \
 	linux/synth.dynamic.host.elf \
 	linux/hub.dynamic.host.elf \
+	linux/stdio_midi.dynamic.host.elf \
 	linux/akai_fire.dynamic.host.elf \
 	linux/clock.dynamic.host.elf \
 	linux/pd.dynamic.host.elf \
