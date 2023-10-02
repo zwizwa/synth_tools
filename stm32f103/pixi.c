@@ -50,7 +50,7 @@ struct app app_;
    - The DAC cycle is (* 40 12) 480 uS, or (/ 1.0 0.480) 2.083 kHz.
      Use a 2kHz timer to drive the DAC.
 
-   - PIXI clock MAX is 20MHz.  DIV_4 is 18MHz
+   - PIXI clock MAX is 20MHz.  DIV_2 is 18MHz
 
    - The packets are short, the 18MHz SPI rate is relatively high, so
      don't bother with DMA, just busy-wait on the SPI inside the
@@ -96,8 +96,8 @@ const cmd_3if cmd_3if_list[] = { for_synth_cmd(CMD_ARRAY_ENTRY) };
 /* Cloned from PDM firmware.  On PIXI circuit, A6 and A7 are exposed
    on a header.  TIM_OC3 = B0 is connected to PIXI INT so cannot be
    used, and TOM_OC4 = B1 is not exposed.  The PWM output is currently
-   not used for anything, so only OC1 is exposed as a fixed 50% duty
-   cycle to serve as a debug clock signal. */
+   not used for anything other than debugging, e.g. OC1 is exposed as
+   a fixed 50% duty cycle to serve as a scope sync. */
 
 const struct hw_multi_pwm hw_pwm_config = {
 //  rcc_tim   rcc_gpio   gpio           gpio_config,               div       duty        irq (optional)
@@ -112,12 +112,12 @@ const struct hw_multi_pwm hw_pwm_config = {
 #define SPI_CS GPIOB,12
 #define NOINLINE __attribute__((__noinline__))
 NOINLINE void hw_spi_cs(int val) {
-    //hw_busywait_us(10);
     hw_gpio_write(SPI_CS, val);
-    //hw_busywait_us(10);
+#if 0
     if (val) {
         hw_busywait(10);
     }
+#endif
 }
 static inline void hw_spi_cs_init(void) {
     hw_spi_cs(1);
@@ -236,13 +236,6 @@ uint32_t midi_read(uint8_t *buf, uint32_t room) {
 /* STARTUP, HOST */
 
 #define LED GPIOC,13
-
-void pixi_task(struct app *app) {
-    if (app->next) { goto *app->next; }
-    /* This part of init runs inside the ISR, to be able to reuse the
-       SPI state machine to send out the PIXI config. */
-}
-
 
 
 void start(void) {
