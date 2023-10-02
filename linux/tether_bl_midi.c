@@ -62,6 +62,11 @@ int32_t flash_write(uint32_t addr, const uint8_t *b_buf, uint32_t len) {
     return 0;
 }
 int32_t mem_write(uint32_t addr, uint8_t val) {
+    /* Not cached, so this is going to be slow. */
+    if ((addr >= 0x20000000) &&
+        (addr <  0x20005000)) {
+        tether_write_mem(s, &val, addr, 1, LDA, NAS);
+    }
     return E_OK;
 }
 int32_t mem_write32(uint32_t addr, uint32_t val) {
