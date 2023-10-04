@@ -4,6 +4,7 @@
 
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 1
+#define _GNU_SOURCE
 
 #include <stdio.h>
 #include <stdlib.h>
