@@ -16,7 +16,7 @@ end
 # All images rely on the MIDI SYSEX bootloader.
 # Tis assumes cwd is set to synth_tools/stm32f103
 define bl
-  file_check bl_midi.core.f103.elf
+  file_check bl_midi_bp.core.f103.elf
 end
 define pixi
   file_check pixi.x8.f103.elf

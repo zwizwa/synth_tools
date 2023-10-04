@@ -79,6 +79,11 @@ static inline int cached(uint32_t addr) {
 }
 
 void clear_cache(void) {
+    if ((cache_addr >= 0x08000000) &&
+        (cache_addr <  0x08020000)) {
+        /* Flash is constant, so doesn't need this. */
+        return;
+    }
     cache_addr = 0;
 }
 void mem_prefetch(uint32_t addr) {

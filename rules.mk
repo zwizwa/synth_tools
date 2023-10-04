@@ -5,7 +5,8 @@ GIT_VERSION ?= "unknown"
 # original x8 slot.
 
 STM_ELF := \
-	stm32f103/bl_midi.core.f103.elf \
+	stm32f103/bl_midi_bp.core.f103.elf \
+	stm32f103/bl_midi_bp_mod.core.f103.elf \
 	stm32f103/synth.x8.f103.elf \
 	stm32f103/synth.x8.f103.bin \
 	stm32f103/pixi.x8.f103.elf \

@@ -1,3 +1,8 @@
+#ifndef MOD_BL_BP
+#define MOD_BL_BP
+
+
+
 /* Bootloader for synth related work.  Similar to the CDC ACM 3if
    monitor, but replacing the virtual serial port as main multiplexed
    interface with a Midi port, using a sysex wrapper for the 3if
@@ -13,7 +18,7 @@
 
 #define MEM_WRITE_PARTITIONS_START 0x08002800
 
-const char config_version[] = "bl_midi.c";
+const char config_version[] = "bl_midi_bp.c";
 
 #if defined(STM32F1)
 #include "hw_stm32f103.h"
@@ -32,6 +37,7 @@ const char config_version[] = "bl_midi.c";
 #include "gdbstub.h"
 #include "gdbstub_api.h"
 
+
 /* Config is stored in a separate Flash block and overwritten when we
    flash the application code.  To make the code more robust, the case
    of an empty (all 0xFF) flash block is handled. */
@@ -49,18 +55,17 @@ const struct gdbstub_service service SERVICE_SECTION = {
     .add = bl_poll_add,
 };
 
-
 void bl_poll() {
     usb_midi_poll();
     if (app_poll) app_poll();
 }
 
-
+#define USB_DP GPIOA,12
 
 int main(void) {
     rcc_clock_setup_in_hse_8mhz_out_72mhz();
-    rcc_periph_clock_enable(RCC_GPIOC);
 
+#if USB_PULLUP_B5
     /* For modded board: 1k5 between A12 and B5 with the original R10
        pullup removed.  We set B5 high here to assert the pullup and
        signal the host we are a full speed device.  This does two
@@ -68,10 +73,20 @@ int main(void) {
        host we are disconnected.  Additionally it places the pullup
        under program control. */
     rcc_periph_clock_enable(RCC_GPIOB | RCC_AFIO);
-
-    /* USB pullup */
     hw_gpio_high(GPIOB,5);
     hw_gpio_config(GPIOB,5,HW_GPIO_CONFIG_OUTPUT);
+#else
+    /* Non-modded board: use the USB reset hack from
+       http://amitesh-singh.github.io/stm32/2017/05/27/Overcoming-wrong-pullup-in-blue-pill.html
+       Note that it is important not to enable RCC_AFIO yet */
+    rcc_periph_clock_enable(RCC_GPIOA);
+    hw_gpio_low(USB_DP);
+    hw_gpio_config(USB_DP, HW_GPIO_CONFIG_OUTPUT_2MHZ);
+    hw_busywait_us(5000);
+
+#endif
+
+    rcc_periph_clock_enable(RCC_GPIOC | RCC_GPIOB | RCC_AFIO);
 
     usb_midi_init();
     monitor_init();
@@ -94,4 +109,6 @@ int main(void) {
     return 0;
 }
 
+
+#endif
 
