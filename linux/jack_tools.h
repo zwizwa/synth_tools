@@ -1,6 +1,7 @@
 #ifndef JACK_TOOLS_H
 #define JACK_TOOLS_H
 
+#define _GNU_SOURCE
 #include <unistd.h>
 #include <jack/jack.h>
 #include <jack/midiport.h>
