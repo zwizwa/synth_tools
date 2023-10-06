@@ -10,6 +10,7 @@ STM_ELF := \
 	stm32f103/synth.x8.f103.elf \
 	stm32f103/synth.x8.f103.bin \
 	stm32f103/pixi.x8.f103.elf \
+	stm32f103/pixi.x8.f103.bin \
 	stm32f103/pixi.x8.f103.dasm \
 
 STM_ELF_DIS := \

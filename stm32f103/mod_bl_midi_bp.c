@@ -72,7 +72,7 @@ int main(void) {
        things: on reset the pin will be de-asserted, signalling the
        host we are disconnected.  Additionally it places the pullup
        under program control. */
-    rcc_periph_clock_enable(RCC_GPIOB | RCC_AFIO);
+    rcc_periph_clock_enable(RCC_GPIOA | RCC_GPIOB | RCC_AFIO);
     hw_gpio_high(GPIOB,5);
     hw_gpio_config(GPIOB,5,HW_GPIO_CONFIG_OUTPUT);
 #else
@@ -83,10 +83,9 @@ int main(void) {
     hw_gpio_low(USB_DP);
     hw_gpio_config(USB_DP, HW_GPIO_CONFIG_OUTPUT_2MHZ);
     hw_busywait_us(5000);
-
+    rcc_periph_clock_enable(RCC_GPIOB | RCC_AFIO);
 #endif
 
-    rcc_periph_clock_enable(RCC_GPIOC | RCC_GPIOB | RCC_AFIO);
 
     usb_midi_init();
     monitor_init();

@@ -24,7 +24,7 @@
 #define NB_DAC 12
 #define NB_ADC 6
 struct app {
-    void *next;
+    uint32_t ticks;
     uint16_t dac_vals[NB_DAC];
     uint16_t adc_vals[NB_ADC];
     uint16_t devid;
@@ -207,6 +207,7 @@ void HW_TIM_ISR(TIM_PWM)(void) {
         app_.dac_vals[i] &= 0xFFF;
     }
     spi_wr_regs(PIXI_REG_DAC_DATA + 0,  app_.dac_vals, NB_DAC);
+    app_.ticks++;
 }
 
 
@@ -240,7 +241,8 @@ uint32_t midi_read(uint8_t *buf, uint32_t room) {
 
 void start(void) {
     hw_app_init();
-    rcc_periph_clock_enable(RCC_GPIOA | RCC_GPIOB | RCC_AFIO);
+
+    // rcc_periph_clock_enable(RCC_GPIOA | RCC_GPIOB | RCC_GPIOC | RCC_AFIO);
 
     /* App struct init */
     CBUF_INIT(app_.out);
@@ -248,7 +250,6 @@ void start(void) {
     /* Turn on the LED to indicate we have started. */
     hw_gpio_config(LED,HW_GPIO_CONFIG_OUTPUT);
     hw_gpio_low(LED);
-
 
     hw_gpio_config(GPIOA,0,HW_GPIO_CONFIG_OUTPUT);
     hw_gpio_high(GPIOA,0);

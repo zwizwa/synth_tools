@@ -54,12 +54,16 @@ struct gdbstub_config _config;
 #include "gdb/rsp_packet.c"
 #include "gdb/gdbstub.c"
 GDBSTUB_INSTANCE(gdbstub, gdbstub_default_commands);
-// All write access is stubbed out.
 int32_t flash_erase(uint32_t addr, uint32_t size) {
+    /* The 3if performs auto-erase on erase boundaries. */
     return 0;
 }
 int32_t flash_write(uint32_t addr, const uint8_t *b_buf, uint32_t len) {
-    return 0;
+    if ((addr     >= 0x08000000) &&
+        (addr+len <= 0x08020000)) {
+        tether_write_mem(s, b_buf, addr, len, LDF, NFS);
+    }
+    return E_OK;
 }
 int32_t mem_write(uint32_t addr, uint8_t val) {
     /* Not cached, so this is going to be slow. */
@@ -92,17 +96,8 @@ void mem_prefetch(uint32_t addr) {
         return;
     }
     cache_addr = CACHE_ADDR_MASK & addr;
-    if ((addr >= 0x20000000) &&
-        (addr <  0x20005000)) {
-        tether_read_mem(s, cache_buf, cache_addr, CACHE_SIZE, LDA, NAL);
-        return;
-    }
-    if ((addr >= 0x08000000) &&
-        (addr <  0x08020000)) {
-        tether_read_mem(s, cache_buf, cache_addr, CACHE_SIZE, LDF, NFL);
-        return;
-    }
-    clear_cache();
+    /* On STM the LDA/NAL can also be used to read Flash and registers. */
+    tether_read_mem(s, cache_buf, cache_addr, CACHE_SIZE, LDA, NAL);
 }
 uint8_t mem_read(uint32_t addr) {
     mem_prefetch(addr);
@@ -114,7 +109,7 @@ uint8_t mem_read(uint32_t addr) {
         return 0x55;
     }
 }
-void serve(int fd_in, int fd_out) {
+void gdbstub_serve(int fd_in, int fd_out) {
     uint8_t buf[1024];
     for(;;) {
         ssize_t n_stdin = read(fd_in, buf, sizeof(buf)-1);
@@ -144,13 +139,20 @@ struct process_state {
     struct jack_pipes p; // base object
     void *midi_out_buf;
 };
+
 struct process_state process_state;
 void send_midi_packet(struct jack_pipes *p,
                       const uint8_t *midi_data, uintptr_t nb_bytes) {
     // for(uintptr_t i=0; i<nb_bytes; i++) LOG(" %02x", midi_data[i]); LOG("\n");
     struct process_state *s = (void*)p;
     void *buf = jack_midi_event_reserve(s->midi_out_buf, 0, nb_bytes);
-    if (buf) memcpy(buf, midi_data, nb_bytes);
+    if (buf) {
+        LOG_HEX("tx_sx:", midi_data, nb_bytes);
+        memcpy(buf, midi_data, nb_bytes);
+    }
+    else {
+        LOG("jack_midi_event_reserve failed\n");
+    }
 }
 
 static inline void *midi_out_buf(jack_port_t *port, jack_nframes_t nframes) {
@@ -161,12 +163,11 @@ static inline void *midi_out_buf(jack_port_t *port, jack_nframes_t nframes) {
 static int process (jack_nframes_t nframes, void *arg) {
     process_state.midi_out_buf = midi_out_buf(midi_out, nframes);
 
-    // FIXME: CLEAR!
     jack_pipes_handle(&process_state.p, send_midi_packet);
     FOR_MIDI_EVENTS(iter, midi_in, nframes) {
         const uint8_t *msg = iter.event.buffer;
         uintptr_t len = iter.event.size;
-        // for(uintptr_t i=0; i<len; i++) LOG(" %02x", msg[i]); LOG("\n");
+        LOG_HEX("rx_sx:", msg, len);
         assert_write(process_state.p.to_main_fd, msg, len);
     }
     return 0;
@@ -206,6 +207,8 @@ int main(int argc, char **argv) {
             &s_,
             /*fd_in*/  process_state.p.from_jack_fd,
             /*fd_out*/ process_state.p.to_jack_fd);
+        // FIXME: Jack does not seem to receive reply for larger chunks, e.g. 16 bytes.
+        s->max_chunk_write = 8;
         jack_status_t status = 0;
         client = jack_client_open (client_name, JackNullOption, &status);
         ASSERT(client);
@@ -224,6 +227,7 @@ int main(int argc, char **argv) {
         uint32_t address = strtol(argv[3], NULL, 0);
         const char *binfile = argv[4];
         LOG("%s%08x load %s\n", tether_3if_tag, address, binfile);
+        sleep(1);
         tether_load_flash(s, binfile, address);
         return 0;
     }
@@ -276,7 +280,7 @@ int main(int argc, char **argv) {
 
     if (!strcmp(cmd, "gdbstub")) {
         /* Serve gdbstub on stdio */
-        // serve(0, 1);
+        // gdbstub_serve(0, 1);
 
         /* Serve gdbstub on TCP */
         uint16_t listen_port = 20000;
@@ -285,7 +289,7 @@ int main(int argc, char **argv) {
         while (rv == 0) {
             int fd_con = assert_accept(fd_listen);
             LOG("accepted %d\n", listen_port);
-            serve(fd_con, fd_con);
+            gdbstub_serve(fd_con, fd_con);
         }
     }
 
