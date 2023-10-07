@@ -39,12 +39,15 @@
 /* STATE */
 #define NB_DAC 12
 #define NB_ADC 6
+struct ticks {
+    uint32_t pwm, swt, swi, event;
+};
 struct app {
     void *next;
-    uint32_t ticks;
+    struct ticks ticks;
     uint16_t dac_vals[NB_DAC];
     uint16_t adc_vals[NB_ADC];
-    uint16_t devid;
+    uint16_t pixi_devid;
     struct cbuf out; uint8_t out_buf[128];
 };
 struct app app_;
@@ -116,12 +119,12 @@ const cmd_3if cmd_3if_list[] = { for_synth_cmd(CMD_ARRAY_ENTRY) };
    not used for anything other than debugging, e.g. OC1 is exposed as
    a fixed 50% duty cycle to serve as a scope sync. */
 
-const struct hw_multi_pwm hw_pwm_config = {
+const struct hw_multi_pwm hw_tim_pwm = {
 //  rcc_tim   rcc_gpio   gpio           gpio_config,               div       duty        irq (optional)
 //---------------------------------------------------------------------------------------------------------------
     RCC_TIM3, TIM3,      {TIM3_GPIOS},  HW_GPIO_CONFIG_ALTFN_2MHZ, PWM_DIV,  PWM_DIV/2,  NVIC_TIM3_IRQ,
 };
-#define C_PWM hw_pwm_config
+#define C_PWM hw_tim_pwm
 
 #define TIM_PWM 3
 
@@ -191,8 +194,8 @@ const struct max11300_init_cmd max_11300_init_cmds[] = {
     MAX11300_INIT(MAX11300_WRITE,MAX11300_DELAY)
 };
 NOINLINE uint16_t pixi_devid(void) {
-    app_.devid = spi_rd_reg(PIXI_REG_DEVID);
-    return app_.devid;
+    app_.pixi_devid = spi_rd_reg(PIXI_REG_DEVID);
+    return app_.pixi_devid;
 }
 NOINLINE void pixi_init(void) {
     for(uint32_t i=0; i<ARRAY_SIZE(max_11300_init_cmds); i++) {
@@ -224,7 +227,7 @@ void HW_TIM_ISR(TIM_PWM)(void) {
         app_.dac_vals[i] &= 0xFFF;
     }
     spi_wr_regs(PIXI_REG_DAC_DATA + 0,  app_.dac_vals, NB_DAC);
-    app_.ticks++;
+    app_.ticks.pwm++;
 }
 
 
@@ -250,11 +253,63 @@ void isr_log(const void *buf, uint32_t nb) {
         isr_log(info_data, sizeof(info_data)); } while(0)
 #define ORE_TOKEN 1
 
-// 0x00xxxxxx is RX
-#define ISR_EVENT_TX_DONE  0x01000000
-#define ISR_EVENT_TX_READY 0x01000001
-void isr_event(struct app *app, uint32_t port_nb, uint32_t event) {
+
+/* Events are encoded in uint32_t as follows
+   UART data  is 0x0000PEDD  P=port, E=error, DD=data
+   UART other is 0x0001Pxxx  P=port,
+   void       is 0x0002xxxx
+*/
+#define ISR_EVENT_TX_DONE  0x010000
+#define ISR_EVENT_TX_READY 0x010001
+
+#define ISR_EVENT_TIMER    0x020000
+#define ISR_EVENT_SWI      0x020001
+
+
+NOINLINE void isr_event(struct app *app, uint32_t event) {
+    app->ticks.event++;
 }
+
+const struct hw_swi swi = HW_SWI_0;
+void exti0_isr(void) {
+    hw_swi_ack(swi);
+    struct app *app = &app_;
+    app->ticks.swi++;
+    isr_event(app, ISR_EVENT_SWI);
+}
+KEEP NOINLINE void sw_trigger(void) {
+    hw_swi_trigger(swi);
+}
+
+
+
+
+#define HW_CPU_MHZ 72
+
+// Software timer
+const struct hw_delay hw_tim_swt = {
+// rcc       irq            tim   psc
+// -----------------------------------------------------------------
+   RCC_TIM4, NVIC_TIM4_IRQ, TIM4, HW_CPU_MHZ,
+};
+// Note that TIM2 seems to interact badly with Flash programming.
+// Could be a silicon problem but there is nothing about this in the
+// errata.  The supposedly identical timer TIM4 works fine.
+#define TIM_SWT 4
+#define C_TIM_SWT hw_tim_swt
+
+
+void HW_TIM_ISR(TIM_SWT)(void) {
+    hw_delay_ack(C_TIM_SWT);
+    struct app *app = &app_;
+    app->ticks.swt++;
+    isr_event(app, ISR_EVENT_TIMER);
+    // FIXME: plug in the software timer.
+    uint16_t diff_us = 44;
+    hw_delay_arm(C_TIM_SWT, diff_us);
+    hw_delay_trigger(C_TIM_SWT);
+}
+
 
 struct midi_port {
     /* USART register window */
@@ -277,7 +332,7 @@ INLINE void usart_isr(struct app *app, uint32_t port_nb) {
 	uint32_t dr = usart->dr & USART_DR_MASK;
 	uint16_t token = ((sr & 0xF) << 8) | (dr & 0xFF);
         if(sr & USART_SR_ORE) ISR_LOG(ORE_TOKEN, token);
-	isr_event(app, port_nb, token);
+	isr_event(app, token | (port_nb << 12));
 	return;
     }
 
@@ -285,12 +340,12 @@ INLINE void usart_isr(struct app *app, uint32_t port_nb) {
        Downstream code will need to explicitly enable again. */
     if (sr_and_cr1 & USART_SR_TXE) {
 	usart->cr1 &= ~USART_CR1_TXEIE;
-	isr_event(app, port_nb, ISR_EVENT_TX_READY);
+	isr_event(app, ISR_EVENT_TX_READY | (port_nb << 12));
 	return;
     }
     if (sr_and_cr1 & USART_SR_TC) {
 	usart->cr1 &= ~USART_CR1_TCIE;
-	isr_event(app, port_nb, ISR_EVENT_TX_DONE);
+	isr_event(app, ISR_EVENT_TX_DONE | (port_nb << 12));
 	return;
     }
 }
@@ -340,6 +395,7 @@ void rtt_command_poll(struct app *app) {
         uint8_t buf[n];
         uint32_t nb = rtt_buf_read(down, buf, n);
         infof("received %d\n", nb);
+        sw_trigger();
     }
 }
 
@@ -380,18 +436,41 @@ void start(void) {
     hw_gpio_config(LED,HW_GPIO_CONFIG_OUTPUT);
     hw_gpio_low(LED);
 
+    // FIXME: What is this for?
     hw_gpio_config(GPIOA,0,HW_GPIO_CONFIG_OUTPUT);
     hw_gpio_high(GPIOA,0);
 
-    // synth_init(&app_.out);  // FIXME: review this
+    /* Software interrupt used to implement system calls from other
+       priority levels into ISR event level. */
+    hw_swi_init(swi);
+
+    /* SPI, PIXI init. */
     hw_spi_cs_init();
     hw_spi_nodma_init(C_SPI);
-    // hw_spi_start(C_SPI, app_.spi.buf, app_.spi.count);
-
     pixi_init();
 
+    /* Start the high priority ADC/DAC/PWM timer. */
     pwm_start();
 
+    /* Start the low priority event timer. */
+    hw_delay_init(C_TIM_SWT, 0xFFFF, 1 /*enable interrupt*/);
+    hw_delay_arm(C_TIM_SWT, 1);
+    hw_delay_trigger(C_TIM_SWT);
+
+    /* Priorities of UART, SWI and event TIMER need to be the same.
+       This is essential because they all update the ISR state machine
+       and thus are not allowed to pre-empt each other. */
+    uint32_t lo_pri = 16;
+    NVIC_IPR(swi.irq) = lo_pri;
+    NVIC_IPR(hw_tim_swt.irq) = lo_pri;
+    NVIC_IPR(NVIC_USART1_IRQ) = lo_pri;
+    NVIC_IPR(NVIC_USART2_IRQ) = lo_pri;
+    NVIC_IPR(NVIC_USART3_IRQ) = lo_pri;
+    /* The PWM/ADC/DAC interrupt needs to pre-empt those. */
+    uint32_t hi_pri = 0;
+    NVIC_IPR(hw_tim_pwm.irq) = hi_pri;
+
+    /* Main loop background. */
     _service.add(pixi_poll);
 
 }
