@@ -212,11 +212,12 @@ void HW_TIM_ISR(TIM_PWM)(void) {
 
 
 NOINLINE void pwm_start(void) {
-    infof("start\n");
+    infof("pwm: start\n");
     hw_multi_pwm_init(C_PWM);
     hw_multi_pwm_start(C_PWM);
 }
 NOINLINE void pwm_stop(void) {
+    infof("pwm: stop\n");
     hw_multi_pwm_stop(C_PWM);
 }
 
@@ -232,17 +233,61 @@ uint32_t midi_read(uint8_t *buf, uint32_t room) {
 }
 
 
+/* RTT communication */
+#include "rtt.h"
+
+/* Note: OpenOCD RTT implementation doesn't have backpressure.
+   Anything that is sent to the TCP socket immediately gets propagated
+   to the RTT buffer and *any excess data is silently dropped*.  Pick
+   a buffer size large enough.  Practically, the rdm-bridge protocol
+   is query/response except for DMX, so don't flood with DMX.  RDM
+   should be ok.  We pick the size so it can host at least one DMX
+   packet followed by one RDM packet. */
+#define RTT_BUF_SIZE 1024
+
+uint8_t rtt_up[RTT_BUF_SIZE];
+uint8_t rtt_down[RTT_BUF_SIZE];
+struct rtt_1_1 rtt = RTT_1_1_INIT(rtt_up, rtt_down);
+
+void rtt_info_poll(void) {
+    uint32_t n = info_bytes();
+    if (n > 0) {
+	uint8_t buf[n];
+        /* Payload. */
+        uint32_t nb = info_read(buf, n);
+	rtt_target_up_write(&rtt.hdr, 0, buf, nb);
+    }
+}
+void rtt_command_poll(void) {
+    struct rtt_buf *down = rtt_down_buf(&rtt.hdr, 0);
+    uint32_t n = rtt_buf_elements(down);
+    if (n > 0) {
+        uint8_t buf[n];
+        uint32_t nb = rtt_buf_read(down, buf, n);
+        infof("received %d\n", nb);
+    }
+}
+
+
+
 
 
 /* STARTUP, HOST */
 
 #define LED GPIOC,13
 
+void pixi_poll(void) {
+    rtt_command_poll();
+    rtt_info_poll();
+}
 
 void start(void) {
     hw_app_init();
+    infof("pixi: start\n");
 
     // rcc_periph_clock_enable(RCC_GPIOA | RCC_GPIOB | RCC_GPIOC | RCC_AFIO);
+
+    rcc_periph_clock_enable(RCC_GPIOC);
 
     /* App struct init */
     CBUF_INIT(app_.out);
@@ -262,6 +307,9 @@ void start(void) {
     pixi_init();
 
     pwm_start();
+
+    _service.add(pixi_poll);
+
 }
 
 #ifndef VERSION

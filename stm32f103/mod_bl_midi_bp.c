@@ -37,7 +37,6 @@ const char config_version[] = "bl_midi_bp.c";
 #include "gdbstub.h"
 #include "gdbstub_api.h"
 
-
 /* Config is stored in a separate Flash block and overwritten when we
    flash the application code.  To make the code more robust, the case
    of an empty (all 0xFF) flash block is handled. */
