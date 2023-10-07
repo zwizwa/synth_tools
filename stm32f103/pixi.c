@@ -37,10 +37,29 @@
 #include "registers_stm32f103.h"
 
 /* STATE */
+
+/* RTT communication */
+#include "rtt.h"
+
+/* Note: OpenOCD RTT implementation doesn't have backpressure.
+   Anything that is sent to the TCP socket immediately gets propagated
+   to the RTT buffer and *any excess data is silently dropped*.  Pick
+   a buffer size large enough.  This is the first data definition to
+   reduce the change that it will move in memory between
+   recompilations, which makes it possible to keep RTT alive across
+   reboots. */
+#define RTT_BUF_SIZE 256
+
+uint8_t rtt_up[RTT_BUF_SIZE];
+uint8_t rtt_down[RTT_BUF_SIZE];
+struct rtt_1_1 rtt = RTT_1_1_INIT(rtt_up, rtt_down);
+
+
 #define NB_DAC 12
 #define NB_ADC 6
 struct ticks {
     uint32_t pwm, swt, swi, event;
+    uint32_t midi[3];
 };
 struct app {
     void *next;
@@ -61,11 +80,11 @@ struct app app_;
 
    - There doesn't seem to be a straightforward way to sync to the
      PIXI's DAC update clock, so just use a timer to feed it at a
-     constant rate and live with the jitter that that produces.  One
-     way to work around this is to use one of the DAC ports as a
-     digital signal and have that feed back to an STM edge detection
-     interrupt.  Doesn't seem to be worth the hassle.  See git history
-     before this message for original DMA code.
+     constant rate and live with the jitter that that produces.
+
+     One potential way to work around this is to use one of the DAC
+     ports as a digital signal and have that feed back to an STM edge
+     detection interrupt.  Doesn't seem to be worth the hassle.
 
    - The DAC cycle is (* 40 12) 480 uS, or (/ 1.0 0.480) 2.083 kHz.
      Use a 2kHz timer to drive the DAC.
@@ -74,7 +93,9 @@ struct app app_;
 
    - The packets are short, the 18MHz SPI rate is relatively high, so
      don't bother with DMA, just busy-wait on the SPI inside the
-     interrupt.
+     interrupt.  See git history before this message for original DMA
+     code.
+
 
 */
 
@@ -255,9 +276,9 @@ void isr_log(const void *buf, uint32_t nb) {
 
 
 /* Events are encoded in uint32_t as follows
-   UART data  is 0x0000PEDD  P=port, E=error, DD=data
-   UART other is 0x0001Pxxx  P=port,
-   void       is 0x0002xxxx
+   UART rx    0x0000PEDD  P=port, E=error, DD=data
+   UART other 0x0001Pxxx  P=port,
+   other void 0x0002xxxx
 */
 #define ISR_EVENT_TX_DONE  0x010000
 #define ISR_EVENT_TX_READY 0x010001
@@ -305,7 +326,7 @@ void HW_TIM_ISR(TIM_SWT)(void) {
     app->ticks.swt++;
     isr_event(app, ISR_EVENT_TIMER);
     // FIXME: plug in the software timer.
-    uint16_t diff_us = 44;
+    uint16_t diff_us = 1000;
     hw_delay_arm(C_TIM_SWT, diff_us);
     hw_delay_trigger(C_TIM_SWT);
 }
@@ -315,12 +336,25 @@ struct midi_port {
     /* USART register window */
     struct map_usart *usart;
 };
+
+/* 5V tolerant RX:
+   UART1 TX=A9  RX=A10
+   UART3 TX=B10 RX=B11
+
+   3V3 only RX:
+   UART2 TX=A2 RX=A3 is only 3v3
+
+   On Euro PIXI board, UART1 is exposed on the back.
+
+*/
+
 struct midi_port midi_port[3] = {
     [0] = { .usart = (struct map_usart*)USART1 },
     [1] = { .usart = (struct map_usart*)USART2 },
     [2] = { .usart = (struct map_usart*)USART3 },
 };
 INLINE void usart_isr(struct app *app, uint32_t port_nb) {
+    app->ticks.midi[port_nb]++;
     struct map_usart *usart = midi_port[port_nb].usart;
     uint32_t sr = usart->sr;
     uint32_t cr1 = usart->cr1;
@@ -349,10 +383,52 @@ INLINE void usart_isr(struct app *app, uint32_t port_nb) {
 	return;
     }
 }
+
+struct hw_midi_port {
+    uint32_t rcc;
+    uint32_t irq;
+    uint32_t usart;
+    uint32_t gpio;
+    uint32_t tx,rx;
+    uint32_t div;
+};
+#define MIDI_BAUD_DIV(MHZ)  (((MHZ)*1000000) / 31250)
+
+// config is indexed by uart number.
+// for mab_div we need to use bus frequences. UART1 is on a different bus from UART2,UART3
+const struct hw_midi_port hw_midi_port[] = {
+    //    rcc          irq              usart   gpio   tx  rx  div,
+    [0] = {RCC_USART1, NVIC_USART1_IRQ, USART1, GPIOA,  9, 10, MIDI_BAUD_DIV(72)},
+    [1] = {RCC_USART2, NVIC_USART2_IRQ, USART2, GPIOA,  2,  3, MIDI_BAUD_DIV(36)},
+    [2] = {RCC_USART3, NVIC_USART3_IRQ, USART3, GPIOB, 10, 11, MIDI_BAUD_DIV(36)},
+};
 void HW_USART_ISR(1)(void) { usart_isr(&app_, 0); }
 void HW_USART_ISR(2)(void) { usart_isr(&app_, 1); }
 void HW_USART_ISR(3)(void) { usart_isr(&app_, 2); }
 
+INLINE void hw_midi_port_init(struct hw_midi_port p) {
+
+    rcc_periph_clock_enable(RCC_GPIOA | RCC_GPIOB | RCC_AFIO);
+    rcc_periph_clock_enable(p.rcc);
+    nvic_enable_irq(p.irq);
+    hw_gpio_config(p.gpio, p.tx, HW_GPIO_CONFIG_ALTFN);
+
+    // enable pullup for RX in to avoid junk when transceiver is not
+    // connected.
+    hw_gpio_high(p.gpio, p.rx); // pull direction
+    hw_gpio_config(p.gpio, p.rx, HW_GPIO_CONFIG_INPUT_PULL);
+
+    hw_usart_disable(p.usart);
+    hw_usart_set_databits(p.usart, 8);
+    hw_usart_set_stopbits(p.usart, USART_STOPBITS_1);
+    hw_usart_set_mode(p.usart, USART_MODE_TX_RX);
+    hw_usart_set_parity(p.usart, USART_PARITY_NONE);
+    hw_usart_set_flow_control(p.usart, USART_FLOWCONTROL_NONE);
+    USART_BRR(p.usart) = p.div;
+
+    hw_usart_enable_rx_interrupt(p.usart);
+    hw_usart_enable(p.usart);
+}
 
 /* COMMUNICATION */
 
@@ -361,23 +437,6 @@ void midi_write(const uint8_t *buf, uint32_t len) {
 uint32_t midi_read(uint8_t *buf, uint32_t room) {
     return 0;
 }
-
-
-/* RTT communication */
-#include "rtt.h"
-
-/* Note: OpenOCD RTT implementation doesn't have backpressure.
-   Anything that is sent to the TCP socket immediately gets propagated
-   to the RTT buffer and *any excess data is silently dropped*.  Pick
-   a buffer size large enough.  Practically, the rdm-bridge protocol
-   is query/response except for DMX, so don't flood with DMX.  RDM
-   should be ok.  We pick the size so it can host at least one DMX
-   packet followed by one RDM packet. */
-#define RTT_BUF_SIZE 1024
-
-uint8_t rtt_up[RTT_BUF_SIZE];
-uint8_t rtt_down[RTT_BUF_SIZE];
-struct rtt_1_1 rtt = RTT_1_1_INIT(rtt_up, rtt_down);
 
 void rtt_info_poll(struct app *app) {
     uint32_t n = info_bytes();
@@ -443,6 +502,11 @@ void start(void) {
     /* Software interrupt used to implement system calls from other
        priority levels into ISR event level. */
     hw_swi_init(swi);
+
+    /* UART init */
+    hw_midi_port_init(hw_midi_port[0]);
+    //hw_midi_port_init(hw_midi_port[1]);
+    //hw_midi_port_init(hw_midi_port[2]);
 
     /* SPI, PIXI init. */
     hw_spi_cs_init();
