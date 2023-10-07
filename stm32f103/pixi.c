@@ -1,11 +1,25 @@
-/* Previous version used slipstub.
-   All USB protocol support has been removed.  Use the 3if */
+/* Euro PIXI firmware.
 
-// TODO
-// - SPI mode
-// - Reg init
-// - Sawtooth test signal
-// - Test on target
+   Currently this is just a playground to further develop the "state
+   machine OS" architecture.  Some ideas:
+
+   - A stream based text console with transport over RTT or Sysex
+     connections, optimized for high latency operation.
+
+   - Control rate tasks implemented as state machines running in a
+     CSP-like scheduler.
+
+   - Software timer.
+
+   - Run from interrupt.
+
+   - Forth-like language to implement blocking tasks, with host-side
+     tethering support.
+
+   - Garbage-collected cell store (per task?).
+
+*/
+
 
 #include <stdint.h>
 #include "fixedpoint.h"
@@ -20,10 +34,13 @@
 
 #include "pixi_v1_max11300.h"
 
+#include "registers_stm32f103.h"
+
 /* STATE */
 #define NB_DAC 12
 #define NB_ADC 6
 struct app {
+    void *next;
     uint32_t ticks;
     uint16_t dac_vals[NB_DAC];
     uint16_t adc_vals[NB_ADC];
@@ -223,6 +240,64 @@ NOINLINE void pwm_stop(void) {
 
 
 
+/* EVENT LEVEL INTERRUPTS */
+
+// Event level logging
+void isr_log(const void *buf, uint32_t nb) {
+}
+#define ISR_LOG(...) \
+    do { uint32_t info_data[] = { __VA_ARGS__ }; \
+        isr_log(info_data, sizeof(info_data)); } while(0)
+#define ORE_TOKEN 1
+
+// 0x00xxxxxx is RX
+#define ISR_EVENT_TX_DONE  0x01000000
+#define ISR_EVENT_TX_READY 0x01000001
+void isr_event(struct app *app, uint32_t port_nb, uint32_t event) {
+}
+
+struct midi_port {
+    /* USART register window */
+    struct map_usart *usart;
+};
+struct midi_port midi_port[3] = {
+    [0] = { .usart = (struct map_usart*)USART1 },
+    [1] = { .usart = (struct map_usart*)USART2 },
+    [2] = { .usart = (struct map_usart*)USART3 },
+};
+INLINE void usart_isr(struct app *app, uint32_t port_nb) {
+    struct map_usart *usart = midi_port[port_nb].usart;
+    uint32_t sr = usart->sr;
+    uint32_t cr1 = usart->cr1;
+    uint32_t sr_and_cr1 = sr & cr1;
+
+    if (sr & (USART_SR_RXNE | USART_SR_ORE)) {
+	/* Read data register not empty. */
+	/* Reading DR will clear RXNE, ORE */
+	uint32_t dr = usart->dr & USART_DR_MASK;
+	uint16_t token = ((sr & 0xF) << 8) | (dr & 0xFF);
+        if(sr & USART_SR_ORE) ISR_LOG(ORE_TOKEN, token);
+	isr_event(app, port_nb, token);
+	return;
+    }
+
+    /* For TXE and TC we disable the corresponding interrupt.
+       Downstream code will need to explicitly enable again. */
+    if (sr_and_cr1 & USART_SR_TXE) {
+	usart->cr1 &= ~USART_CR1_TXEIE;
+	isr_event(app, port_nb, ISR_EVENT_TX_READY);
+	return;
+    }
+    if (sr_and_cr1 & USART_SR_TC) {
+	usart->cr1 &= ~USART_CR1_TCIE;
+	isr_event(app, port_nb, ISR_EVENT_TX_DONE);
+	return;
+    }
+}
+void HW_USART_ISR(1)(void) { usart_isr(&app_, 0); }
+void HW_USART_ISR(2)(void) { usart_isr(&app_, 1); }
+void HW_USART_ISR(3)(void) { usart_isr(&app_, 2); }
+
 
 /* COMMUNICATION */
 
@@ -249,7 +324,7 @@ uint8_t rtt_up[RTT_BUF_SIZE];
 uint8_t rtt_down[RTT_BUF_SIZE];
 struct rtt_1_1 rtt = RTT_1_1_INIT(rtt_up, rtt_down);
 
-void rtt_info_poll(void) {
+void rtt_info_poll(struct app *app) {
     uint32_t n = info_bytes();
     if (n > 0) {
 	uint8_t buf[n];
@@ -258,7 +333,7 @@ void rtt_info_poll(void) {
 	rtt_target_up_write(&rtt.hdr, 0, buf, nb);
     }
 }
-void rtt_command_poll(void) {
+void rtt_command_poll(struct app *app) {
     struct rtt_buf *down = rtt_down_buf(&rtt.hdr, 0);
     uint32_t n = rtt_buf_elements(down);
     if (n > 0) {
@@ -276,9 +351,18 @@ void rtt_command_poll(void) {
 
 #define LED GPIOC,13
 
+void vm_next(struct app *app) {
+    if (app->next) { goto *app->next; }
+}
+
 void pixi_poll(void) {
-    rtt_command_poll();
-    rtt_info_poll();
+    /* Poll non-event driven code. */
+    struct app *app = &app_;
+    rtt_command_poll(app);
+    rtt_info_poll(app);
+
+    /* Enter the VM. */
+    vm_next(app);
 }
 
 void start(void) {
