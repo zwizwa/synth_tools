@@ -30,6 +30,8 @@
     m(clock_in)     \
     m(fire_in)      \
     m(easycontrol)  \
+    m(keystation_in1)  \
+    m(keystation_in2)  \
     m(z_debug)     \
 
 #define FOR_MIDI_IN_DIS(m) \
@@ -184,6 +186,42 @@ static inline void process_easycontrol_in(jack_nframes_t nframes, uint8_t stamp)
     }
 }
 
+static inline void process_keystation_in1(jack_nframes_t nframes, uint8_t stamp) {
+    FOR_MIDI_EVENTS(iter, keystation_in1, nframes) {
+        const uint8_t *msg = iter.event.buffer;
+        int n = iter.event.size;
+        /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
+        to_erl(msg, n, 0 /*midi port*/);
+    }
+}
+static inline void process_keystation_in2(jack_nframes_t nframes, uint8_t stamp) {
+    FOR_MIDI_EVENTS(iter, keystation_in2, nframes) {
+        const uint8_t *msg = iter.event.buffer;
+        int n = iter.event.size;
+        /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
+        to_erl(msg, n, 0 /*midi port*/);
+        if (n == 3) {
+            switch(msg[0]) {
+            case 0x90: { /* Note on */
+                uint8_t note = msg[1];
+                // uint8_t vel  = msg[2];
+                switch(note) {
+                    case 0x5e:
+                        /* Play press. */
+                        LOG("keystation: start\n");
+                        break;
+                    case 0x5d:
+                        /* Stop press. */
+                        LOG("keystation: stop\n");
+                        break;
+                }
+                break;
+            }
+            }
+        }
+    }
+}
+
 
 
 
@@ -219,6 +257,8 @@ static int process (jack_nframes_t nframes, void *arg) {
     process_z_debug(nframes);
     process_clock_in(nframes);
     process_easycontrol_in(nframes, stamp);
+    process_keystation_in1(nframes, stamp);
+    process_keystation_in2(nframes, stamp);
     process_erl_out(nframes);
 
     return 0;
