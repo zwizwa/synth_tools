@@ -30,6 +30,9 @@
     m(clock_in)     \
     m(fire_in)      \
     m(easycontrol)  \
+    m(z_debug)     \
+
+#define FOR_MIDI_IN_DIS(m) \
 
 #define FOR_MIDI_OUT(m) \
     m(tb03)         \
@@ -99,6 +102,14 @@ static uint32_t phase = 0;
 static uint32_t running = 0;
 
 
+static inline void process_z_debug(jack_nframes_t nframes) {
+    FOR_MIDI_EVENTS(iter, z_debug, nframes) {
+        const uint8_t *msg = iter.event.buffer;
+        int n = iter.event.size;
+        LOG_HEX("z_debug:", msg, n);
+    }
+}
+
 
 static inline void process_clock_in(jack_nframes_t nframes) {
     void *pd_out_buf = midi_out_buf(pd_out, nframes);
@@ -139,20 +150,37 @@ static inline void process_clock_in(jack_nframes_t nframes) {
     }
 }
 
+// FIXME: I want a simpler midi dispatch construct.
+
 static inline void process_easycontrol_in(jack_nframes_t nframes, uint8_t stamp) {
     FOR_MIDI_EVENTS(iter, easycontrol, nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
-        to_erl(msg, n, 0/*port?*/);
-#if 0
+        /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
+        to_erl(msg, n, 0 /*midi port*/);
         if (n == 3) {
-            if ((msg[0] & 0xF0) == 0xB0) { // CC
+            switch(msg[0]) {
+            case 0xb0: {
                 uint8_t cc  = msg[1];
                 uint8_t val = msg[2];
-                // FIXME: Route to pd etc...
+                switch(cc) {
+                    case 0x2d:
+                        if (!val) {
+                            /* Play press. */
+                            LOG("easycontrol: start\n");
+                        }
+                        break;
+                    case 0x2e:
+                        if (!val) {
+                            /* Stop press. */
+                            LOG("easycontrol: stop\n");
+                        }
+                        break;
+                }
+                break;
+            }
             }
         }
-#endif
     }
 }
 
@@ -188,12 +216,14 @@ static int process (jack_nframes_t nframes, void *arg) {
     uint8_t stamp = (f / nframes);
 
     /* Order is important. */
+    process_z_debug(nframes);
     process_clock_in(nframes);
     process_easycontrol_in(nframes, stamp);
     process_erl_out(nframes);
 
     return 0;
 }
+
 
 
 int main(int argc, char **argv) {

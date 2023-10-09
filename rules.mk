@@ -22,7 +22,6 @@ HOST_ELF := \
 	linux/test_pdm.dynamic.host.elf \
 	linux/test_bl_midi.dynamic.host.elf \
 	linux/test_cproc.dynamic.host.elf \
-	linux/tether_bl_midi.dynamic.host.elf \
 	linux/jack_netsend.dynamic.host.elf \
 	linux/jack_info.dynamic.host.elf \
 	linux/jack_midi.dynamic.host.elf \
@@ -36,6 +35,10 @@ HOST_ELF := \
 	linux/envy24.dynamic.host.elf \
 	linux/test_drum.dynamic.host.elf \
 	linux/gen_max11300.dynamic.host.elf \
+	linux/tether_bl_midi.dynamic.host.elf \
+
+HOST_ELF_DIS := \
+
 
 
 ALL_ELF := $(STM_ELF) $(HOST_ELF)

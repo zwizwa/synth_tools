@@ -1,6 +1,7 @@
 #!/bin/sh
 
 NPROC=$(nproc)
+# NPROC=1
 cd $(dirname $0)
 
 # FIXME: I've recently changed this so the command 'exo-dev' prints

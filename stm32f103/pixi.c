@@ -57,17 +57,19 @@ struct rtt_1_1 rtt = RTT_1_1_INIT(rtt_up, rtt_down);
 
 #define NB_DAC 12
 #define NB_ADC 6
+typedef uint16_t tick_counter_t;
 struct ticks {
-    uint32_t pwm, swt, swi, event;
-    uint32_t midi[3];
+    tick_counter_t pwm, swt, swi, event, midi_clock, midi[3];
 };
 struct app {
     void *next;
+    uint32_t phase;
+    struct cbuf out; uint8_t out_buf[128];
     struct ticks ticks;
     uint16_t dac_vals[NB_DAC];
     uint16_t adc_vals[NB_ADC];
     uint16_t pixi_devid;
-    struct cbuf out; uint8_t out_buf[128];
+    uint8_t started:1;
 };
 struct app app_;
 
@@ -289,6 +291,31 @@ void isr_log(const void *buf, uint32_t nb) {
 
 NOINLINE void isr_event(struct app *app, uint32_t event) {
     app->ticks.event++;
+    if (event == 0xF8) {
+        /* MIDI clock on port 0. */
+        app->ticks.midi_clock++;
+        if (app->started) {
+            /* For all tracks/sequences, play the current event and
+               advance time/period. */
+            app->phase += 1;
+        }
+    }
+    else if (event == 0xFA) {
+        /* Start */
+        /* Reset counters, enable playback. */
+        app->started = 1;
+        app->phase = 0;
+    }
+    else if (event == 0xFB) {
+        /* Continue */
+        /* Enable playback. */
+        app->started = 1;
+    }
+    else if (event == 0xFC) {
+        /* Stop */
+        /* Disable playback. */
+        app->started = 0;
+    }
 }
 
 const struct hw_swi swi = HW_SWI_0;
