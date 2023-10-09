@@ -44,6 +44,7 @@
     m(volca_beats)  \
     m(synth)        \
     m(pd_out)       \
+    m(transport)    \
 
 
 FOR_MIDI_IN(DEF_JACK_PORT)
@@ -69,6 +70,11 @@ static inline void send_cc(void *out_buf, int chan, int cc, int val) {
     const uint8_t midi[] = {0xB0 + (chan & 0x0F), cc & 0x7F, val & 0x7F};
     send_midi(out_buf, 0, midi, sizeof(midi));
 }
+static inline void send_control_byte(void *out_buf, uint8_t byte) {
+    send_midi(out_buf, 0, &byte, 1);
+}
+static inline void send_start(void *out_buf) { send_control_byte(out_buf, 0xFA); }
+static inline void send_stop(void *out_buf)  { send_control_byte(out_buf, 0xFC); }
 
 
 /* Erlang */
@@ -104,6 +110,8 @@ static uint32_t phase = 0;
 static uint32_t running = 0;
 
 
+
+
 static inline void process_z_debug(jack_nframes_t nframes) {
     FOR_MIDI_EVENTS(iter, z_debug, nframes) {
         const uint8_t *msg = iter.event.buffer;
@@ -111,6 +119,7 @@ static inline void process_z_debug(jack_nframes_t nframes) {
         LOG_HEX("z_debug:", msg, n);
     }
 }
+
 
 
 static inline void process_clock_in(jack_nframes_t nframes) {
@@ -155,6 +164,8 @@ static inline void process_clock_in(jack_nframes_t nframes) {
 // FIXME: I want a simpler midi dispatch construct.
 
 static inline void process_easycontrol_in(jack_nframes_t nframes, uint8_t stamp) {
+    void *transport_buf = midi_out_buf(transport, nframes);
+
     FOR_MIDI_EVENTS(iter, easycontrol, nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
@@ -170,12 +181,14 @@ static inline void process_easycontrol_in(jack_nframes_t nframes, uint8_t stamp)
                         if (!val) {
                             /* Play press. */
                             LOG("easycontrol: start\n");
+                            send_start(transport_buf);
                         }
                         break;
                     case 0x2e:
                         if (!val) {
                             /* Stop press. */
                             LOG("easycontrol: stop\n");
+                            send_stop(transport_buf);
                         }
                         break;
                 }
@@ -195,6 +208,7 @@ static inline void process_keystation_in1(jack_nframes_t nframes, uint8_t stamp)
     }
 }
 static inline void process_keystation_in2(jack_nframes_t nframes, uint8_t stamp) {
+    void *transport_buf = midi_out_buf(transport, nframes);
     FOR_MIDI_EVENTS(iter, keystation_in2, nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
@@ -209,10 +223,12 @@ static inline void process_keystation_in2(jack_nframes_t nframes, uint8_t stamp)
                     case 0x5e:
                         /* Play press. */
                         LOG("keystation: start\n");
+                        send_start(transport_buf);
                         break;
                     case 0x5d:
                         /* Stop press. */
                         LOG("keystation: stop\n");
+                        send_stop(transport_buf);
                         break;
                 }
                 break;

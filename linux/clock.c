@@ -11,6 +11,8 @@
 #include <jack/jack.h>
 #include <jack/midiport.h>
 
+#include "jack_tools.h"
+
 /* QUEUES */
 
 /* Erlang input thread to Jack thread buffer. */
@@ -64,13 +66,27 @@ static int process (jack_nframes_t nframes, void *arg) {
     jack_midi_clear_buffer(midi_out_buf);
 
     /* Jack requires us to sort the events, so send the async data
-       first using time stamp 0. */
+       first using time stamp 0.  This consists of data received from
+       Erlang, and MIDI data on in. */
     while(from_erl_read != from_erl_write) {
         struct command *cmd = &from_erl_buf[from_erl_read];
         uint32_t nb_midi = command_nb_midi_bytes(cmd);
         uint8_t *midi = &cmd->midi_bytes[0];
         send_midi(midi_out_buf, 0/*time*/, midi, nb_midi);
         from_erl_read = (from_erl_read + 1) % NB_FROM_ERL_BUFS;
+    }
+    FOR_MIDI_EVENTS(iter, midi_in, nframes) {
+        const uint8_t *msg = iter.event.buffer;
+        if (iter.event.size == 1) {
+            switch(msg[0]) {
+                /* Filter out start, continue, stop */
+            case 0xFA:
+            case 0xFB:
+            case 0xFC:
+                send_midi(midi_out_buf, 0/*time*/, msg, 1);
+                break;
+            }
+        }
     }
 
     /* This is an integer divisor of the sample clock, which makes it
