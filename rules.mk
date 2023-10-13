@@ -36,6 +36,7 @@ HOST_ELF := \
 	linux/test_drum.dynamic.host.elf \
 	linux/gen_max11300.dynamic.host.elf \
 	linux/tether_bl_midi.dynamic.host.elf \
+	linux/synth_tools.dynamic.host.so \
 
 HOST_ELF_DIS := \
 

@@ -1,2 +1,2 @@
 # See make.sh
-EXO_DEV=/nix/store/0yximjasva9pr1bapjj9b2jmvh0qs0y6-exo-dev
+EXO_DEV=/nix/store/lpzn5s6fzpc94kc5x8pl4n3d3hkh965s-exo-dev

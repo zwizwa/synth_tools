@@ -29,6 +29,9 @@
     interpolation.
 
 
+    Find a platform first.  It seems this is best structured as a Pd
+    object.
+
 */
 
 int main(int argc, char **argv) {
