@@ -1,4 +1,5 @@
 #include "m_pd.h"
+#include <math.h>
 
 /* SHARED */
 #define DEF_TILDE_CLASS(cname, ...) do {                                \
@@ -17,24 +18,79 @@
 
 
 /* CLASSES */
+
+/*  Combine putch detection and granual synthesis / convolution.
+
+    Idea is to take the input signal and distort it to square/pulse
+    wave, then isolate the dicontinuities and map them to
+    grain-triggering or a proper convolution with the differential
+    (positive and negative diract pulses).
+
+    Then in a second pass, use the average (pulse density) to modify
+    the timbre of the grain.  E.g. stretch it to match pitch.
+
+    This should give a near perfect pitch mapping, and smooth out the
+    timbre mapping over a longer period of time because it is assumed
+    to be not so important.
+
+    To make this work the time resolution should probably be very
+    high, i.e. much more than 44.1kHz
+
+    Convolution is likely overkill, but a properly sampled grain is
+    probably a good idea.
+
+    How to test?
+
+    Start from a bass lick.
+
+    Perform prefiltering and interpolated zero crossing to emulate
+    high resolution analog preprocessing step.
+
+    Then implement the grain playback at normal sample frequency with
+    interpolation.
+
+    To detect zero crossings, use a Schmitt Trigger.  That takes care
+    of noise right away.
+
+    Next: use the input energy/level to set the output level.  Add
+    some prefiltering to filter out up to 400Hz or so.
+
+
+*/
+
 t_class *square_grain_class;
 struct square_grain {
     t_object x_obj;
     t_float x_f;
     t_float brightness;
+    t_float threshold;
+    t_float state;
 };
 static inline void square_grain_proc(
     struct square_grain *s, t_int n, t_float *in, t_float *out) {
+    t_float state = s->state;
+    t_float thresh = s->threshold;
     for (t_int i=0; i<n; i++) {
-        // out[i] = in[i] * s->brightness;
-        out[i] = in[i];
+        t_float val = in[i];
+        out[i] = state;
+        if ((state >= 0) && (val < -thresh)) {
+            state = -0.5f;
+        }
+        else if ((state < 0) && (val > thresh)) {
+            state = 0.5f;
+        }
     }
+    s->state = state;
 }
 static void square_grain_brightness(struct square_grain *s, t_floatarg val) {
     post("brightness %f", val);
     s->brightness = val;
 }
-
+static void square_grain_threshold(struct square_grain *s, t_floatarg val) {
+    val = fabs(val);
+    post("threshold %f", val);
+    s->threshold = val;
+}
 
 
 static t_int *square_grain_perform(t_int *w) {
@@ -54,12 +110,14 @@ static void square_grain_dsp(struct square_grain *x, t_signal **sp) {
     t_float *out = sp[1]->s_vec;
     dsp_add(square_grain_perform, 4, x, n, in, out);
 }
-static void *square_grain_new(t_floatarg brightness) {
+static void *square_grain_new(t_floatarg threshold) {
     /* create instance */
     struct square_grain *x = (void *)pd_new(square_grain_class);
-    x->brightness = brightness;
+    x->state = 0.0f;
+    x->threshold = threshold;
+    x->brightness = 1.0f;
     /* Create inlets. */
-    inlet_new(&x->x_obj, &x->x_obj.ob_pd, gensym("float"), gensym("brightness"));
+    inlet_new(&x->x_obj, &x->x_obj.ob_pd, gensym("float"), gensym("threshold"));
     /* create a dsp outlet */
     outlet_new(&x->x_obj, gensym("signal"));
     return x;
@@ -69,6 +127,7 @@ static void square_grain_free(void) {
 void square_grain_setup(void) {
     DEF_TILDE_CLASS(square_grain, A_DEFFLOAT);
     DEF_METHOD(square_grain, brightness, A_FLOAT);
+    DEF_METHOD(square_grain, threshold, A_FLOAT);
 }
 
 /* LIB SETUP */
