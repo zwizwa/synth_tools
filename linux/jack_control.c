@@ -26,10 +26,13 @@
 static jack_client_t          *client = NULL;
 
 
-#define SEND(fmt, ...) {\
-        char buf[256];                                                 \
-        buf[0] = snprintf(buf+1, sizeof(buf)-1,fmt, __VA_ARGS__);      \
-        assert_write(1, (void*)buf, buf[0] + 1);                       \
+#define SEND(fmt, ...) {                                                  \
+        uint8_t buf[256+1];                                               \
+        int rv = snprintf((char*)buf+1, sizeof(buf), fmt, __VA_ARGS__);   \
+        ASSERT(rv >= 0);                                                  \
+        ASSERT(rv <= 255);                                                \
+        buf[0] = rv;                                                      \
+        assert_write(1, (void*)buf, 1 + rv);                              \
     }
 
 static void port_register(jack_port_id_t port_id, int reg, void *arg) {
