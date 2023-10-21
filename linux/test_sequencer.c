@@ -18,6 +18,7 @@ uint16_t hh(struct sequencer *s, void *no_state) {
     return 12;
 }
 
+
 int main(int argc, char **argv) {
     LOG("test_drum.c\n");
     struct sequencer _s;
@@ -26,16 +27,19 @@ int main(int argc, char **argv) {
     s->task[0].tick = bd;
     s->task[1].tick = hh;
 
-#if 0
-    struct pattern p = {
-        {0, 100},
-        {1, 200},
-        {3, 150},
+    struct {
+        struct pattern p;
+        struct pattern_step ps[3];
+    } p = {
+        .p = { .nb_steps = 3, },
+        .ps = {
+            {100, 12},
+            {200,  8},
+            {150,  8},
+        },
     };
-    spawn_pattern(s, &p, ARRAY_SIZE(p),
-                  4 /* Loop point */,
-                  quarter_notes /* timescale */);
-#endif
+    s->task[2].tick = pattern_tick;
+    s->task[2].data = &p;
 
     /* Convention: all tasks start at 0. */
     sequencer_start(s);
