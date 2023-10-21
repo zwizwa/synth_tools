@@ -18,6 +18,11 @@ uint16_t hh(struct sequencer *s, void *no_state) {
     return 12;
 }
 
+uint16_t pat_tick(const struct pattern_step *step) {
+    LOG("pat_tick %d %d\n", step->event, step->delay);
+    return step->delay;
+}
+
 
 int main(int argc, char **argv) {
     LOG("test_drum.c\n");
@@ -27,16 +32,15 @@ int main(int argc, char **argv) {
     s->task[0].tick = bd;
     s->task[1].tick = hh;
 
-    struct {
-        struct pattern p;
-        struct pattern_step ps[3];
-    } p = {
-        .p = { .nb_steps = 3, },
-        .ps = {
-            {100, 12},
-            {200,  8},
-            {150,  8},
-        },
+    struct pattern_step ps[] = {
+        {100, 12},
+        {200,  8},
+        {150,  8},
+    };
+    struct pattern p = {
+        .step_tick = pat_tick,
+        .nb_steps = ARRAY_SIZE(ps),
+        .step = ps,
     };
     s->task[2].tick = pattern_tick;
     s->task[2].data = &p;

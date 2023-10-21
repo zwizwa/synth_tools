@@ -68,24 +68,25 @@ void sequencer_reset(struct sequencer *s) {
    the software timer.  This avoids the need to dump all events in the
    timer at once. */
 
-#define PATTERN_EVENT_REST 0
 struct pattern_step {
     /* Do event, then wait for delay ticks. */
     uint16_t event;
     uint16_t delay;
 };
 struct pattern {
+    uint16_t (*step_tick)(const struct pattern_step *step);
     uint16_t nb_steps;
     uint16_t next_step;
-    struct pattern_step step[];
+    const struct pattern_step *step;
 };
 uint16_t pattern_tick(struct sequencer *seq, void *data) {
     struct pattern *p = data;
-    struct pattern_step step = p->step[p->next_step++];
+    const struct pattern_step *step = &p->step[p->next_step++];
     if (p->next_step == p->nb_steps) {
         /* Loop */
         p->next_step = 0;
     }
-    LOG("pattern_tick %d\n", step.event);
-    return step.delay;
+    uint16_t delay = p->step_tick(step);
+    LOG("pattern_tick delay %d\n", delay);
+    return delay;
 }

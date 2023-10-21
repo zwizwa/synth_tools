@@ -512,6 +512,29 @@ void pixi_poll(void) {
     vm_next(app);
 }
 
+uint16_t pat_tick(const struct pattern_step *step) {
+    infof("pat_tick %d %d\n", step->event, step->delay);
+    return step->delay;
+}
+/* Pattern data could go into flash. */
+const struct pattern_step pat_steps[] = {
+    {100, 12},
+    {200,  8},
+    {150,  8},
+};
+/* Player state is in RAM.  Could host a variety of patterns. */
+struct pattern pat = {
+    .step_tick = pat_tick,
+    .nb_steps = ARRAY_SIZE(pat_steps),
+    .step = pat_steps,
+};
+void pattern_init(struct sequencer *s) {
+    sequencer_init(s);
+    s->task[0].tick = pattern_tick;
+    s->task[0].data = &pat;
+    sequencer_start(s);
+}
+
 void start(void) {
     hw_app_init();
     infof("pixi: start\n");
@@ -522,7 +545,8 @@ void start(void) {
 
     /* App struct init */
     CBUF_INIT(app_.out);
-    sequencer_init(&app_.sequencer);
+    pattern_init(&app_.sequencer);
+    app_.started = 1;
 
     /* Turn on the LED to indicate we have started. */
     hw_gpio_config(LED,HW_GPIO_CONFIG_OUTPUT);
