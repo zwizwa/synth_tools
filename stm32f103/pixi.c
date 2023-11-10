@@ -38,6 +38,9 @@
 
 #include "mod_sequencer.c"
 
+#define NOINLINE __attribute__((__noinline__))
+
+
 /* STATE */
 
 /* RTT communication */
@@ -59,12 +62,16 @@ struct rtt_1_1 rtt = RTT_1_1_INIT(rtt_up, rtt_down);
 
 #define NB_DAC 12
 #define NB_ADC 6
+#define NB_CV 2
 typedef uint16_t tick_counter_t;
 struct ticks {
     tick_counter_t pwm, swt, swi, event, midi_clock, midi[3];
 };
 struct app {
     void *next;
+    volatile uint32_t swi_from_mainloop;
+    volatile uint32_t swi_from_timer;
+    volatile uint32_t cv[NB_CV]; // Atomic, so use machine word size
     struct cbuf out; uint8_t out_buf[128];
     struct ticks ticks;
     uint16_t dac_vals[NB_DAC];
@@ -75,6 +82,17 @@ struct app {
 };
 struct app app_;
 
+// Map a struct's field to the struct's pointer.
+#define DEF_FIELD_TO_PARENT(function_name, parent_type, field_type, field_name) \
+    static inline parent_type *function_name(field_type *field_ptr) {   \
+        uint8_t *u8 = ((uint8_t *)field_ptr) - OFFSETOF(parent_type,field_name); \
+        return (parent_type *)u8;                                       \
+    }
+// Field names and struct names are the same, so this can be shortened.
+#define DEF_FIELD_TO_APP(field) \
+    DEF_FIELD_TO_PARENT(field##_to_app, struct app, struct field, field)
+
+DEF_FIELD_TO_APP(sequencer)
 
 
 
@@ -102,6 +120,22 @@ struct app app_;
 
 
 */
+
+
+const struct hw_swi swi = HW_SWI_0;
+
+/* The SWI is unidirectional (i.e. no RPC).
+   The queue depth is 1: assuming messages are handled immediately. */
+KEEP NOINLINE void swi_from_mainloop(struct app *app, uint32_t msg) {
+    app->swi_from_mainloop = msg;
+    hw_swi_trigger(swi);
+}
+KEEP NOINLINE void swi_from_timer(struct app *app, uint32_t msg) {
+    app->swi_from_timer = msg;
+    hw_swi_trigger(swi);
+}
+
+
 
 const struct hw_spi_nodma hw_spi2_nodma_master_0rw = {
 //  rcc_gpio   rcc_spi   spi   rst       gpio   out in  sck  mode        div
@@ -155,7 +189,6 @@ const struct hw_multi_pwm hw_tim_pwm = {
 
 // see mod_oled.c
 #define SPI_CS GPIOB,12
-#define NOINLINE __attribute__((__noinline__))
 NOINLINE void hw_spi_cs(int val) {
     hw_gpio_write(SPI_CS, val);
 #if 0
@@ -239,20 +272,45 @@ NOINLINE void pixi_init(void) {
 
 
 /* PDM TIMER INTERRUPT */
-void HW_TIM_ISR(TIM_PWM)(void) {
-    hw_multi_pwm_ack(C_PWM);
-    spi_rd_regs(PIXI_REG_ADC_DATA + 12, app_.adc_vals, NB_ADC);
-#if 1
-    uint16_t inc = app_.adc_vals[0] >> 5;
-#else
-    uint16_t inc = 1;
-#endif
+
+static inline void dac_adc_update(struct app *app) {
+    spi_rd_regs(PIXI_REG_ADC_DATA + 12, app->adc_vals, NB_ADC);
+    /* Use first knob to set the LFO speed. */
+    uint16_t inc = app->adc_vals[0] >> 5;
+
+    /* Fill with demo LFO */
     for (uint32_t i=0; i<NB_DAC; i++) {
-        app_.dac_vals[i] += inc;
-        app_.dac_vals[i] &= 0xFFF;
+        app->dac_vals[i] += inc;
+        app->dac_vals[i] &= 0xFFF;
     }
-    spi_wr_regs(PIXI_REG_DAC_DATA + 0,  app_.dac_vals, NB_DAC);
-    app_.ticks.pwm++;
+
+    /* Override with CV sequencer channels + duplicates. */
+    for (uint32_t i=0; i<NB_CV; i++) {
+        app->dac_vals[i] = app->cv[i];
+        app->dac_vals[i+NB_DAC/2] = app->cv[i];
+    }
+    app->ticks.pwm++;
+}
+void HW_TIM_ISR(TIM_PWM)(void) {
+    /* Platform-dependent and global variable access go into this
+       function... */
+    hw_multi_pwm_ack(C_PWM);
+    struct app *app = &app_;
+
+    /* ... such that platform-independent code can be separated for
+       re-use in tests or other code. */
+    dac_adc_update(app);
+
+    spi_wr_regs(PIXI_REG_DAC_DATA + 0,  app->dac_vals, NB_DAC);
+
+    // (/ 2000.0 256)
+#if 0
+    /* FIXME: proper divider. */
+    if ((app->ticks.pwm & 0xFF) == 0) {
+        /* Midi clock */
+        swi_from_timer(app, 0xF8);
+    }
+#endif
 }
 
 
@@ -290,7 +348,9 @@ void isr_log(const void *buf, uint32_t nb) {
 #define ISR_EVENT_TIMER    0x020000
 #define ISR_EVENT_SWI      0x020001
 
+#define ISR_EVENT_CONSOLE  0x030000
 
+void pattern_start(struct sequencer *);
 NOINLINE void isr_event(struct app *app, uint32_t event) {
     app->ticks.event++;
     switch(event) {
@@ -305,11 +365,9 @@ NOINLINE void isr_event(struct app *app, uint32_t event) {
         break;
     case 0xFA:
         /* Start */
-        /* Reset counters, enable playback. */
         app->started = 1;
-        sequencer_reset(&app->sequencer);
-        sequencer_start(&app->sequencer);
-        break;
+        pattern_start(&app->sequencer);
+       break;
     case 0xFB:
         /* Continue */
         /* Enable playback. */
@@ -323,16 +381,31 @@ NOINLINE void isr_event(struct app *app, uint32_t event) {
     }
 }
 
-const struct hw_swi swi = HW_SWI_0;
+static inline void swi_handle(struct app *app, volatile uint32_t *pevt) {
+    uint32_t evt = *pevt;
+    if (evt) {
+        *pevt = 0;
+        isr_event(app, evt);
+    }
+}
+
 void exti0_isr(void) {
     hw_swi_ack(swi);
     struct app *app = &app_;
     app->ticks.swi++;
-    isr_event(app, ISR_EVENT_SWI);
+    /* Software interrupts can come from higher and lower priority
+       tasks.  It is assumed that SWI handler can service these before
+       the next one arrives, so no queues are used.  This is always
+       the case for _from_mainloop as ISR will handle before main loop
+       task can continue.  For _from_timer it is less clear if this is
+       a good idea, but for now let's assume that the timer interrupt
+       doesn't generate events too quickly, e.g. midi clock or some
+       edge detector on ADC data.  Always handle timer interrupts
+       first. */
+    swi_handle(app, &app->swi_from_timer);
+    swi_handle(app, &app->swi_from_mainloop);
 }
-KEEP NOINLINE void sw_trigger(void) {
-    hw_swi_trigger(swi);
-}
+
 
 
 
@@ -465,6 +538,23 @@ INLINE void hw_midi_port_init(struct hw_midi_port p) {
 /* COMMUNICATION */
 
 void midi_write(const uint8_t *buf, uint32_t len) {
+    /* Currently only doing single byte events.  Multi-byte events
+       could be parsed here then sent in one go, but it might be
+       simpler to just do one interrupt per byte and put the parser in
+       the isr since it is needed for uart anyway. */
+    struct app *app = &app_;
+    for (uint32_t i=0; i<len; i++) {
+        uint8_t byte = buf[i];
+        // LOG("usb midi %02x\n", byte);
+        switch(buf[i]) {
+        case 0xF8:
+        case 0xFA:
+        case 0xFB:
+        case 0xFC:
+            swi_from_mainloop(app, byte);
+            break;
+        }
+    }
 }
 uint32_t midi_read(uint8_t *buf, uint32_t room) {
     return 0;
@@ -486,7 +576,7 @@ void rtt_command_poll(struct app *app) {
         uint8_t buf[n];
         uint32_t nb = rtt_buf_read(down, buf, n);
         infof("received %d\n", nb);
-        sw_trigger();
+        swi_from_mainloop(app, ISR_EVENT_CONSOLE + nb);
     }
 }
 
@@ -512,15 +602,22 @@ void pixi_poll(void) {
     vm_next(app);
 }
 
-uint16_t pat_tick(const struct pattern_step *step) {
+#define PAT_CV(chan, val) (((chan & 0xF) << 12) | (val & 0xFFF))
+uint16_t pat_tick(struct sequencer *seq, const struct pattern_step *step) {
     infof("pat_tick %d %d\n", step->event, step->delay);
+    struct app *app = sequencer_to_app(seq);
+    uint32_t val  = step->event & 0xFFF;
+    uint32_t chan = (step->event >> 12) & 0xF;
+    if (chan < NB_CV) {
+        app->cv[chan] = val;
+    }
     return step->delay;
 }
 /* Pattern data could go into flash. */
 const struct pattern_step pat_steps[] = {
-    {100, 12},
-    {200,  8},
-    {150,  8},
+    {PAT_CV(0,0xFFF), 12},
+    {PAT_CV(0,0x200),  8},
+    {PAT_CV(0,0x800),  4},
 };
 /* Player state is in RAM.  Could host a variety of patterns. */
 struct pattern pat = {
@@ -534,6 +631,13 @@ void pattern_init(struct sequencer *s) {
     s->task[0].data = &pat;
     sequencer_start(s);
 }
+void pattern_start(struct sequencer *s) {
+    /* Reset counters, enable playback. */
+    pat.next_step = 0;
+    sequencer_reset(s);
+    sequencer_start(s);
+}
+
 
 void start(void) {
     hw_app_init();

@@ -18,7 +18,7 @@ uint16_t hh(struct sequencer *s, void *no_state) {
     return 12;
 }
 
-uint16_t pat_tick(const struct pattern_step *step) {
+uint16_t pat_tick(struct sequencer *seq, const struct pattern_step *step) {
     LOG("pat_tick %d %d\n", step->event, step->delay);
     return step->delay;
 }

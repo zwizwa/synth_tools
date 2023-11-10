@@ -55,7 +55,7 @@ void sequencer_tick(struct sequencer *s) {
 void sequencer_start(struct sequencer *s) {
     for(uint16_t task_nb = 0; task_nb < ARRAY_SIZE(s->task); task_nb++) {
         if (s->task[task_nb].tick) {
-            sequencer_resume(s, task_nb);
+            swtimer_schedule(&s->swtimer, 0, task_nb);
         }
     }
 }
@@ -74,7 +74,7 @@ struct pattern_step {
     uint16_t delay;
 };
 struct pattern {
-    uint16_t (*step_tick)(const struct pattern_step *step);
+    uint16_t (*step_tick)(struct sequencer *s, const struct pattern_step *step);
     uint16_t nb_steps;
     uint16_t next_step;
     const struct pattern_step *step;
@@ -86,7 +86,7 @@ uint16_t pattern_tick(struct sequencer *seq, void *data) {
         /* Loop */
         p->next_step = 0;
     }
-    uint16_t delay = p->step_tick(step);
+    uint16_t delay = p->step_tick(seq, step);
     LOG("pattern_tick delay %d\n", delay);
     return delay;
 }

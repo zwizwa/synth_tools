@@ -23,7 +23,7 @@
 #include "assert_read.h"
 #include "assert_write.h"
 
-
+#include "mod_sequencer.c"
 
 /* JACK */
 #define FOR_MIDI_IN(m) \
@@ -105,13 +105,6 @@ static void to_erl(const uint8_t *buf, int nb, uint8_t port) {
     if (hole) { memcpy(hole, buf, nb); }
 }
 
-
-static uint32_t phase = 0;
-static uint32_t running = 0;
-
-
-
-
 static inline void process_z_debug(jack_nframes_t nframes) {
     FOR_MIDI_EVENTS(iter, z_debug, nframes) {
         const uint8_t *msg = iter.event.buffer;
@@ -122,16 +115,44 @@ static inline void process_z_debug(jack_nframes_t nframes) {
 
 
 
-static inline void process_clock_in(jack_nframes_t nframes) {
-    void *pd_out_buf = midi_out_buf(pd_out, nframes);
+struct sequencer sequencer;
+static uint32_t running = 0;
+jack_nframes_t cur_nframes; // FIXME
 
+uint16_t pat_tick(struct sequencer *seq, const struct pattern_step *step) {
+    LOG("pat_tick %d %d\n", step->event, step->delay);
+    void *pd_out_buf = midi_out_buf(pd_out, cur_nframes);
+    send_cc(pd_out_buf, 0, 0, 0);
+    return step->delay;
+}
+/* Pattern data could go into flash. */
+const struct pattern_step pat_steps[] = {
+    {100, 12},
+    {200,  8},
+    {150,  8},
+};
+/* Player state is in RAM.  Could host a variety of patterns. */
+struct pattern pat = {
+    .step_tick = pat_tick,
+    .nb_steps = ARRAY_SIZE(pat_steps),
+    .step = pat_steps,
+};
+void pattern_init(struct sequencer *s) {
+    sequencer_init(s);
+    s->task[0].tick = pattern_tick;
+    s->task[0].data = &pat;
+    sequencer_start(s);
+}
+
+static inline void process_clock_in(jack_nframes_t nframes) {
     FOR_MIDI_EVENTS(iter, clock_in, nframes) {
         const uint8_t *msg = iter.event.buffer;
         if (iter.event.size == 1) {
             switch(msg[0]) {
             case 0xFA: // start
                 running = 1;
-                phase = 0;
+                sequencer_reset(&sequencer);
+                sequencer_start(&sequencer);
                 break;
             case 0xFB: // continue
                 running = 1;
@@ -141,19 +162,8 @@ static inline void process_clock_in(jack_nframes_t nframes) {
                 break;
             case 0xF8: { // clock
                 if (running) {
-                    uint32_t qn = phase == 0; // one quarter note
-                    uint32_t en = (phase % 12) == 0; // one eight note
-
-                    /* For Pd Note On/Off is not used as it requires begin/end of events.
-                       Use CC to map better to single-ended events. */
-                    if (qn) {
-                        send_cc(pd_out_buf, 0, 0, 0);
-                    }
-                    if (en) {
-                        send_cc(pd_out_buf, 0, 0, 1);
-                    }
+                    sequencer_tick(&sequencer);
                 }
-                phase = (phase + 1) % 24;
                 break;
             }
             }
@@ -265,6 +275,8 @@ static inline void process_erl_out(jack_nframes_t nframes) {
 
 static int process (jack_nframes_t nframes, void *arg) {
 
+    cur_nframes = nframes; // FIXME
+
     /* Erlang out is tagged with a rolling time stamp. */
     jack_nframes_t f = jack_last_frame_time(client);
     uint8_t stamp = (f / nframes);
@@ -283,6 +295,8 @@ static int process (jack_nframes_t nframes, void *arg) {
 
 
 int main(int argc, char **argv) {
+
+    pattern_init(&sequencer);
 
     /* Jack client setup */
     const char *client_name = "hub"; // argv[1];

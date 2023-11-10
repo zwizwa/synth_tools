@@ -218,6 +218,9 @@ void __attribute__((noinline)) bl_midi_write(struct bl_state *s, const uint8_t *
             bl_ensure_started(s);
             if (_config.io) _config.io->write(buf+1, 2);
             break;
+        case 0xf:
+            bl_ensure_started(s);
+            if (_config.io) _config.io->write(buf+1, 1);
         default:
             break;
         }
