@@ -27,12 +27,13 @@
 
 /* JACK */
 #define FOR_MIDI_IN(m) \
-    m(clock_in)     \
-    m(fire_in)      \
-    m(easycontrol)  \
+    m(clock_in)        \
+    m(fire_in)         \
+    m(easycontrol)     \
     m(keystation_in1)  \
     m(keystation_in2)  \
-    m(z_debug)     \
+    m(remote_in)       \
+    m(z_debug)         \
 
 #define FOR_MIDI_IN_DIS(m) \
 
@@ -214,7 +215,7 @@ static inline void process_keystation_in1(jack_nframes_t nframes, uint8_t stamp)
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        to_erl(msg, n, 0 /*midi port*/);
+        to_erl(msg, n, 1 /*midi port*/);
     }
 }
 static inline void process_keystation_in2(jack_nframes_t nframes, uint8_t stamp) {
@@ -223,7 +224,7 @@ static inline void process_keystation_in2(jack_nframes_t nframes, uint8_t stamp)
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        to_erl(msg, n, 0 /*midi port*/);
+        to_erl(msg, n, 2 /*midi port*/);
         if (n == 3) {
             switch(msg[0]) {
             case 0x90: { /* Note on */
@@ -245,6 +246,15 @@ static inline void process_keystation_in2(jack_nframes_t nframes, uint8_t stamp)
             }
             }
         }
+    }
+}
+
+static inline void process_remote_in(jack_nframes_t nframes, uint8_t stamp) {
+    FOR_MIDI_EVENTS(iter, remote_in, nframes) {
+        const uint8_t *msg = iter.event.buffer;
+        int n = iter.event.size;
+        /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
+        to_erl(msg, n, 3 /*midi port*/);
     }
 }
 
@@ -287,6 +297,7 @@ static int process (jack_nframes_t nframes, void *arg) {
     process_easycontrol_in(nframes, stamp);
     process_keystation_in1(nframes, stamp);
     process_keystation_in2(nframes, stamp);
+    process_remote_in(nframes, stamp);
     process_erl_out(nframes);
 
     return 0;
