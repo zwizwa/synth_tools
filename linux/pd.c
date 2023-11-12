@@ -61,13 +61,26 @@ static inline void process_midi(jack_nframes_t nframes) {
             }
         }
         else if (event.size == 3) {
+            /* Structure is optimized to make Pd route simple.
+               E.g. channel comes before message type. */
             uint8_t type = msg[0] & 0xF0;
             uint8_t chan = msg[0] & 0x0F;
             if (type == 0xB0) {
                 char fudi[32];
-                int nb = sprintf(fudi, "cc %d %d %d;\n", chan, msg[1], msg[2]);
+                int nb = sprintf(fudi, "track %d cc %d %d;\n", chan, msg[1], msg[2]);
                 assert_write(pd_fd, (void*)fudi, nb);
                 // LOG("pd_io %s", msg);
+            }
+            else if ((type & 0xF0) == 0x80) {
+                char fudi[32];
+                /* Use 0 to mean off. */
+                int nb = sprintf(fudi, "track %d note %d %d;\n", chan, msg[1], 0);
+                assert_write(pd_fd, (void*)fudi, nb);
+            }
+            else if ((type & 0xF0) == 0x90) {
+                char fudi[32];
+                int nb = sprintf(fudi, "track %d note %d %d;\n", chan, msg[1], msg[2]);
+                assert_write(pd_fd, (void*)fudi, nb);
             }
         }
 

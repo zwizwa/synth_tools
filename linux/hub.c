@@ -53,9 +53,27 @@ FOR_MIDI_OUT(DEF_JACK_PORT)
 
 static jack_client_t *client = NULL;
 
+struct remote {
+    uint8_t sel;
+};
+
+struct app {
+    struct sequencer sequencer;
+    uint32_t running;
+    jack_nframes_t nframes;
+    uint8_t stamp;
+
+    /* stateful processors */
+    struct remote remote;
+
+    /* midi out ports */
+    void *pd_out_buf;
+    void *transport_buf;
+} app_state = {};
+
 #define BPM_TO_PERIOD(sr,bpm) ((sr*60)/(bpm*24))
 
-static inline void *midi_out_buf(jack_port_t *port, jack_nframes_t nframes) {
+static inline void *midi_out_buf_cleared(jack_port_t *port, jack_nframes_t nframes) {
     void *buf = jack_port_get_buffer(port, nframes);
     jack_midi_clear_buffer(buf);
     return buf;
@@ -106,8 +124,8 @@ static void to_erl(const uint8_t *buf, int nb, uint8_t port) {
     if (hole) { memcpy(hole, buf, nb); }
 }
 
-static inline void process_z_debug(jack_nframes_t nframes) {
-    FOR_MIDI_EVENTS(iter, z_debug, nframes) {
+static inline void process_z_debug(struct app *app) {
+    FOR_MIDI_EVENTS(iter, z_debug, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         LOG_HEX("z_debug:", msg, n);
@@ -116,14 +134,9 @@ static inline void process_z_debug(jack_nframes_t nframes) {
 
 
 
-struct sequencer sequencer;
-static uint32_t running = 0;
-jack_nframes_t cur_nframes; // FIXME
-
 uint16_t pat_tick(struct sequencer *seq, const struct pattern_step *step) {
     LOG("pat_tick %d %d\n", step->event, step->delay);
-    void *pd_out_buf = midi_out_buf(pd_out, cur_nframes);
-    send_cc(pd_out_buf, 0, 0, 0);
+    // send_cc(app->pd_out_buf, 0, 0, 0); // FIXME
     return step->delay;
 }
 /* Pattern data could go into flash. */
@@ -145,25 +158,25 @@ void pattern_init(struct sequencer *s) {
     sequencer_start(s);
 }
 
-static inline void process_clock_in(jack_nframes_t nframes) {
-    FOR_MIDI_EVENTS(iter, clock_in, nframes) {
+static inline void process_clock_in(struct app *app) {
+    FOR_MIDI_EVENTS(iter, clock_in, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
         if (iter.event.size == 1) {
             switch(msg[0]) {
             case 0xFA: // start
-                running = 1;
-                sequencer_reset(&sequencer);
-                sequencer_start(&sequencer);
+                app->running = 1;
+                sequencer_reset(&app->sequencer);
+                sequencer_start(&app->sequencer);
                 break;
             case 0xFB: // continue
-                running = 1;
+                app->running = 1;
                 break;
             case 0xFC: // stop
-                running = 0;
+                app->running = 0;
                 break;
             case 0xF8: { // clock
-                if (running) {
-                    sequencer_tick(&sequencer);
+                if (app->running) {
+                    sequencer_tick(&app->sequencer);
                 }
                 break;
             }
@@ -174,10 +187,8 @@ static inline void process_clock_in(jack_nframes_t nframes) {
 
 // FIXME: I want a simpler midi dispatch construct.
 
-static inline void process_easycontrol_in(jack_nframes_t nframes, uint8_t stamp) {
-    void *transport_buf = midi_out_buf(transport, nframes);
-
-    FOR_MIDI_EVENTS(iter, easycontrol, nframes) {
+static inline void process_easycontrol_in(struct app *app) {
+    FOR_MIDI_EVENTS(iter, easycontrol, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
@@ -192,14 +203,14 @@ static inline void process_easycontrol_in(jack_nframes_t nframes, uint8_t stamp)
                         if (!val) {
                             /* Play press. */
                             LOG("easycontrol: start\n");
-                            send_start(transport_buf);
+                            send_start(app->transport_buf);
                         }
                         break;
                     case 0x2e:
                         if (!val) {
                             /* Stop press. */
                             LOG("easycontrol: stop\n");
-                            send_stop(transport_buf);
+                            send_stop(app->transport_buf);
                         }
                         break;
                 }
@@ -210,17 +221,16 @@ static inline void process_easycontrol_in(jack_nframes_t nframes, uint8_t stamp)
     }
 }
 
-static inline void process_keystation_in1(jack_nframes_t nframes, uint8_t stamp) {
-    FOR_MIDI_EVENTS(iter, keystation_in1, nframes) {
+static inline void process_keystation_in1(struct app *app) {
+    FOR_MIDI_EVENTS(iter, keystation_in1, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
         to_erl(msg, n, 1 /*midi port*/);
     }
 }
-static inline void process_keystation_in2(jack_nframes_t nframes, uint8_t stamp) {
-    void *transport_buf = midi_out_buf(transport, nframes);
-    FOR_MIDI_EVENTS(iter, keystation_in2, nframes) {
+static inline void process_keystation_in2(struct app *app) {
+    FOR_MIDI_EVENTS(iter, keystation_in2, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
@@ -234,12 +244,12 @@ static inline void process_keystation_in2(jack_nframes_t nframes, uint8_t stamp)
                     case 0x5e:
                         /* Play press. */
                         LOG("keystation: start\n");
-                        send_start(transport_buf);
+                        send_start(app->transport_buf);
                         break;
                     case 0x5d:
                         /* Stop press. */
                         LOG("keystation: stop\n");
-                        send_stop(transport_buf);
+                        send_stop(app->transport_buf);
                         break;
                 }
                 break;
@@ -249,19 +259,101 @@ static inline void process_keystation_in2(jack_nframes_t nframes, uint8_t stamp)
     }
 }
 
-static inline void process_remote_in(jack_nframes_t nframes, uint8_t stamp) {
-    FOR_MIDI_EVENTS(iter, remote_in, nframes) {
+
+void pd_remote_cc(struct app *app, uint8_t ctrl, uint8_t val) {
+    // Map it back to a CC after stateful processing
+    uint8_t msg[3] = {0xB0 + (app->remote.sel & 0xF), ctrl & 0x7f, val & 0x7f};
+    // Send it to Pd & Erlang
+    send_midi(app->pd_out_buf, 0, msg, sizeof(msg));
+    to_erl(msg, sizeof(msg), 4 /* midi port */);
+}
+void pd_remote_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
+    // Route it to the proper channel
+    uint8_t msg[3] = {(on_off & 0xF0) + (app->remote.sel & 0xF), note & 0x7f, vel & 0x7f};
+    // Send it to Pd & Erlang
+    send_midi(app->pd_out_buf, 0, msg, sizeof(msg));
+    to_erl(msg, sizeof(msg), 4 /* midi port */);
+}
+
+static inline void process_remote_in(struct app *app) {
+    struct remote *r = &app->remote;
+    FOR_MIDI_EVENTS(iter, remote_in, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        to_erl(msg, n, 3 /*midi port*/);
+        // to_erl(msg, n, 3 /*midi port*/);
+        uint8_t tag = msg[0];
+        if (n == 3) {
+            switch(tag) {
+            case 0x80:
+            case 0x90: {
+                /* Route it to the current track. */
+                pd_remote_note(app, tag, msg[1], msg[2]);
+                break;
+            }
+            case 0xB0: {
+                /* Template 64 Zwizwa Exo has all knobs, sliders,
+                   encoders mapped to CC */
+                uint8_t cc = msg[1];
+                uint8_t val = msg[2];
+                if (cc <= 7) {
+                    uint8_t slider = cc;
+                    r->sel = slider;
+                    pd_remote_cc(app, 0, val);
+                }
+                else if (cc <= 15) {
+                    uint8_t slider_but = cc - 8;
+                    r->sel = slider_but;
+                    pd_remote_cc(app, 1, val);
+                }
+                else if (cc <= 23) {
+                    uint8_t knob = cc - 16;
+                    r->sel = knob;
+                    pd_remote_cc(app, 2, val);
+                }
+                else if (cc <= 31) {
+                    uint8_t knob_but = cc - 24;
+                    r->sel = knob_but;
+                    pd_remote_cc(app, 3, val);
+                }
+                else if (cc <= 39) {
+                    uint8_t rotary = cc - 32;
+                    // local to r->sel
+                    // FIXME: do rotary processing
+                    pd_remote_cc(app, 4 + rotary, val);
+                }
+                else if (cc <= 47) {
+                    uint8_t rotary_but = cc - 40;
+                    // local to r->sel
+                    pd_remote_cc(app, 4 + 8 + rotary_but, val);
+                }
+                else if (cc == 0x32) {
+                    // stop
+                }
+                else if (cc == 0x33) {
+                    // play
+                }
+                else if (cc == 0x34) {
+                    // rec
+                }
+                else {
+                    to_erl(msg, n, 3 /*midi port*/);
+                }
+                break;
+            }
+            default: {
+                to_erl(msg, n, 3 /*midi port*/);
+                break;
+            }
+            }
+        }
     }
 }
 
 
 
 
-static inline void process_erl_out(jack_nframes_t nframes) {
+static inline void process_erl_out(struct app *app) {
     /* Send to Erlang
 
        Note: I'm not exactly sure whether it is a good idea to perform
@@ -283,23 +375,28 @@ static inline void process_erl_out(jack_nframes_t nframes) {
 
 }
 
-static int process (jack_nframes_t nframes, void *arg) {
-
-    cur_nframes = nframes; // FIXME
+static void app_process(struct app *app) {
 
     /* Erlang out is tagged with a rolling time stamp. */
     jack_nframes_t f = jack_last_frame_time(client);
-    uint8_t stamp = (f / nframes);
+    app->stamp = (f / app->nframes);
 
     /* Order is important. */
-    process_z_debug(nframes);
-    process_clock_in(nframes);
-    process_easycontrol_in(nframes, stamp);
-    process_keystation_in1(nframes, stamp);
-    process_keystation_in2(nframes, stamp);
-    process_remote_in(nframes, stamp);
-    process_erl_out(nframes);
+    process_z_debug(app);
+    process_clock_in(app);
+    process_easycontrol_in(app);
+    process_keystation_in1(app);
+    process_keystation_in2(app);
+    process_remote_in(app);
+    process_erl_out(app);
+}
 
+static int process (jack_nframes_t nframes, void *arg) {
+    struct app *app = &app_state;
+    app->nframes = nframes;
+    app->pd_out_buf    = midi_out_buf_cleared(pd_out, nframes);
+    app->transport_buf = midi_out_buf_cleared(transport, nframes);
+    app_process(app);
     return 0;
 }
 
@@ -307,7 +404,8 @@ static int process (jack_nframes_t nframes, void *arg) {
 
 int main(int argc, char **argv) {
 
-    pattern_init(&sequencer);
+    struct app *app = &app_state;
+    pattern_init(&app->sequencer);
 
     /* Jack client setup */
     const char *client_name = "hub"; // argv[1];
