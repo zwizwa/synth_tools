@@ -13,6 +13,15 @@
         class_addmethod(cname##_class, (t_method)cname##_dsp, gensym("dsp"), 0); \
     } while(0)
 
+#define DEF_CLASS(cname, ...) do {                                      \
+        cname##_class = class_new(                                      \
+            gensym(#cname),                                             \
+            (t_newmethod)cname##_new,                                   \
+            (t_method)cname##_free,                                     \
+            sizeof(struct cname), 0,                                    \
+            __VA_ARGS__,0);                                             \
+    } while(0)
+
 #define DEF_METHOD(cname,mname,...) \
     class_addmethod(cname##_class, (t_method)cname##_##mname, gensym(#mname), __VA_ARGS__, 0)
 
@@ -130,16 +139,52 @@ void square_grain_setup(void) {
     DEF_METHOD(square_grain, threshold, A_FLOAT);
 }
 
+
+t_class *scale_class;
+struct scale {
+    t_object x_obj;
+    t_outlet *out;
+    t_float min, max_over_min;
+};
+// FIXME: Everything is midi for now
+static void scale_float(struct scale *x, t_floatarg mfrac) {
+    t_float frac = mfrac * (1.0f / 127.0f);
+    t_float out = x->min * powf(x->max_over_min, frac);
+    outlet_float(x->out, out);
+}
+static void *scale_new(t_floatarg min, t_floatarg max) {
+    /* create instance */
+    struct scale *x = (void *)pd_new(scale_class);
+    x->min = min;
+    x->max_over_min = max / min;
+    /* main inlet handlers */
+    /* create outlet */
+    x->out = outlet_new(&x->x_obj, gensym("float"));
+    return x;
+}
+static void scale_free(void) {
+}
+void scale_setup(void) {
+    DEF_CLASS(scale, A_DEFFLOAT, A_DEFFLOAT);
+    class_addfloat(scale_class, (t_method)scale_float);
+}
+
+
+
 /* LIB SETUP */
 #define SYNTH_TOOLS_VERSION "git"
 #define CALL_SETUP(name) name##_setup();
 #define DECL_SETUP(name) void name##_setup(void);
 #define FOR_CLASS_TILDE(m)                      \
     m(square_grain)
+#define FOR_CLASS(m)                            \
+    m(scale)
+
 FOR_CLASS_TILDE(DECL_SETUP)
 void synth_tools_setup(void) {
     post("synth_tools: version " SYNTH_TOOLS_VERSION);
     post("t_int %d, t_float %d, t_obj %d",
          sizeof(t_int), sizeof(t_float), sizeof(t_object));
     FOR_CLASS_TILDE(CALL_SETUP)
+    FOR_CLASS(CALL_SETUP)
 }
