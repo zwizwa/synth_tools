@@ -139,24 +139,43 @@ void square_grain_setup(void) {
     DEF_METHOD(square_grain, threshold, A_FLOAT);
 }
 
-
 t_class *scale_class;
 struct scale {
     t_object x_obj;
     t_outlet *out;
-    t_float min, max_over_min;
+    t_float base, diff;
+    void (*process)(struct scale *x, t_floatarg mfrac);
 };
 // FIXME: Everything is midi for now
-static void scale_float(struct scale *x, t_floatarg mfrac) {
+static void scale_exp(struct scale *x, t_floatarg mfrac) {
     t_float frac = mfrac * (1.0f / 127.0f);
-    t_float out = x->min * powf(x->max_over_min, frac);
+    t_float out = x->base * powf(x->diff, frac);
     outlet_float(x->out, out);
 }
-static void *scale_new(t_floatarg min, t_floatarg max) {
+static void scale_lin(struct scale *x, t_floatarg mfrac) {
+    t_float frac = mfrac * (1.0f / 127.0f);
+    t_float out = x->base + x->diff * frac;
+    outlet_float(x->out, out);
+}
+static void scale_float(struct scale *x, t_floatarg mfrac) {
+    x->process(x, mfrac);
+}
+static void *scale_new(t_symbol *type, t_floatarg min, t_floatarg max) {
     /* create instance */
     struct scale *x = (void *)pd_new(scale_class);
-    x->min = min;
-    x->max_over_min = max / min;
+    if (type == gensym("exp")) {
+        x->base = min;
+        x->diff = max / min;
+        x->process = scale_exp;
+    }
+    else if (type == gensym("lin")) {
+        x->base = min;
+        x->diff = max - min;
+        x->process = scale_lin;
+    }
+    else {
+        return NULL;
+    }
     /* main inlet handlers */
     /* create outlet */
     x->out = outlet_new(&x->x_obj, gensym("float"));
@@ -165,7 +184,7 @@ static void *scale_new(t_floatarg min, t_floatarg max) {
 static void scale_free(void) {
 }
 void scale_setup(void) {
-    DEF_CLASS(scale, A_DEFFLOAT, A_DEFFLOAT);
+    DEF_CLASS(scale, A_DEFSYMBOL, A_DEFFLOAT, A_DEFFLOAT);
     class_addfloat(scale_class, (t_method)scale_float);
 }
 

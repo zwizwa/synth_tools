@@ -55,6 +55,7 @@ static jack_client_t *client = NULL;
 
 struct remote {
     uint8_t sel;
+    uint8_t record;
 };
 
 struct app {
@@ -69,6 +70,10 @@ struct app {
     /* midi out ports */
     void *pd_out_buf;
     void *transport_buf;
+
+    /* rolling time */
+    uint32_t time;
+
 } app_state = {};
 
 #define BPM_TO_PERIOD(sr,bpm) ((sr*60)/(bpm*24))
@@ -106,21 +111,41 @@ static size_t to_erl_buf_bytes = 0;
 //    if (free_bytes >= 6) return free_bytes - 6;
 //    return 0;
 //}
-static uint8_t *to_erl_hole(int nb, uint16_t port) {
+static uint8_t *to_erl_hole_8(int nb, uint16_t port) {
+    size_t msg_size = 8 + nb;
+    if (to_erl_buf_bytes + msg_size > sizeof(to_erl_buf)) {
+        LOG("erl buffer overflow\n");
+        return NULL;
+    }
+    uint8_t *msg = &to_erl_buf[to_erl_buf_bytes];
+    /* Midi is mapped into generic stream tag.  Maybe this should have
+       its own tag?  We do need to guarantee single midi messages
+       here. */
+    set_u32be(msg, msg_size - 4); // {packet,4}
+    set_u16be(msg+4, 0xFFFB); // TAG_STREAM
+    set_u16be(msg+6, port);
+    to_erl_buf_bytes += msg_size;
+    return &msg[8];
+}
+static uint8_t *to_erl_hole_6(int nb) {
     size_t msg_size = 6 + nb;
     if (to_erl_buf_bytes + msg_size > sizeof(to_erl_buf)) {
-        LOG("midi buffer overflow\n");
+        LOG("erl buffer overflow\n");
         return NULL;
     }
     uint8_t *msg = &to_erl_buf[to_erl_buf_bytes];
     set_u32be(msg, msg_size - 4); // {packet,4}
-    msg[4] = (port >> 8);
-    msg[5] = port;
+    set_u16be(msg+4, 0xFFEE); // TAG_PTERM
     to_erl_buf_bytes += msg_size;
     return &msg[6];
 }
-static void to_erl(const uint8_t *buf, int nb, uint8_t port) {
-    uint8_t *hole = to_erl_hole(nb, port);
+static void to_erl_pterm(const char *pterm) {
+    int nb = strlen(pterm);
+    uint8_t *hole = to_erl_hole_6(nb);
+    if (hole) { memcpy(hole, pterm, nb); }
+}
+static void to_erl_midi(const uint8_t *buf, int nb, uint8_t port) {
+    uint8_t *hole = to_erl_hole_8(nb, port);
     if (hole) { memcpy(hole, buf, nb); }
 }
 
@@ -192,7 +217,7 @@ static inline void process_easycontrol_in(struct app *app) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        to_erl(msg, n, 0 /*midi port*/);
+        to_erl_midi(msg, n, 0 /*midi port*/);
         if (n == 3) {
             switch(msg[0]) {
             case 0xb0: {
@@ -226,7 +251,7 @@ static inline void process_keystation_in1(struct app *app) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        to_erl(msg, n, 1 /*midi port*/);
+        to_erl_midi(msg, n, 1 /*midi port*/);
     }
 }
 static inline void process_keystation_in2(struct app *app) {
@@ -234,7 +259,7 @@ static inline void process_keystation_in2(struct app *app) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        to_erl(msg, n, 2 /*midi port*/);
+        to_erl_midi(msg, n, 2 /*midi port*/);
         if (n == 3) {
             switch(msg[0]) {
             case 0x90: { /* Note on */
@@ -265,14 +290,33 @@ void pd_remote_cc(struct app *app, uint8_t ctrl, uint8_t val) {
     uint8_t msg[3] = {0xB0 + (app->remote.sel & 0xF), ctrl & 0x7f, val & 0x7f};
     // Send it to Pd & Erlang
     send_midi(app->pd_out_buf, 0, msg, sizeof(msg));
-    to_erl(msg, sizeof(msg), 4 /* midi port */);
+    to_erl_midi(msg, sizeof(msg), 4 /* midi port */);
 }
 void pd_remote_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
     // Route it to the proper channel
     uint8_t msg[3] = {(on_off & 0xF0) + (app->remote.sel & 0xF), note & 0x7f, vel & 0x7f};
     // Send it to Pd & Erlang
     send_midi(app->pd_out_buf, 0, msg, sizeof(msg));
-    to_erl(msg, sizeof(msg), 4 /* midi port */);
+    to_erl_midi(msg, sizeof(msg), 4 /* midi port */);
+
+    // Recording
+    if (app->remote.record) {
+        /* The recorder is implemented in Erlang.
+
+           Since traffic is one-way only, let's use a protocol that is
+           convenient to parse at the Erlang side and easy to generate
+           here: printed terms.  Is also easy to embed in sysex as
+           ASCII. */
+        char *pterm = NULL;
+        int pterm_len = asprintf(
+            &pterm,
+            "{record,{%s,%d,%d,%d,%d}}",
+            (on_off & 0x10) ? "on" : "off",
+            app->time, app->remote.sel, note, vel);
+        ASSERT(pterm_len > 0);
+        to_erl_pterm(pterm);
+    }
+
 }
 
 static inline void process_remote_in(struct app *app) {
@@ -281,19 +325,21 @@ static inline void process_remote_in(struct app *app) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        // to_erl(msg, n, 3 /*midi port*/);
+        // to_erl_midi(msg, n, 3 /*midi port*/);
         uint8_t tag = msg[0];
         if (n == 3) {
             switch(tag) {
             case 0x80:
             case 0x90: {
                 /* Route it to the current track. */
-                pd_remote_note(app, tag, msg[1], msg[2]);
+                uint8_t note = msg[1];
+                uint8_t vel = msg[2];
+                pd_remote_note(app, tag, note, vel);
                 break;
             }
             case 0xB0: {
                 /* Template 64 Zwizwa Exo has all knobs, sliders,
-                   encoders mapped to CC */
+                   encoders mapped to CC in a linear fashion. */
                 uint8_t cc = msg[1];
                 uint8_t val = msg[2];
                 if (cc <= 7) {
@@ -335,14 +381,22 @@ static inline void process_remote_in(struct app *app) {
                 }
                 else if (cc == 0x34) {
                     // rec
+                    app->remote.record = !val; // 0=on, 127=off
+                    if (app->remote.record) {
+                        app->time = 0;
+                        to_erl_pterm("{record,start}");
+                    }
+                    else {
+                        to_erl_pterm("{record,stop}");
+                    }
                 }
                 else {
-                    to_erl(msg, n, 3 /*midi port*/);
+                    to_erl_midi(msg, n, 3 /*midi port*/);
                 }
                 break;
             }
             default: {
-                to_erl(msg, n, 3 /*midi port*/);
+                to_erl_midi(msg, n, 3 /*midi port*/);
                 break;
             }
             }
@@ -397,6 +451,7 @@ static int process (jack_nframes_t nframes, void *arg) {
     app->pd_out_buf    = midi_out_buf_cleared(pd_out, nframes);
     app->transport_buf = midi_out_buf_cleared(transport, nframes);
     app_process(app);
+    app->time += nframes;
     return 0;
 }
 

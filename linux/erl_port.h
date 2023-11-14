@@ -83,6 +83,11 @@ static inline void set_u32be(uint8_t *buf, uint32_t val) {
     buf[3] = val;
 }
 
+static inline void set_u16be(uint8_t *buf, uint16_t val) {
+    buf[0] = val >> 8;
+    buf[1] = val;
+}
+
 static inline void assert_write_port32(int fd, void *buf, uint32_t nb_bytes) {
     uint8_t nb_bytes_buf[4];
     set_u32be(nb_bytes_buf, nb_bytes);
