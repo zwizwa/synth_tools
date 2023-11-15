@@ -16,6 +16,10 @@ int main(int argc, char **argv) {
     sequencer_add_step_cv(s, pat, 0, 100, 12);
     sequencer_add_step_cv(s, pat, 0, 200,  8);
     sequencer_add_step_cv(s, pat, 0, 150,  8);
+    pat++;
+    sequencer_add_step_cv(s, pat, 0, 1001, 4);
+    pat++;
+    sequencer_add_step_cv(s, pat, 0, 1002, 8);
 
     /* Convention: all tasks start at 0. */
     sequencer_start(s);
@@ -24,5 +28,11 @@ int main(int argc, char **argv) {
         /* Called once per MIDI clock tick. */
         sequencer_tick(s);
     }
+
+    sequencer_drop_pattern(s, 0);  // 3 events
+    sequencer_drop_pattern(s, 1);  // 1 event
+    sequencer_drop_pattern(s, 2);  // 1 event
+    sequencer_drop_pattern(s, 3);  // alread empty
+
     return 0;
 }

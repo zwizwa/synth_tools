@@ -310,7 +310,6 @@ static inline void process_remote_in(struct app *app) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        // to_erl_midi(msg, n, 3 /*midi port*/);
         uint8_t tag = msg[0];
         if (n == 3) {
             switch(tag) {
@@ -369,18 +368,34 @@ static inline void process_remote_in(struct app *app) {
                 }
                 else if (cc == 0x33) {
                     // play
+                    if (app->remote.record) {
+                        to_erl_pterm("{record,play}}");
+                    }
                 }
                 else if (cc == 0x34) {
                     // rec
-                    app->remote.record = !val; // 0=on, 127=off
-                    if (app->remote.record) {
-                        app->time = 0;
-                        to_erl_pterm("{record,{start,0}}");
+                    /* This is tricky.  What we really want to do is
+                       to track the state of the record LED, which
+                       toggles when the button is pressed, and turns
+                       off when stop is pressed.  Assume that the
+                       initial state is off.  It's not sending the LED
+                       state. */
+                    to_erl_midi(msg, n, 3 /*midi port*/);
+                    if (val == 0) {
+                        app->remote.record = !app->remote.record;
+                        if (app->remote.record) {
+                            app->time = 0;
+                            to_erl_pterm("{record,start}");
+                        }
+                        else {
+                            char *pterm = NULL;
+                            asprintf(&pterm, "{record,{stop,%d}}", app->time);
+                            to_erl_pterm(pterm);
+                        }
                     }
                     else {
-                        char *pterm = NULL;
-                        asprintf(&pterm, "{record,{stop,%d}}", app->time);
-                        to_erl_pterm(pterm);
+                        /* Button is configured as momentary to allow
+                           for later use of the release event. */
                     }
                 }
                 else {
@@ -393,6 +408,9 @@ static inline void process_remote_in(struct app *app) {
                 break;
             }
             }
+        }
+        else {
+            to_erl_midi(msg, n, 3 /*midi port*/);
         }
     }
 }
@@ -468,10 +486,8 @@ int main(int argc, char **argv) {
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
     ASSERT(!jack_activate(client));
 
-    /* The main thread blocks on stdin.  The protocol is lowest common
-       denominator.  While these are written to interface to Erlang,
-       let's use midi as the main protocol so it is easier to reuse in
-       different configurations. */
+    /* Use the generic {packet,4} + tag protocol on stdin, since hub.c
+       might be hosting a lot of in-image functionality later. */
     for(;;) {
         // FIXME: Current function is just to exit when stdin is closed.
         uint8_t buf[1];

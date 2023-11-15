@@ -191,6 +191,29 @@ void sequencer_add_step_cv(struct sequencer *s, pattern_t pat_nb,
         LOG("pat %d next step %d after %d\n", pat_nb, step, last);
     }
 }
+void sequencer_drop_pattern(struct sequencer *s, pattern_t pat_nb) {
+    for(;;) {
+        step_t last = s->last[pat_nb];
+        if (last == STEP_NONE) {
+            LOG("Pattern %d is empty\n", pat_nb);
+            break;
+        }
+        else {
+            struct pattern_step *plast = &s->pool.step[last];
+            if (plast->next == last) {
+                LOG("Pattern %d, removing last one %d\n", pat_nb, last);
+                s->last[pat_nb] = STEP_NONE;
+                step_pool_free(&s->pool, last);
+            }
+            else {
+                step_t first = plast->next;
+                LOG("Pattern %d, removing next one %d\n", pat_nb, first);
+                plast->next = s->pool.step[first].next;
+                step_pool_free(&s->pool, first);
+            }
+        }
+    }
+}
 
 
 
