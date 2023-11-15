@@ -293,12 +293,11 @@ void pd_remote_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) 
            here: printed terms.  Is also easy to embed in sysex as
            ASCII. */
         char *pterm = NULL;
-        int pterm_len = asprintf(
-            &pterm,
-            "{record,{%s,%d,%d,%d,%d}}",
-            (on_off & 0x10) ? "on" : "off",
-            app->time, app->remote.sel, note, vel);
-        ASSERT(pterm_len > 0);
+        ASSERT(-1 != asprintf(
+                   &pterm,
+                   "{record,{%s,%d,%d,%d,%d}}",
+                   (on_off & 0x10) ? "on" : "off",
+                   app->time, app->remote.sel, note, vel));
         to_erl_pterm(pterm);
     }
 
@@ -361,7 +360,7 @@ static inline void process_remote_in(struct app *app) {
                     // stop
                     if (app->remote.record) {
                         char *pterm = NULL;
-                        asprintf(&pterm, "{record,{stop,%d}}", app->time);
+                        ASSERT(-1 != asprintf(&pterm, "{record,{stop,%d}}", app->time));
                         to_erl_pterm(pterm);
                         app->remote.record = 0;
                     }
