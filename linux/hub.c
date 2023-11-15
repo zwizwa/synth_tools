@@ -388,7 +388,7 @@ static inline void process_remote_in(struct app *app) {
                         }
                         else {
                             char *pterm = NULL;
-                            asprintf(&pterm, "{record,{stop,%d}}", app->time);
+                            ASSERT(-1 != asprintf(&pterm, "{record,{stop,%d}}", app->time));
                             to_erl_pterm(pterm);
                         }
                     }
