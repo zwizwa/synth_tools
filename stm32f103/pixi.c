@@ -602,38 +602,26 @@ void pixi_poll(void) {
     vm_next(app);
 }
 
-#define PAT_CV(chan, val) (((chan & 0xF) << 12) | (val & 0xFFF))
-uint16_t pat_tick(struct sequencer *seq, const struct pattern_step *step) {
-    infof("pat_tick %d %d\n", step->event, step->delay);
+void pat_dispatch(struct sequencer *seq, const struct pattern_step *step) {
+    infof("pat_dispatch %d %d\n", step->event.u8[0], step->delay);
     struct app *app = sequencer_to_app(seq);
-    uint32_t val  = step->event & 0xFFF;
-    uint32_t chan = (step->event >> 12) & 0xF;
+    // ASSERT(step->event[0] == 0);  // not midi but 16 bit CV/gate channel
+    uint32_t chan = step->event.u16[0];
+    uint16_t val  = step->event.u16[1];
+    //uint32_t val  = step->event & 0xFFF;
+    //uint32_t chan = (step->event >> 12) & 0xF;
     if (chan < NB_CV) {
         app->cv[chan] = val;
     }
-    return step->delay;
 }
-/* Pattern data could go into flash. */
-const struct pattern_step pat_steps[] = {
-    {PAT_CV(0,0xFFF), 12},
-    {PAT_CV(0,0x200),  8},
-    {PAT_CV(0,0x800),  4},
-};
-/* Player state is in RAM.  Could host a variety of patterns. */
-struct pattern pat = {
-    .step_tick = pat_tick,
-    .nb_steps = ARRAY_SIZE(pat_steps),
-    .step = pat_steps,
-};
 void pattern_init(struct sequencer *s) {
-    sequencer_init(s);
-    s->task[0].tick = pattern_tick;
-    s->task[0].data = &pat;
+    sequencer_init(s, pat_dispatch);
+    // FIXME: This has changed. Look at test_sequencer.c
     sequencer_start(s);
 }
 void pattern_start(struct sequencer *s) {
     /* Reset counters, enable playback. */
-    pat.next_step = 0;
+    // pat.next_step = 0; // FIXME: still needed?
     sequencer_reset(s);
     sequencer_start(s);
 }

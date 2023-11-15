@@ -159,27 +159,12 @@ static inline void process_z_debug(struct app *app) {
 
 
 
-uint16_t pat_tick(struct sequencer *seq, const struct pattern_step *step) {
+void pat_tick(struct sequencer *seq, const struct pattern_step *step) {
     LOG("pat_tick %d %d\n", step->event, step->delay);
     // send_cc(app->pd_out_buf, 0, 0, 0); // FIXME
-    return step->delay;
 }
-/* Pattern data could go into flash. */
-const struct pattern_step pat_steps[] = {
-    {100, 12},
-    {200,  8},
-    {150,  8},
-};
-/* Player state is in RAM.  Could host a variety of patterns. */
-struct pattern pat = {
-    .step_tick = pat_tick,
-    .nb_steps = ARRAY_SIZE(pat_steps),
-    .step = pat_steps,
-};
 void pattern_init(struct sequencer *s) {
-    sequencer_init(s);
-    s->task[0].tick = pattern_tick;
-    s->task[0].data = &pat;
+    sequencer_init(s, pat_tick);
     sequencer_start(s);
 }
 
@@ -375,6 +360,12 @@ static inline void process_remote_in(struct app *app) {
                 }
                 else if (cc == 0x32) {
                     // stop
+                    if (app->remote.record) {
+                        char *pterm = NULL;
+                        asprintf(&pterm, "{record,{stop,%d}}", app->time);
+                        to_erl_pterm(pterm);
+                        app->remote.record = 0;
+                    }
                 }
                 else if (cc == 0x33) {
                     // play
@@ -384,10 +375,12 @@ static inline void process_remote_in(struct app *app) {
                     app->remote.record = !val; // 0=on, 127=off
                     if (app->remote.record) {
                         app->time = 0;
-                        to_erl_pterm("{record,start}");
+                        to_erl_pterm("{record,{start,0}}");
                     }
                     else {
-                        to_erl_pterm("{record,stop}");
+                        char *pterm = NULL;
+                        asprintf(&pterm, "{record,{stop,%d}}", app->time);
+                        to_erl_pterm(pterm);
                     }
                 }
                 else {
