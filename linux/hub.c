@@ -33,6 +33,7 @@
     m(keystation_in1)  \
     m(keystation_in2)  \
     m(remote_in)       \
+    m(uma_in)          \
     m(z_debug)         \
 
 #define FOR_MIDI_IN_DIS(m) \
@@ -58,6 +59,9 @@ struct remote {
     uint8_t record;
 };
 
+struct uma {
+};
+
 struct app {
     struct sequencer sequencer;
     uint32_t running;
@@ -66,6 +70,7 @@ struct app {
 
     /* stateful processors */
     struct remote remote;
+    struct uma uma;
 
     /* midi out ports */
     void *pd_out_buf;
@@ -295,9 +300,10 @@ void pd_remote_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) 
         char *pterm = NULL;
         ASSERT(-1 != asprintf(
                    &pterm,
-                   "{record,{%s,%d,%d,%d,%d}}",
+                   "{record,{%d,{%s,%d,%d,%d}}}",
+                   app->time,
                    (on_off & 0x10) ? "on" : "off",
-                   app->time, app->remote.sel, note, vel));
+                   app->remote.sel, note, vel));
         to_erl_pterm(pterm);
     }
 
@@ -359,9 +365,7 @@ static inline void process_remote_in(struct app *app) {
                 else if (cc == 0x32) {
                     // stop
                     if (app->remote.record) {
-                        char *pterm = NULL;
-                        ASSERT(-1 != asprintf(&pterm, "{record,{stop,%d}}", app->time));
-                        to_erl_pterm(pterm);
+                        to_erl_pterm("{record,stop}");
                         app->remote.record = 0;
                     }
                 }
@@ -387,9 +391,7 @@ static inline void process_remote_in(struct app *app) {
                             to_erl_pterm("{record,start}");
                         }
                         else {
-                            char *pterm = NULL;
-                            ASSERT(-1 != asprintf(&pterm, "{record,{stop,%d}}", app->time));
-                            to_erl_pterm(pterm);
+                            to_erl_pterm("{record,stop}");
                         }
                     }
                     else {
@@ -411,6 +413,118 @@ static inline void process_remote_in(struct app *app) {
         else {
             to_erl_midi(msg, n, 3 /*midi port*/);
         }
+    }
+}
+
+static inline void process_uma_in(struct app *app) {
+    struct uma *uma = &app->uma;
+    (void)uma;
+    FOR_MIDI_EVENTS(iter, uma_in, app->nframes) {
+        const uint8_t *msg = iter.event.buffer;
+        int n = iter.event.size;
+        /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
+        to_erl_midi(msg, n, 6 /*midi port*/);
+
+#if 0
+        uint8_t tag = msg[0];
+        if (n == 3) {
+            switch(tag) {
+            case 0x80:
+            case 0x90: {
+                /* Route it to the current track. */
+                uint8_t note = msg[1];
+                uint8_t vel = msg[2];
+                pd_remote_note(app, tag, note, vel);
+                break;
+            }
+            case 0xB0: {
+                /* Template 64 Zwizwa Exo has all knobs, sliders,
+                   encoders mapped to CC in a linear fashion. */
+                uint8_t cc = msg[1];
+                uint8_t val = msg[2];
+                if (cc <= 7) {
+                    uint8_t slider = cc;
+                    r->sel = slider;
+                    pd_remote_cc(app, 0, val);
+                }
+                else if (cc <= 15) {
+                    uint8_t slider_but = cc - 8;
+                    r->sel = slider_but;
+                    pd_remote_cc(app, 1, val);
+                }
+                else if (cc <= 23) {
+                    uint8_t knob = cc - 16;
+                    r->sel = knob;
+                    pd_remote_cc(app, 2, val);
+                }
+                else if (cc <= 31) {
+                    uint8_t knob_but = cc - 24;
+                    r->sel = knob_but;
+                    pd_remote_cc(app, 3, val);
+                }
+                else if (cc <= 39) {
+                    uint8_t rotary = cc - 32;
+                    // local to r->sel
+                    // FIXME: do rotary processing
+                    pd_remote_cc(app, 4 + rotary, val);
+                }
+                else if (cc <= 47) {
+                    uint8_t rotary_but = cc - 40;
+                    // local to r->sel
+                    pd_remote_cc(app, 4 + 8 + rotary_but, val);
+                }
+                else if (cc == 0x32) {
+                    // stop
+                    if (app->remote.record) {
+                        to_erl_pterm("{record,stop}");
+                        app->remote.record = 0;
+                    }
+                }
+                else if (cc == 0x33) {
+                    // play
+                    if (app->remote.record) {
+                        to_erl_pterm("{record,play}}");
+                    }
+                }
+                else if (cc == 0x34) {
+                    // rec
+                    /* This is tricky.  What we really want to do is
+                       to track the state of the record LED, which
+                       toggles when the button is pressed, and turns
+                       off when stop is pressed.  Assume that the
+                       initial state is off.  It's not sending the LED
+                       state. */
+                    to_erl_midi(msg, n, 3 /*midi port*/);
+                    if (val == 0) {
+                        app->remote.record = !app->remote.record;
+                        if (app->remote.record) {
+                            app->time = 0;
+                            to_erl_pterm("{record,start}");
+                        }
+                        else {
+                            to_erl_pterm("{record,stop}");
+                        }
+                    }
+                    else {
+                        /* Button is configured as momentary to allow
+                           for later use of the release event. */
+                    }
+                }
+                else {
+                    to_erl_midi(msg, n, 3 /*midi port*/);
+                }
+                break;
+            }
+            default: {
+                to_erl_midi(msg, n, 3 /*midi port*/);
+                break;
+            }
+            }
+        }
+        else {
+            to_erl_midi(msg, n, 3 /*midi port*/);
+        }
+#endif
     }
 }
 
@@ -452,6 +566,7 @@ static void app_process(struct app *app) {
     process_keystation_in1(app);
     process_keystation_in2(app);
     process_remote_in(app);
+    process_uma_in(app);
     process_erl_out(app);
 }
 
