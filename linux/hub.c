@@ -69,9 +69,6 @@ struct remote {
     uint8_t record;
 };
 
-struct uma {
-};
-
 struct app {
     struct sequencer sequencer;
     uint32_t running;
@@ -80,7 +77,6 @@ struct app {
 
     /* stateful processors */
     struct remote remote;
-    struct uma uma;
 
     /* midi out ports */
     void *pd_out_buf;
@@ -294,7 +290,11 @@ void pd_remote_cc(struct app *app, uint8_t ctrl, uint8_t val) {
 }
 void pd_remote_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
     // Route it to the proper channel
-    uint8_t msg[3] = {(on_off & 0xF0) + (app->remote.sel & 0xF), note & 0x7f, vel & 0x7f};
+    uint8_t msg[3] = {
+        (on_off & 0xF0) + (app->remote.sel & 0xF),
+        note & 0x7f,
+        vel & 0x7f
+    };
     // Send it to Pd & Erlang
     send_midi(app->pd_out_buf, 0, msg, sizeof(msg));
     to_erl_midi(msg, sizeof(msg), 4 /* midi port */);
@@ -429,15 +429,13 @@ static inline void process_remote_in(struct app *app) {
 }
 
 static inline void process_uma_in(struct app *app) {
-    struct uma *uma = &app->uma;
-    (void)uma;
+    // Just reuse the remote25 struct. Never used together.
+    struct remote *r = &app->remote;
     FOR_MIDI_EVENTS(iter, uma_in, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        to_erl_midi(msg, n, 6 /*midi port*/);
 
-#if 0
         uint8_t tag = msg[0];
         if (n == 3) {
             switch(tag) {
@@ -446,6 +444,7 @@ static inline void process_uma_in(struct app *app) {
                 /* Route it to the current track. */
                 uint8_t note = msg[1];
                 uint8_t vel = msg[2];
+                LOG("note %d %d\n", note, vel);
                 pd_remote_note(app, tag, note, vel);
                 break;
             }
@@ -454,89 +453,28 @@ static inline void process_uma_in(struct app *app) {
                    encoders mapped to CC in a linear fashion. */
                 uint8_t cc = msg[1];
                 uint8_t val = msg[2];
-                if (cc <= 7) {
-                    uint8_t slider = cc;
-                    r->sel = slider;
-                    pd_remote_cc(app, 0, val);
-                }
-                else if (cc <= 15) {
-                    uint8_t slider_but = cc - 8;
-                    r->sel = slider_but;
-                    pd_remote_cc(app, 1, val);
-                }
-                else if (cc <= 23) {
-                    uint8_t knob = cc - 16;
-                    r->sel = knob;
-                    pd_remote_cc(app, 2, val);
-                }
-                else if (cc <= 31) {
-                    uint8_t knob_but = cc - 24;
-                    r->sel = knob_but;
-                    pd_remote_cc(app, 3, val);
-                }
-                else if (cc <= 39) {
-                    uint8_t rotary = cc - 32;
-                    // local to r->sel
-                    // FIXME: do rotary processing
-                    pd_remote_cc(app, 4 + rotary, val);
-                }
-                else if (cc <= 47) {
-                    uint8_t rotary_but = cc - 40;
-                    // local to r->sel
-                    pd_remote_cc(app, 4 + 8 + rotary_but, val);
-                }
-                else if (cc == 0x32) {
-                    // stop
-                    if (app->remote.record) {
-                        to_erl_pterm("{record,stop}");
-                        app->remote.record = 0;
-                    }
-                }
-                else if (cc == 0x33) {
-                    // play
-                    if (app->remote.record) {
-                        to_erl_pterm("{record,play}}");
-                    }
-                }
-                else if (cc == 0x34) {
-                    // rec
-                    /* This is tricky.  What we really want to do is
-                       to track the state of the record LED, which
-                       toggles when the button is pressed, and turns
-                       off when stop is pressed.  Assume that the
-                       initial state is off.  It's not sending the LED
-                       state. */
-                    to_erl_midi(msg, n, 3 /*midi port*/);
+                if (cc == 28) {
                     if (val == 0) {
-                        app->remote.record = !app->remote.record;
-                        if (app->remote.record) {
-                            app->time = 0;
-                            to_erl_pterm("{record,start}");
-                        }
-                        else {
-                            to_erl_pterm("{record,stop}");
-                        }
+                        LOG("rec on\n");
+                        to_erl_pterm("{record,start}");
+                        r->record = 1;
                     }
                     else {
-                        /* Button is configured as momentary to allow
-                           for later use of the release event. */
+                        LOG("rec off\n");
+                        to_erl_pterm("{record,stop}");
+                        r->record = 0;
                     }
                 }
-                else {
-                    to_erl_midi(msg, n, 3 /*midi port*/);
-                }
-                break;
+                LOG("CC %d %d\n", cc, val);
             }
-            default: {
-                to_erl_midi(msg, n, 3 /*midi port*/);
+            default:
+                to_erl_midi(msg, n, 6 /*midi port*/);
                 break;
-            }
             }
         }
         else {
-            to_erl_midi(msg, n, 3 /*midi port*/);
+            to_erl_midi(msg, n, 6 /*midi port*/);
         }
-#endif
     }
 }
 
@@ -611,8 +549,11 @@ int handle_clock_div(struct tag_u32 *req) {
     return -1;
 }
 int handle_pat_clear(struct tag_u32 *req) {
+    // LOG("clock_div time = %d\n", app->time);
     TAG_U32_UNPACK(req, 0, m, pat_nb) {
         LOG("FIXME: clear pattern nb = %d\n", m->pat_nb);
+        struct app *app = req->context;
+        sequencer_drop_pattern(&app->sequencer, m->pat_nb);
         return reply_ok(req);
     }
     return -1;
@@ -621,6 +562,12 @@ int handle_pat_add(struct tag_u32 *req) {
     TAG_U32_UNPACK(req, 0, m, pat_nb, type, track, arg1, arg2, delay) {
         LOG("FIXME: add to pattern nb = %d %d %d %d %d %d\n",
             m->pat_nb, m->type, m->track, m->arg1, m->arg2, m->delay);
+        struct app *app = req->context;
+        // FIXME: Stuff is missing
+        // FIXME: Just make it midi
+        sequencer_add_step_cv(
+            &app->sequencer,
+            m->pat_nb, m->track, m->arg1, m->delay);
         return reply_ok(req);
     }
     return -1;
@@ -679,10 +626,9 @@ int main(int argc, char **argv) {
         uint16_t tag = read_be(buf, 2);
         switch(tag) {
         case TAG_U32: {
-            void *context = NULL;
             tag_u32_dispatch(handle_tag_u32,
                              send_reply_tag_u32,
-                             context,
+                             app,
                              buf, size);
             break;
         }

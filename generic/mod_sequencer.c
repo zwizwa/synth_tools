@@ -191,7 +191,17 @@ void sequencer_add_step_cv(struct sequencer *s, pattern_t pat_nb,
         LOG("pat %d next step %d after %d\n", pat_nb, step, last);
     }
 }
+
+// FIXME: New function, raw 4-byte event.  Propagate raw event to
+// Erlang side.
+
+
+
 void sequencer_drop_pattern(struct sequencer *s, pattern_t pat_nb) {
+    if (pat_nb >= SEQUENCER_NB_PATTERNS) {
+        LOG("Ignoring bad pattern nb %d\n", pat_nb);
+        return;
+    }
     for(;;) {
         step_t last = s->last[pat_nb];
         if (last == STEP_NONE) {
