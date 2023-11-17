@@ -22,8 +22,18 @@
 #include "erl_port.h"
 #include "assert_read.h"
 #include "assert_write.h"
+#include "tag_u32.h"
 
 #include "mod_sequencer.c"
+
+void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
+    uint8_t len_buf[4];
+    write_be(len_buf, len, 4);
+    assert_write(1, len_buf, 4);
+    assert_write(1, buf, len);
+}
+#define SEND_TAG_U32_BUF_WRITE send_tag_u32_buf_write
+#include "mod_send_tag_u32.c"
 
 /* JACK */
 #define FOR_MIDI_IN(m) \
@@ -300,10 +310,12 @@ void pd_remote_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) 
         char *pterm = NULL;
         ASSERT(-1 != asprintf(
                    &pterm,
-                   "{record,{%d,{%s,%d,%d,%d}}}",
+                   "{record,{%d,{%d,%d,%d,%d}}}",
                    app->time,
-                   (on_off & 0x10) ? "on" : "off",
-                   app->remote.sel, note, vel));
+                   on_off >> 4,
+                   app->remote.sel,
+                   note,
+                   vel));
         to_erl_pterm(pterm);
     }
 
@@ -581,6 +593,61 @@ static int process (jack_nframes_t nframes, void *arg) {
 }
 
 
+const char t_map[] = "map";
+const char t_cmd[] = "cmd";
+
+int reply_1(struct tag_u32 *req, uint32_t rv) {
+    SEND_REPLY_TAG_U32(req, rv);
+    return 0;
+}
+int reply_ok(struct tag_u32 *req) {
+    return reply_1(req, 0);
+}
+int handle_clock_div(struct tag_u32 *req) {
+    TAG_U32_UNPACK(req, 0, m, div) {
+        LOG("FIXME: set sample clock div = %d\n", m->div);
+        return reply_ok(req);
+    }
+    return -1;
+}
+int handle_pat_clear(struct tag_u32 *req) {
+    TAG_U32_UNPACK(req, 0, m, pat_nb) {
+        LOG("FIXME: clear pattern nb = %d\n", m->pat_nb);
+        return reply_ok(req);
+    }
+    return -1;
+}
+int handle_pat_add(struct tag_u32 *req) {
+    TAG_U32_UNPACK(req, 0, m, pat_nb, type, track, arg1, arg2, delay) {
+        LOG("FIXME: add to pattern nb = %d %d %d %d %d %d\n",
+            m->pat_nb, m->type, m->track, m->arg1, m->arg2, m->delay);
+        return reply_ok(req);
+    }
+    return -1;
+}
+int map_root(struct tag_u32 *req) {
+    const struct tag_u32_entry map[] = {
+        {"clock_div", t_cmd, handle_clock_div, 1},
+        {"pat_clear", t_cmd, handle_pat_clear, 1},
+        {"pat_add",   t_cmd, handle_pat_add, 6},
+        // {"led",      t_map, map_led},
+        // {"forth",    t_map, map_forth},
+    };
+    return HANDLE_TAG_U32_MAP(req, map);
+}
+
+
+
+int handle_tag_u32(struct tag_u32 *req) {
+    int rv = map_root(req);
+    if (rv) {
+        LOG("handle_tag_u32 returned %d\n", rv);
+        /* Always send a reply when there is a from address. */
+        send_reply_tag_u32_status_cstring(req, 1, "bad_ref");
+    }
+    return 0;
+}
+
 
 int main(int argc, char **argv) {
 
@@ -603,10 +670,25 @@ int main(int argc, char **argv) {
     /* Use the generic {packet,4} + tag protocol on stdin, since hub.c
        might be hosting a lot of in-image functionality later. */
     for(;;) {
-        // FIXME: Current function is just to exit when stdin is closed.
-        uint8_t buf[1];
-        assert_read(0, buf, sizeof(buf));
-        exit(1);
+        uint8_t size_be[4];
+        assert_read(0, size_be, 4);
+        uint32_t size = read_be(size_be, 4);
+        uint8_t buf[size];
+        assert_read(0, buf, size);
+        ASSERT(size >= 2);
+        uint16_t tag = read_be(buf, 2);
+        switch(tag) {
+        case TAG_U32: {
+            void *context = NULL;
+            tag_u32_dispatch(handle_tag_u32,
+                             send_reply_tag_u32,
+                             context,
+                             buf, size);
+            break;
+        }
+        default:
+            ERROR("unknown tag 0x%04x\n", tag);
+        }
     }
     return 0;
 }
