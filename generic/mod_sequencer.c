@@ -59,7 +59,12 @@ struct pattern_step {
 
 /* Patterns are linked (circular) lists of steps that are stored in a
    pool, reusing the linking mechanism to represent a freelist. */
+
+#ifndef STEP_POOL_SIZE
 #define STEP_POOL_SIZE 128
+#endif
+
+
 #define STEP_NONE 0xFFFF
 struct step_pool {
     struct pattern_step step[STEP_POOL_SIZE];
@@ -108,53 +113,56 @@ static inline uint16_t step_pool_new_event(
     return i;
 }
 
+
+struct pattern_phase {
+    /* Points to the current play head in a sequence. This indirection
+       (software timer stores just pattern number) makes it simpler to
+       change patterns on the fly without O(N) operation on the
+       timer. */
+    step_t head;
+    /* Points to the last element in a sequence.  We pick last here
+       and not first, so that start and insertion at end are both
+       O(1) operations */
+    step_t last;
+};
 /* The size of the software timer is the number of simultaneous
    patterns that can be represented. ( Note that patterns of the same
    length could be merged. )*/
-#define SEQUENCER_NB_PATTERNS 64
+#define PATTERN_POOL_SIZE 64
+struct pattern_pool {
+    struct pattern_phase pattern[PATTERN_POOL_SIZE];
+};
+
 
 struct sequencer;
 typedef void (*sequencer_fn)(struct sequencer *s, const struct pattern_step *p);
 
 typedef uint16_t pattern_t;
+
 struct sequencer {
     sequencer_fn dispatch;
     struct swtimer swtimer;
-    struct swtimer_element swtimer_element[SEQUENCER_NB_PATTERNS];
-    struct step_pool pool;
-    /* Points to the next element in a sequence. This indirection
-       (software timer stores just pattern number) makes it simpler to
-       change patterns on the fly without O(N) operation on the
-       timer. */
-    step_t next[SEQUENCER_NB_PATTERNS];
-    /* Points to the last element in a sequence.
-       We pick last so that start and insertion at end are both O(1) */
-    step_t last[SEQUENCER_NB_PATTERNS];
+    struct swtimer_element swtimer_element[PATTERN_POOL_SIZE];
+    struct step_pool step_pool;
+    struct pattern_pool pattern_pool;
 };
+struct pattern_phase *sequencer_pattern(struct sequencer *s, pattern_t nb) {
+    ASSERT(nb < PATTERN_POOL_SIZE);
+    return &s->pattern_pool.pattern[nb];
+}
+struct pattern_step *sequencer_step(struct sequencer *s, step_t nb) {
+    ASSERT(nb < STEP_POOL_SIZE);
+    return &s->step_pool.step[nb];
+}
 void sequencer_init(struct sequencer *s, sequencer_fn dispatch) {
     memset(s,0,sizeof(*s));
     s->dispatch = dispatch;
     s->swtimer.arr = s->swtimer_element;
-    step_pool_init(&s->pool);
-    for(int i=0; i<SEQUENCER_NB_PATTERNS; i++) {
-        s->last[i] = STEP_NONE;
-    }
-}
-void sequencer_resume(struct sequencer *s, pattern_t pattern_nb, step_t step) {
-    for(;;) {
-        ASSERT(step != STEP_NONE);
-        const struct pattern_step *p = &s->pool.step[step];
-        s->dispatch(s, p);
-        step = p->next;
-        if (p->delay) {
-            s->next[pattern_nb] = step;
-            swtimer_schedule(&s->swtimer, p->delay, pattern_nb);
-            break;
-        }
-        else {
-            /* Event has the same timestamp. */
-            continue;
-        }
+    step_pool_init(&s->step_pool);
+    for(int i=0; i<PATTERN_POOL_SIZE; i++) {
+        struct pattern_phase *pp = sequencer_pattern(s, i);
+        pp->last = STEP_NONE;
+        pp->head = STEP_NONE;
     }
 }
 void sequencer_tick(struct sequencer *s) {
@@ -174,19 +182,39 @@ void sequencer_tick(struct sequencer *s) {
         /* The tag refers to the pattern number, which can be obtained
            to store the next step in the sequence. */
         uintptr_t pattern_nb = next.tag;
-        ASSERT(pattern_nb < SEQUENCER_NB_PATTERNS);
-        step_t step = s->next[pattern_nb];
-        sequencer_resume(s, pattern_nb, step);
+        ASSERT(pattern_nb < PATTERN_POOL_SIZE);
+        struct pattern_phase *pp = sequencer_pattern(s, pattern_nb);
+        step_t step = pp->head;
+        if (step != STEP_NONE) {
+            /* Dispatch all events at this time instance. */
+            for(;;) {
+                const struct pattern_step *p = sequencer_step(s, step);
+                s->dispatch(s, p);
+                step = p->next;
+                if (p->delay > 0) {
+                    /* Next event is in the future. */
+                    pp->head = step;
+                    swtimer_schedule(&s->swtimer, p->delay, pattern_nb);
+                    break;
+                }
+                else {
+                    /* Next event has the same timestamp. */
+                    continue;
+                }
+            }
+        }
     }
     s->swtimer.now_abs++;
 }
 void sequencer_start(struct sequencer *s) {
-    for(int pattern_nb=0; pattern_nb<SEQUENCER_NB_PATTERNS; pattern_nb++) {
-        step_t last_step = s->last[pattern_nb];
+    for(int pattern_nb=0; pattern_nb<PATTERN_POOL_SIZE; pattern_nb++) {
+        struct pattern_phase *pp = sequencer_pattern(s, pattern_nb);
+        step_t last_step = pp->last;
         if (last_step != STEP_NONE) {
-            step_t first_step = s->pool.step[last_step].next;
+            struct pattern_step *plast = sequencer_step(s, last_step);
+            step_t first_step = plast->next;
             ASSERT(first_step != STEP_NONE);
-            s->next[pattern_nb] = first_step;
+            pp->head = first_step;
             swtimer_schedule(&s->swtimer, 0, pattern_nb);
         }
         else {
@@ -201,21 +229,26 @@ void sequencer_reset(struct sequencer *s) {
 /* Add a step to an existing pattern, i.e. insert last element in the list. */
 void sequencer_add_step_event(struct sequencer *s, pattern_t pat_nb,
                               struct pattern_event *ev, dtime_t delay) {
-    step_t step = step_pool_new_event(&s->pool, ev, delay);
-    step_t last = s->last[pat_nb];
+    step_t step = step_pool_new_event(&s->step_pool, ev, delay);
+    struct pattern_step *pstep = sequencer_step(s, step);
+    struct pattern_phase *pp = sequencer_pattern(s, pat_nb);
+    step_t last = pp->last;
     if (last == STEP_NONE) {
         /* If pattern is empty, create a loop of 1 step. */
-        s->last[pat_nb] = step;
-        s->pool.step[step].next = step;
+        pstep->next = step;
+        /* Link it into the current pattern. */
+        pp->last = step;
+        pp->head = step;
         LOG("pat %d first step %d\n", pat_nb, step);
     }
     else {
         /* There is at least one step.  Add the new step at the end of
            the pattern. */
-        step_t first = s->pool.step[last].next;
-        s->pool.step[last].next = step;
-        s->pool.step[step].next = first;
-        s->last[pat_nb] = step;
+        struct pattern_step *plast = sequencer_step(s, last);
+        step_t first = plast->next;
+        pstep->next = first; // new step followed by first
+        plast->next = step; // last step followed by new step
+        pp->last = step; // new step is now last step
         LOG("pat %d next step %d after %d\n", pat_nb, step, last);
     }
 }
@@ -231,16 +264,17 @@ void sequencer_add_step_cv(struct sequencer *s, pattern_t pat_nb,
 
 
 void sequencer_drop_pattern(struct sequencer *s, pattern_t pat_nb) {
-    ASSERT(pat_nb < SEQUENCER_NB_PATTERNS);
-    step_t last = s->last[pat_nb];
+    ASSERT(pat_nb < PATTERN_POOL_SIZE);
+    step_t last = s->pattern_pool.pattern[pat_nb].last;
     if (last == STEP_NONE) {
         LOG("Pattern %d is empty\n", pat_nb);
     }
     else {
         LOG("Pattern %d, removing cycle at %d\n", pat_nb, last);
-        step_pool_free_loop(&s->pool, last);
-        s->last[pat_nb] = STEP_NONE;
-        s->next[pat_nb] = STEP_NONE;
+        step_pool_free_loop(&s->step_pool, last);
+        struct pattern_phase *pp = sequencer_pattern(s, pat_nb);
+        pp->last = STEP_NONE;
+        pp->head = STEP_NONE;
     }
 }
 

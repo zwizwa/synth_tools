@@ -1,3 +1,7 @@
+
+/* Reduce the size to make tests easier to analyze. */
+#define STEP_POOL_SIZE 16
+
 #include "mod_sequencer.c"
 #include "macros.h"
 
@@ -29,16 +33,11 @@ int main(int argc, char **argv) {
         sequencer_tick(s);
     }
 
-    // Print freelist
-    step_pool_info(&s->pool);
-    sequencer_drop_pattern(s, 0);  // 3 events
-    step_pool_info(&s->pool);
-    sequencer_drop_pattern(s, 1);  // 1 event
-    step_pool_info(&s->pool);
-    sequencer_drop_pattern(s, 2);  // 1 event
-    step_pool_info(&s->pool);
-    sequencer_drop_pattern(s, 3);  // alread empty
-    step_pool_info(&s->pool);
-
+    step_pool_info(&s->step_pool);
+    for(int i=0; i<=3; i++) {
+        // 0->3, 1->1, 2->1, 3->empty
+        sequencer_drop_pattern(s, i);
+        step_pool_info(&s->step_pool);
+    }
     return 0;
 }
