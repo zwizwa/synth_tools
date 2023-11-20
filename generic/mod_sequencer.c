@@ -69,6 +69,22 @@ static inline void step_pool_free(struct step_pool *p, step_t index) {
     p->step[index].next = p->free;
     p->free = index;
 }
+/* Break loop, push it to the freelist. */
+static inline void step_pool_free_loop(struct step_pool *p, step_t last) {
+    struct pattern_step *plast = &p->step[last];
+    step_t first = plast->next;
+    plast->next = p->free;
+    p->free = first;
+}
+static inline void step_pool_info(struct step_pool *p) {
+    LOG("free:");
+    for(step_t i=p->free; i != STEP_NONE; i=p->step[i].next) {
+        LOG(" %d", i);
+    }
+    LOG("\n");
+}
+
+
 static inline uint16_t step_pool_alloc(struct step_pool *p) {
     uint16_t index = p->free;
     ASSERT(index != STEP_NONE); // out-of-memory
@@ -164,7 +180,6 @@ void sequencer_tick(struct sequencer *s) {
     }
     s->swtimer.now_abs++;
 }
-/* Convention: all tasks start at 0. */
 void sequencer_start(struct sequencer *s) {
     for(int pattern_nb=0; pattern_nb<SEQUENCER_NB_PATTERNS; pattern_nb++) {
         step_t last_step = s->last[pattern_nb];
@@ -216,30 +231,16 @@ void sequencer_add_step_cv(struct sequencer *s, pattern_t pat_nb,
 
 
 void sequencer_drop_pattern(struct sequencer *s, pattern_t pat_nb) {
-    if (pat_nb >= SEQUENCER_NB_PATTERNS) {
-        LOG("Ignoring bad pattern nb %d\n", pat_nb);
-        return;
+    ASSERT(pat_nb < SEQUENCER_NB_PATTERNS);
+    step_t last = s->last[pat_nb];
+    if (last == STEP_NONE) {
+        LOG("Pattern %d is empty\n", pat_nb);
     }
-    for(;;) {
-        step_t last = s->last[pat_nb];
-        if (last == STEP_NONE) {
-            LOG("Pattern %d is empty\n", pat_nb);
-            break;
-        }
-        else {
-            struct pattern_step *plast = &s->pool.step[last];
-            if (plast->next == last) {
-                LOG("Pattern %d, removing last one %d\n", pat_nb, last);
-                s->last[pat_nb] = STEP_NONE;
-                step_pool_free(&s->pool, last);
-            }
-            else {
-                step_t first = plast->next;
-                LOG("Pattern %d, removing next one %d\n", pat_nb, first);
-                plast->next = s->pool.step[first].next;
-                step_pool_free(&s->pool, first);
-            }
-        }
+    else {
+        LOG("Pattern %d, removing cycle at %d\n", pat_nb, last);
+        step_pool_free_loop(&s->pool, last);
+        s->last[pat_nb] = STEP_NONE;
+        s->next[pat_nb] = STEP_NONE;
     }
 }
 

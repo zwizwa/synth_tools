@@ -29,10 +29,16 @@ int main(int argc, char **argv) {
         sequencer_tick(s);
     }
 
+    // Print freelist
+    step_pool_info(&s->pool);
     sequencer_drop_pattern(s, 0);  // 3 events
+    step_pool_info(&s->pool);
     sequencer_drop_pattern(s, 1);  // 1 event
+    step_pool_info(&s->pool);
     sequencer_drop_pattern(s, 2);  // 1 event
+    step_pool_info(&s->pool);
     sequencer_drop_pattern(s, 3);  // alread empty
+    step_pool_info(&s->pool);
 
     return 0;
 }
