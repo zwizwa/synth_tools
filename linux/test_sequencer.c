@@ -16,7 +16,8 @@ int main(int argc, char **argv) {
     LOG("test_drum.c\n");
     struct sequencer _s,  *s  = &_s;  sequencer_init(s, pat_dispatch);
 
-    pattern_t pat = 0;
+    pattern_t pat = pattern_pool_alloc(&s->pattern_pool);
+    LOG("alloc pat %d\n", pat);
     sequencer_add_step_cv(s, pat, 0, 100, 12);
     sequencer_add_step_cv(s, pat, 0, 200,  8);
     sequencer_add_step_cv(s, pat, 0, 150,  8);

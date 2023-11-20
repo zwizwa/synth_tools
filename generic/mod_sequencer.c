@@ -119,6 +119,7 @@ struct pattern_phase {
        (software timer stores just pattern number) makes it simpler to
        change patterns on the fly without O(N) operation on the
        timer. */
+    /* In the freelist, this doubles as list link. */
     step_t head;
     /* Points to the last element in a sequence.  We pick last here
        and not first, so that start and insertion at end are both
@@ -129,15 +130,42 @@ struct pattern_phase {
    patterns that can be represented. ( Note that patterns of the same
    length could be merged. )*/
 #define PATTERN_POOL_SIZE 64
+typedef uint16_t pattern_t;
+#define PATTERN_NONE 0xffff
 struct pattern_pool {
     struct pattern_phase pattern[PATTERN_POOL_SIZE];
+    pattern_t free;
 };
+
+
+/* Note that in the freelist, the head pointer is used to link the
+   patterns together. */
+static inline void pattern_pool_free(struct pattern_pool *p, pattern_t index) {
+    p->pattern[index].head = p->free;
+    p->pattern[index].last = STEP_NONE;
+    p->free = index;
+}
+static inline pattern_t pattern_pool_alloc(struct pattern_pool *p) {
+    uint16_t index = p->free;
+    ASSERT(index != PATTERN_NONE); // out-of-memory
+    p->free = p->pattern[index].head;
+    p->pattern[index].head = STEP_NONE;
+    p->pattern[index].last = STEP_NONE;
+    return index;
+}
+static inline void pattern_pool_init(struct pattern_pool *p) {
+    memset(p, 0, sizeof(*p));
+    /* Initialize the free list. */
+    p->free = PATTERN_NONE;
+    for(int i=PATTERN_POOL_SIZE-1; i>=0; i--) {
+        pattern_pool_free(p, i);
+    }
+}
 
 
 struct sequencer;
 typedef void (*sequencer_fn)(struct sequencer *s, const struct pattern_step *p);
 
-typedef uint16_t pattern_t;
 
 struct sequencer {
     sequencer_fn dispatch;
