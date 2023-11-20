@@ -4,7 +4,7 @@
 // The scheduler is a software timer playing back loops.
 
 void pat_dispatch(struct sequencer *seq, const struct pattern_step *step) {
-    LOG("pat_dispach %d %d\n", step->event.u16[1], step->delay);
+    LOG("pat_dispach %d %d\n", step->event.as.u16[1], step->delay);
 }
 
 

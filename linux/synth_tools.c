@@ -100,8 +100,6 @@ static void square_grain_threshold(struct square_grain *s, t_floatarg val) {
     post("threshold %f", val);
     s->threshold = val;
 }
-
-
 static t_int *square_grain_perform(t_int *w) {
     /* interpret DSP program (w[0] points to _perform, reset is args */
     square_grain_proc(
@@ -188,16 +186,39 @@ void scale_setup(void) {
     class_addfloat(scale_class, (t_method)scale_float);
 }
 
+/* exo interface helper object? */
+t_class *exo_class;
+struct exo {
+    t_object x_obj;
+    t_outlet *out;
+};
+static void *exo_new(t_symbol *type, t_floatarg min, t_floatarg max) {
+    /* create instance */
+    struct exo *x = (void *)pd_new(exo_class);
+    /* main inlet handlers */
+    /* create outlet */
+    x->out = outlet_new(&x->x_obj, gensym("float"));
+    return x;
+}
+static void exo_free(void) {
+}
+void exo_setup(void) {
+    DEF_CLASS(exo, A_DEFSYMBOL, A_DEFFLOAT, A_DEFFLOAT);
+}
+
 
 
 /* LIB SETUP */
 #define SYNTH_TOOLS_VERSION "git"
 #define CALL_SETUP(name) name##_setup();
 #define DECL_SETUP(name) void name##_setup(void);
+
 #define FOR_CLASS_TILDE(m)                      \
-    m(square_grain)
+    m(square_grain)                             \
+
 #define FOR_CLASS(m)                            \
-    m(scale)
+    m(scale)                                    \
+    m(exo)                                      \
 
 FOR_CLASS_TILDE(DECL_SETUP)
 void synth_tools_setup(void) {

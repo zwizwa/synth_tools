@@ -168,16 +168,37 @@ static inline void process_z_debug(struct app *app) {
     }
 }
 
-
-
 void pat_tick(struct sequencer *seq, const struct pattern_step *step) {
-    LOG("pat_tick %d %d\n", step->event, step->delay);
-    // send_cc(app->pd_out_buf, 0, 0, 0); // FIXME
+    struct app *app = (void*)seq;
+    const uint8_t *msg = step->event.as.u8;
+    if (msg[0] < 16) {
+        // FIXME: msg[0] is midi port, make numerical mapping
+        send_midi(app->pd_out_buf, 0, msg + 1, 3);
+    }
+    else {
+        LOG("unsupported event tag %d\n", msg[0]);
+    }
 }
 void pattern_init(struct sequencer *s) {
     sequencer_init(s, pat_tick);
     sequencer_start(s);
 }
+
+static inline void app_play(struct app *app) {
+    LOG("app_play\n");
+    app->running = 1;
+    sequencer_reset(&app->sequencer);
+    sequencer_start(&app->sequencer);
+}
+static inline void app_continue(struct app *app) {
+    LOG("app_continue\n");
+    app->running = 1;
+}
+static inline void app_stop(struct app *app) {
+    LOG("app_stop\n");
+    app->running = 0;
+}
+
 
 static inline void process_clock_in(struct app *app) {
     FOR_MIDI_EVENTS(iter, clock_in, app->nframes) {
@@ -185,15 +206,13 @@ static inline void process_clock_in(struct app *app) {
         if (iter.event.size == 1) {
             switch(msg[0]) {
             case 0xFA: // start
-                app->running = 1;
-                sequencer_reset(&app->sequencer);
-                sequencer_start(&app->sequencer);
+                app_play(app);
                 break;
             case 0xFB: // continue
-                app->running = 1;
+                app_continue(app);
                 break;
             case 0xFC: // stop
-                app->running = 0;
+                app_stop(app);
                 break;
             case 0xF8: { // clock
                 if (app->running) {
@@ -266,11 +285,13 @@ static inline void process_keystation_in2(struct app *app) {
                         /* Play press. */
                         LOG("keystation: start\n");
                         send_start(app->transport_buf);
+                        app_play(app);
                         break;
                     case 0x5d:
                         /* Stop press. */
                         LOG("keystation: stop\n");
                         send_stop(app->transport_buf);
+                        app_stop(app);
                         break;
                 }
                 break;
@@ -380,11 +401,17 @@ static inline void process_remote_in(struct app *app) {
                         to_erl_pterm("{record,stop}");
                         app->remote.record = 0;
                     }
+                    else {
+                        send_stop(app->transport_buf);
+                    }
                 }
                 else if (cc == 0x33) {
                     // play
                     if (app->remote.record) {
                         to_erl_pterm("{record,play}}");
+                    }
+                    else {
+                        send_start(app->transport_buf);
                     }
                 }
                 else if (cc == 0x34) {
@@ -551,7 +578,7 @@ int handle_clock_div(struct tag_u32 *req) {
 int handle_pat_clear(struct tag_u32 *req) {
     // LOG("clock_div time = %d\n", app->time);
     TAG_U32_UNPACK(req, 0, m, pat_nb) {
-        LOG("FIXME: clear pattern nb = %d\n", m->pat_nb);
+        LOG("clear pattern nb = %d\n", m->pat_nb);
         struct app *app = req->context;
         sequencer_drop_pattern(&app->sequencer, m->pat_nb);
         return reply_ok(req);
@@ -560,14 +587,18 @@ int handle_pat_clear(struct tag_u32 *req) {
 }
 int handle_pat_add(struct tag_u32 *req) {
     TAG_U32_UNPACK(req, 0, m, pat_nb, type, track, arg1, arg2, delay) {
-        LOG("FIXME: add to pattern nb = %d %d %d %d %d %d\n",
+        LOG("add to pattern nb = %d %d %d %d %d %d\n",
             m->pat_nb, m->type, m->track, m->arg1, m->arg2, m->delay);
+        struct pattern_event ev = { .as = {
+                .u8[0] = PAT_MIDI_TAG(0),
+                .u8[1] = (m->type << 4) + (m->track & 0x0F),
+                .u8[2] = m->arg1,
+                .u8[3] = m->arg2,
+            }};
         struct app *app = req->context;
-        // FIXME: Stuff is missing
-        // FIXME: Just make it midi
-        sequencer_add_step_cv(
+        sequencer_add_step_event(
             &app->sequencer,
-            m->pat_nb, m->track, m->arg1, m->delay);
+            m->pat_nb, &ev, m->delay);
         return reply_ok(req);
     }
     return -1;

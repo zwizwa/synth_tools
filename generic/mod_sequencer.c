@@ -19,7 +19,7 @@
 typedef uint16_t step_t;   // identifier for step event + link
 typedef uint16_t dtime_t;  // delta-time in midi clocks
 
-struct pattern_step {
+struct pattern_event {
     /* For now just use midi plus maybe some extensions.
        E.g. we know here that midi[0] contains the control code 80-FF,
        so 00-7F could be used for non-midi events. */
@@ -27,7 +27,11 @@ struct pattern_step {
         uint8_t  u8[4];
         uint16_t u16[2];
         uint32_t u32;
-    } event;
+    } as;
+};
+
+struct pattern_step {
+    struct pattern_event event;
     /* Time delay to next event. */
     dtime_t delay;
     /* Index of next event in event pool. */
@@ -80,15 +84,11 @@ static inline void step_pool_init(struct step_pool *p) {
         step_pool_free(p, i);
     }
 }
-/* It seems simplest to make constructors for each type. */
-static inline uint16_t step_pool_new_cv(
-    struct step_pool *sp, uint8_t chan, uint16_t val, dtime_t delay) {
+static inline uint16_t step_pool_new_event(
+    struct step_pool *sp, struct pattern_event *ev, dtime_t delay) {
     step_t i = step_pool_alloc(sp);
     struct pattern_step *p = sp->step + i;
-    p->event.u8[0] = PAT_CV_TAG;
-    p->event.u8[1] = chan;
-    p->event.u16[1] = val;
-    p->delay = delay;
+    p->event = *ev;    p->delay = delay;
     return i;
 }
 
@@ -106,6 +106,11 @@ struct sequencer {
     struct swtimer swtimer;
     struct swtimer_element swtimer_element[SEQUENCER_NB_PATTERNS];
     struct step_pool pool;
+    /* Points to the next element in a sequence. This indirection
+       (software timer stores just pattern number) makes it simpler to
+       change patterns on the fly without O(N) operation on the
+       timer. */
+    step_t next[SEQUENCER_NB_PATTERNS];
     /* Points to the last element in a sequence.
        We pick last so that start and insertion at end are both O(1) */
     step_t last[SEQUENCER_NB_PATTERNS];
@@ -119,14 +124,15 @@ void sequencer_init(struct sequencer *s, sequencer_fn dispatch) {
         s->last[i] = STEP_NONE;
     }
 }
-void sequencer_resume(struct sequencer *s, step_t step) {
+void sequencer_resume(struct sequencer *s, pattern_t pattern_nb, step_t step) {
     for(;;) {
         ASSERT(step != STEP_NONE);
         const struct pattern_step *p = &s->pool.step[step];
         s->dispatch(s, p);
         step = p->next;
         if (p->delay) {
-            swtimer_schedule(&s->swtimer, p->delay, p->next);
+            s->next[pattern_nb] = step;
+            swtimer_schedule(&s->swtimer, p->delay, pattern_nb);
             break;
         }
         else {
@@ -138,7 +144,10 @@ void sequencer_resume(struct sequencer *s, step_t step) {
 void sequencer_tick(struct sequencer *s) {
     int logged = 0;
     for(;;) {
-        if (s->swtimer.nb == 0) break;
+        if (s->swtimer.nb == 0) {
+            // LOG("no more swtimer events\n");
+            break;
+        }
         swtimer_element_t next = swtimer_peek(&s->swtimer);
         if (next.time_abs != s->swtimer.now_abs) break;
         if (!logged) {
@@ -146,18 +155,24 @@ void sequencer_tick(struct sequencer *s) {
             logged = 1;
         }
         swtimer_pop(&s->swtimer);
-        sequencer_resume(s, next.tag);
+        /* The tag refers to the pattern number, which can be obtained
+           to store the next step in the sequence. */
+        uintptr_t pattern_nb = next.tag;
+        ASSERT(pattern_nb < SEQUENCER_NB_PATTERNS);
+        step_t step = s->next[pattern_nb];
+        sequencer_resume(s, pattern_nb, step);
     }
     s->swtimer.now_abs++;
 }
 /* Convention: all tasks start at 0. */
 void sequencer_start(struct sequencer *s) {
-    for(int i=0; i<SEQUENCER_NB_PATTERNS; i++) {
-        step_t last_step = s->last[i];
+    for(int pattern_nb=0; pattern_nb<SEQUENCER_NB_PATTERNS; pattern_nb++) {
+        step_t last_step = s->last[pattern_nb];
         if (last_step != STEP_NONE) {
             step_t first_step = s->pool.step[last_step].next;
             ASSERT(first_step != STEP_NONE);
-            swtimer_schedule(&s->swtimer, 0, first_step);
+            s->next[pattern_nb] = first_step;
+            swtimer_schedule(&s->swtimer, 0, pattern_nb);
         }
         else {
             /* Pattern is empty. */
@@ -169,12 +184,10 @@ void sequencer_reset(struct sequencer *s) {
 }
 
 /* Add a step to an existing pattern, i.e. insert last element in the list. */
-void sequencer_add_step_cv(struct sequencer *s, pattern_t pat_nb,
-                           uint8_t chan, uint16_t val, dtime_t delay) {
-    step_t step = step_pool_new_cv(&s->pool, chan, val, delay);
-
+void sequencer_add_step_event(struct sequencer *s, pattern_t pat_nb,
+                              struct pattern_event *ev, dtime_t delay) {
+    step_t step = step_pool_new_event(&s->pool, ev, delay);
     step_t last = s->last[pat_nb];
-
     if (last == STEP_NONE) {
         /* If pattern is empty, create a loop of 1 step. */
         s->last[pat_nb] = step;
@@ -191,9 +204,14 @@ void sequencer_add_step_cv(struct sequencer *s, pattern_t pat_nb,
         LOG("pat %d next step %d after %d\n", pat_nb, step, last);
     }
 }
-
-// FIXME: New function, raw 4-byte event.  Propagate raw event to
-// Erlang side.
+void sequencer_add_step_cv(struct sequencer *s, pattern_t pat_nb,
+                           uint8_t chan, uint16_t val, dtime_t delay) {
+    struct pattern_event ev = {};
+    ev.as.u8[0] = PAT_CV_TAG;
+    ev.as.u8[1] = chan;
+    ev.as.u16[1] = val;
+    sequencer_add_step_event(s, pat_nb, &ev, delay);
+}
 
 
 
