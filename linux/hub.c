@@ -181,14 +181,13 @@ void pat_tick(struct sequencer *seq, const struct pattern_step *step) {
 }
 void pattern_init(struct sequencer *s) {
     sequencer_init(s, pat_tick);
-    sequencer_start(s);
+    sequencer_restart(s);
 }
 
 static inline void app_play(struct app *app) {
     LOG("app_play\n");
     app->running = 1;
-    sequencer_reset(&app->sequencer);
-    sequencer_start(&app->sequencer);
+    sequencer_restart(&app->sequencer);
 }
 static inline void app_continue(struct app *app) {
     LOG("app_continue\n");

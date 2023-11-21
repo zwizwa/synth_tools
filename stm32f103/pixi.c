@@ -622,8 +622,7 @@ void pattern_init(struct sequencer *s) {
 void pattern_start(struct sequencer *s) {
     /* Reset counters, enable playback. */
     // pat.next_step = 0; // FIXME: still needed?
-    sequencer_reset(s);
-    sequencer_start(s);
+    sequencer_restart(s);
 }
 
 

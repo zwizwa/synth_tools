@@ -66,6 +66,8 @@ struct pattern_step {
 
 
 #define STEP_NONE 0xFFFF
+#define STEP_DEAD 0xFFFE
+
 struct step_pool {
     struct pattern_step step[STEP_POOL_SIZE];
     step_t free;
@@ -81,12 +83,15 @@ static inline void step_pool_free_loop(struct step_pool *p, step_t last) {
     plast->next = p->free;
     p->free = first;
 }
-static inline void step_pool_info(struct step_pool *p) {
-    LOG("free:");
+static inline uint64_t step_pool_info(struct step_pool *p) {
+    uint64_t mask = 0;
+    LOG("step free:");
     for(step_t i=p->free; i != STEP_NONE; i=p->step[i].next) {
         LOG(" %d", i);
+        mask |= (1 << i);
     }
     LOG("\n");
+    return mask;
 }
 
 
@@ -126,6 +131,23 @@ struct pattern_phase {
        O(1) operations */
     step_t last;
 };
+
+/* The representation got a bit confusing, so make a separate
+   function.  A pattern_phase struct can be in one of 3 lifecycle
+   states: not allocated, allocated and used, allocated and waiting
+   for deletion. */
+enum pattern_phase_lifecycle {
+    pattern_phase_unused = 0,
+    pattern_phase_used = 1,
+    pattern_phase_dead = 2,
+};
+static inline enum pattern_phase_lifecycle pattern_phase_lifecycle(struct pattern_phase *pp) {
+    if (pp->last == STEP_NONE) return pattern_phase_unused;
+    if (pp->last == STEP_DEAD) return pattern_phase_dead;
+    return pattern_phase_used;
+}
+
+
 /* The size of the software timer is the number of simultaneous
    patterns that can be represented. ( Note that patterns of the same
    length could be merged. )*/
@@ -144,8 +166,7 @@ static inline void pattern_pool_free(struct pattern_pool *p, pattern_t index) {
     /* Note that in the freelist, the head pointer is used to link the
        patterns together. */
     p->pattern[index].head = p->free;
-    /* In sequencer_start(), a pattern is not started if it doesn't
-       have a step. */
+    /* See pattern_phase_lifecycle() */
     p->pattern[index].last = STEP_NONE;
     p->free = index;
 }
@@ -157,12 +178,16 @@ static inline pattern_t pattern_pool_alloc(struct pattern_pool *p) {
     p->pattern[index].head = STEP_NONE;
     return index;
 }
-static inline void pattern_pool_info(struct pattern_pool *p) {
-    LOG("free:");
+static inline uint64_t pattern_pool_info(struct pattern_pool *p) {
+    uint64_t mask = 0;
+    LOG("patn free:");
     for(pattern_t i=p->free; i != PATTERN_NONE; i=p->pattern[i].head) {
         LOG(" %d", i);
+        mask |= (1 << i);
     }
     LOG("\n");
+    /* Membership bitmask for testing. */
+    return mask;
 }
 static inline void pattern_pool_init(struct pattern_pool *p) {
     memset(p, 0, sizeof(*p));
@@ -222,9 +247,19 @@ void sequencer_tick(struct sequencer *s) {
         ASSERT(pattern_nb < PATTERN_POOL_SIZE);
         struct pattern_phase *pp = sequencer_pattern(s, pattern_nb);
         step_t step = pp->head;
-        if (step != STEP_NONE) {
+
+        switch(pattern_phase_lifecycle(pp)) {
+        case pattern_phase_dead:
+            /* This pattern is an empty shell left over by
+               sequencer_drop_pattern(). We collect it here */
+            ASSERT(pp->last == STEP_DEAD);
+            LOG("collecting pattern_nb %d\n", pattern_nb);
+            pattern_pool_free(&s->pattern_pool, pattern_nb);
+            break;
+        case pattern_phase_used:
             /* Dispatch all events in this pattern that happen at this
                time instance. */
+            ASSERT(step != STEP_NONE);
             for(;;) {
                 LOG("step %d\n", step);
                 const struct pattern_step *p = sequencer_step(s, step);
@@ -242,36 +277,49 @@ void sequencer_tick(struct sequencer *s) {
                     continue;
                 }
             }
-        }
-        else {
-            /* This pattern is an empty shell left over by
-               sequencer_drop_pattern(). We collect it here */
-            ASSERT(pp->last == STEP_NONE);
-            LOG("collecting pattern_nb %d\n", pattern_nb);
-            pattern_pool_free(&s->pattern_pool, pattern_nb);
+            break;
+        case pattern_phase_unused:
+            ERROR("unused pattern found in timer heap\n");
+            break;
         }
     }
     s->swtimer.now_abs++;
 }
-void sequencer_start(struct sequencer *s) {
+
+/* Clear timer and restart all loops from the beginning. */
+void sequencer_restart(struct sequencer *s) {
+
+    swtimer_reset(&s->swtimer);
     for(int pattern_nb=0; pattern_nb<PATTERN_POOL_SIZE; pattern_nb++) {
         struct pattern_phase *pp = sequencer_pattern(s, pattern_nb);
         step_t last_step = pp->last;
-        if (last_step != STEP_NONE) {
+        switch(pattern_phase_lifecycle(pp)) {
+        case pattern_phase_dead:
+            ASSERT(pp->last == STEP_DEAD);
+            LOG("collecting pattern_nb %d\n", pattern_nb);
+            pattern_pool_free(&s->pattern_pool, pattern_nb);
+            break;
+        case pattern_phase_used: {
             struct pattern_step *plast = sequencer_step(s, last_step);
             step_t first_step = plast->next;
             ASSERT(first_step != STEP_NONE);
             pp->head = first_step;
             swtimer_schedule(&s->swtimer, 0, pattern_nb);
-        }
-        else {
-            /* Pattern is empty. */
+            break;
+            }
+        case pattern_phase_unused:
+            break;
         }
     }
 }
-void sequencer_reset(struct sequencer *s) {
-    swtimer_reset(&s->swtimer);
+
+/* FIXME: Create a function that checks the main invariants:
+   - the timer heap should not contain duplicate references
+   - each allocated pattern should be referenced in the timer heap
+   - a pattern can be empty, which indicates it should be deleted */
+void sequencer_check_invariants(struct sequencer *s) {
 }
+
 
 /* Add a step to an existing pattern, i.e. insert last element in the list. */
 void sequencer_add_step_event(struct sequencer *s, pattern_t pat_nb,
@@ -280,6 +328,7 @@ void sequencer_add_step_event(struct sequencer *s, pattern_t pat_nb,
     struct pattern_step *pstep = sequencer_step(s, step);
     struct pattern_phase *pp = sequencer_pattern(s, pat_nb);
     step_t last = pp->last;
+
     if (last == STEP_NONE) {
         /* If pattern is empty, create a loop of 1 step. */
         pstep->next = step;
@@ -324,8 +373,8 @@ void sequencer_drop_pattern(struct sequencer *s, pattern_t pat_nb) {
         LOG("Pattern %d, removing cycle at %d\n", pat_nb, last);
         step_pool_free_loop(&s->step_pool, last);
         struct pattern_phase *pp = sequencer_pattern(s, pat_nb);
-        pp->last = STEP_NONE;
-        pp->head = STEP_NONE;
+        pp->head = STEP_DEAD;
+        pp->last = STEP_DEAD;
     }
 }
 
