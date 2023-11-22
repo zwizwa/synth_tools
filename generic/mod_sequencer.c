@@ -30,6 +30,8 @@ struct pattern_event {
     } as;
 };
 
+#define STEP_DELAY_NONE 0xFFFF
+
 struct pattern_step {
     struct pattern_event event;
     /* Time delay to next event. */
@@ -111,10 +113,11 @@ static inline void step_pool_init(struct step_pool *p) {
     }
 }
 static inline uint16_t step_pool_new_event(
-    struct step_pool *sp, struct pattern_event *ev, dtime_t delay) {
+    struct step_pool *sp, const struct pattern_event *ev, dtime_t delay) {
     step_t i = step_pool_alloc(sp);
     struct pattern_step *p = sp->step + i;
-    p->event = *ev;    p->delay = delay;
+    p->event = *ev;
+    p->delay = delay;
     return i;
 }
 
@@ -203,9 +206,15 @@ static inline void pattern_pool_init(struct pattern_pool *p) {
 struct sequencer;
 typedef void (*sequencer_fn)(struct sequencer *s, const struct pattern_step *p);
 
+struct sequencer_cursor {
+    pattern_t pattern;
+    dtime_t delay;
+    dtime_t duration;
+};
 
 struct sequencer {
     sequencer_fn dispatch;
+    struct sequencer_cursor cursor;
     struct swtimer swtimer;
     struct swtimer_element swtimer_element[PATTERN_POOL_SIZE];
     struct step_pool step_pool;
@@ -259,7 +268,6 @@ void sequencer_tick(struct sequencer *s) {
         case pattern_phase_used:
             /* Dispatch all events in this pattern that happen at this
                time instance. */
-            ASSERT(step != STEP_NONE);
             for(;;) {
                 LOG("step %d\n", step);
                 const struct pattern_step *p = sequencer_step(s, step);
@@ -285,8 +293,12 @@ void sequencer_tick(struct sequencer *s) {
     }
     s->swtimer.now_abs++;
 }
+void sequencer_ntick(struct sequencer *s, uintptr_t n) {
+    while(n--) sequencer_tick(s);
+}
 
 /* Clear timer and restart all loops from the beginning. */
+// FIXME: Can be used for full (offline) reload as well.
 void sequencer_restart(struct sequencer *s) {
 
     swtimer_reset(&s->swtimer);
@@ -295,7 +307,6 @@ void sequencer_restart(struct sequencer *s) {
         step_t last_step = pp->last;
         switch(pattern_phase_lifecycle(pp)) {
         case pattern_phase_dead:
-            ASSERT(pp->last == STEP_DEAD);
             LOG("collecting pattern_nb %d\n", pattern_nb);
             pattern_pool_free(&s->pattern_pool, pattern_nb);
             break;
@@ -323,7 +334,7 @@ void sequencer_check_invariants(struct sequencer *s) {
 
 /* Add a step to an existing pattern, i.e. insert last element in the list. */
 void sequencer_add_step_event(struct sequencer *s, pattern_t pat_nb,
-                              struct pattern_event *ev, dtime_t delay) {
+                              const struct pattern_event *ev, dtime_t delay) {
     step_t step = step_pool_new_event(&s->step_pool, ev, delay);
     struct pattern_step *pstep = sequencer_step(s, step);
     struct pattern_phase *pp = sequencer_pattern(s, pat_nb);
@@ -379,6 +390,25 @@ void sequencer_drop_pattern(struct sequencer *s, pattern_t pat_nb) {
 }
 
 
+/* Live recording */
 
-
+/* Incremental recording requires a special data structure.  The
+   cursor consists of 2 parts: the event data is written in the new
+   step, while the delay is written in the old. */
+void sequencer_cursor_open(struct sequencer *s, dtime_t duration) {
+    struct sequencer_cursor *c = &s->cursor;
+    c->delay = 0;
+    c->duration = duration;
+    c->pattern = pattern_pool_alloc(&s->pattern_pool);
+    struct pattern_event ev = {};
+    sequencer_add_step_event(s, c->pattern, &ev, duration);
+}
+void sequencer_cursor_write(struct sequencer *s, const struct pattern_event *ev) {
+    struct sequencer_cursor *c = &s->cursor;
+    struct pattern_phase *pp = sequencer_pattern(s, c->pattern);
+    struct pattern_step *last = sequencer_step(s, pp->last);
+    dtime_t time_left = c->duration - c->delay;
+    last->delay = c->delay;
+    sequencer_add_step_event(s, c->pattern, ev, time_left);
+}
 
