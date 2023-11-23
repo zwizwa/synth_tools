@@ -584,6 +584,21 @@ int handle_pat_clear(struct tag_u32 *req) {
     }
     return -1;
 }
+int handle_pat_alloc(struct tag_u32 *req) {
+    TAG_U32_UNPACK(req, 0, m, nb_clocks) {
+        ASSERT(m->nb_clocks > 0);
+        struct app *app = req->context;
+        struct sequencer *s = &app->sequencer;
+        pattern_t pat_nb = pattern_pool_alloc(&s->pattern_pool);
+        LOG("alloc pattern nb = %d\n", pat_nb);
+        /* Caller should be aware of time scale, and should be able to
+           fill at least the first event before the pattern is
+           scheduled, otherwise an ASSERT will fail (FIXME). */
+        swtimer_schedule(&s->swtimer, m->nb_clocks, pat_nb);
+        return reply_1(req, pat_nb);
+    }
+    return -1;
+}
 int handle_pat_add(struct tag_u32 *req) {
     TAG_U32_UNPACK(req, 0, m, pat_nb, type, track, arg1, arg2, delay) {
         LOG("add to pattern nb = %d %d %d %d %d %d\n",
@@ -606,6 +621,7 @@ int map_root(struct tag_u32 *req) {
     const struct tag_u32_entry map[] = {
         {"clock_div", t_cmd, handle_clock_div, 1},
         {"pat_clear", t_cmd, handle_pat_clear, 1},
+        {"pat_alloc", t_cmd, handle_pat_alloc, 0},
         {"pat_add",   t_cmd, handle_pat_add, 6},
         // {"led",      t_map, map_led},
         // {"forth",    t_map, map_forth},

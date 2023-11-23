@@ -4,6 +4,19 @@
    Timebase is MIDI clock, 24 ppqn (pulses per quarter note)
    Core of the implementation is the software timer from uc_tools.
 */
+
+/* About recording:
+   Currently there are two implementations.
+
+   1. A live recorder: start with empty fixed loop and add events
+      on-the-fly.  Play immediately.
+
+   2. A bootstrap recorder: time-stamp events, send to Erlang, let it
+      perform a computation to snap to midi grid and obtain tempo, and
+      let it push that data to the sequencer and start.
+
+*/
+
 #include "swtimer.h"
 #include <string.h>
 
@@ -45,7 +58,9 @@ struct pattern_step {
 /* One of 16 MIDI ports with up to 3 (self-delimiting) MIDI bytes. */
 #define PAT_MIDI_TAG(port) ((port) & 0x0F)
 /* A 16-bit CV/Gate signal. */
-#define PAT_CV_TAG   0xFF
+#define PAT_CV_TAG   0xFE
+/* Internal sequencer bookkeeping. */
+#define PAT_SEQ_CMD  0xFF
 #define PAT_CV(chan, val) {                     \
         .u8  = {                                \
             [0] = PAT_CV_TAG,                   \
@@ -209,11 +224,11 @@ typedef void (*sequencer_fn)(struct sequencer *s, const struct pattern_step *p);
 struct sequencer_cursor {
     pattern_t pattern;
     dtime_t delay;
-    dtime_t duration;
 };
 
 struct sequencer {
     sequencer_fn dispatch;
+    uintptr_t time;
     struct sequencer_cursor cursor;
     struct swtimer swtimer;
     struct swtimer_element swtimer_element[PATTERN_POOL_SIZE];
@@ -230,6 +245,7 @@ struct pattern_step *sequencer_step(struct sequencer *s, step_t nb) {
 }
 void sequencer_init(struct sequencer *s, sequencer_fn dispatch) {
     memset(s,0,sizeof(*s));
+    s->cursor.pattern = PATTERN_NONE;
     s->dispatch = dispatch;
     s->swtimer.arr = s->swtimer_element;
     step_pool_init(&s->step_pool);
@@ -291,7 +307,15 @@ void sequencer_tick(struct sequencer *s) {
             break;
         }
     }
+    /* Software timer uses 16 bit circular time, which at 120bpm is
+       about 22 minutes.  This is the maximum time between steps, and
+       the maximum total time of a live recorded pattern. */
     s->swtimer.now_abs++;
+    /* Accumulate the inter-step delay for live recording.*/
+    s->cursor.delay++;
+    /* Keep track of global time.  This is for debugging only.  The 32
+       bits can accomodate a bit less than 3 years at 120bpm. */
+    s->time++;
 }
 void sequencer_ntick(struct sequencer *s, uintptr_t n) {
     while(n--) sequencer_tick(s);
@@ -389,26 +413,48 @@ void sequencer_drop_pattern(struct sequencer *s, pattern_t pat_nb) {
     }
 }
 
+void sequencer_info_pattern(struct sequencer *s, pattern_t pat_nb) {
+    LOG("pattern %d:\n", pat_nb);
+    struct pattern_phase *pp = sequencer_pattern(s, pat_nb);
+    struct pattern_step *ps_last = sequencer_step(s, pp->last);
+    step_t p = ps_last->next;
+    for(;;) {
+        struct pattern_step *ps = sequencer_step(s, p);
+        LOG("  step %d:", p);
+        for (int i=0; i<4; i++) LOG(" %02x", ps->event.as.u8[i]);
+        LOG(" delay %d\n", ps->delay);
+        if (p == pp->last) { break; }
+        p = ps->next;
+    }
+}
+
 
 /* Live recording */
 
 /* Incremental recording requires a special data structure.  The
    cursor consists of 2 parts: the event data is written in the new
-   step, while the delay is written in the old. */
-void sequencer_cursor_open(struct sequencer *s, dtime_t duration) {
+   step, while the existing old step delay is split between old and
+   new step. */
+pattern_t sequencer_cursor_open(struct sequencer *s, dtime_t duration) {
     struct sequencer_cursor *c = &s->cursor;
+    ASSERT(c->pattern == PATTERN_NONE);
     c->delay = 0;
-    c->duration = duration;
-    c->pattern = pattern_pool_alloc(&s->pattern_pool);
+    pattern_t pat = pattern_pool_alloc(&s->pattern_pool);
+    c->pattern = pat;
+    // FIXME: This should be an event that performs some cleanup,
+    // e.g. remove the pattern from the cursor.
     struct pattern_event ev = {};
-    sequencer_add_step_event(s, c->pattern, &ev, duration);
+    sequencer_add_step_event(s, pat, &ev, duration);
+    swtimer_schedule(&s->swtimer, duration, pat);
+    return pat;
 }
 void sequencer_cursor_write(struct sequencer *s, const struct pattern_event *ev) {
     struct sequencer_cursor *c = &s->cursor;
     struct pattern_phase *pp = sequencer_pattern(s, c->pattern);
     struct pattern_step *last = sequencer_step(s, pp->last);
-    dtime_t time_left = c->duration - c->delay;
+    dtime_t time_left = last->delay - c->delay;
     last->delay = c->delay;
+    c->delay = 0;
     sequencer_add_step_event(s, c->pattern, ev, time_left);
 }
 

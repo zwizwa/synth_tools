@@ -13,7 +13,10 @@
 // The scheduler is a software timer playing back loops.
 
 void pat_dispatch(struct sequencer *seq, const struct pattern_step *step) {
-    LOG("pat_dispach %d %d\n", step->event.as.u16[1], step->delay);
+    LOG("%4d pat_dispach %d %d\n",
+        seq->time,
+        step->event.as.u16[1],
+        step->delay);
 }
 
 pattern_t test_pattern_1(struct sequencer *s) {
@@ -23,6 +26,7 @@ pattern_t test_pattern_1(struct sequencer *s) {
     sequencer_add_step_cv(s, pat, 0, 200,  8);
     sequencer_add_step_cv(s, pat, 0, 150,  8);
     swtimer_schedule(&s->swtimer, 0, pat);
+    sequencer_info_pattern(s, pat);
     return pat;
 }
 pattern_t test_pattern_2(struct sequencer *s) {
@@ -30,6 +34,7 @@ pattern_t test_pattern_2(struct sequencer *s) {
     pattern_t pat = pattern_pool_alloc(&s->pattern_pool);
     sequencer_add_step_cv(s, pat, 0, 1001, 4);
     swtimer_schedule(&s->swtimer, 0, pat);
+    sequencer_info_pattern(s, pat);
     return pat;
 }
 
@@ -38,11 +43,11 @@ pattern_t test_pattern_3(struct sequencer *s) {
     pattern_t pat = pattern_pool_alloc(&s->pattern_pool);
     sequencer_add_step_cv(s, pat, 0, 1002, 8);
     swtimer_schedule(&s->swtimer, 0, pat);
+    sequencer_info_pattern(s, pat);
     return pat;
 }
 
-void test1(struct sequencer *s) {
-    sequencer_init(s, pat_dispatch);
+void test_pool_and_play(struct sequencer *s) {
     ASSERT(s->pattern_pool.free != PATTERN_NONE);
 
     pattern_t pat1 = test_pattern_1(s);
@@ -104,45 +109,39 @@ void test1(struct sequencer *s) {
     // Completely reloading might be simpler. That will be O(NlogN).
     // Probably possible to init the heap in O(N) as well.
 }
-void test2(struct sequencer *s) {
+void test_record(struct sequencer *s) {
     // Full library call sequence.
     // - track 0, establish main beat
     // - record additional tracks
-    sequencer_init(s, pat_dispatch);
-    pattern_t pat1 = test_pattern_1(s);
-    pattern_t pat2 = test_pattern_2(s);
-    pattern_t pat3 = test_pattern_3(s);
-    LOG("pats %d %d %d\n", pat1, pat2, pat3);
 
-
-    // FIXME: Actually I think I want to do this in the support code
-    // as well: record, keep adding notes.
-
-    // Pressing record will create a new pattern.
-    pattern_t pat = pattern_pool_alloc(&s->pattern_pool);
-
-    // Run the sequencer for a couple of steps to flush out the
-    // patterns while sequencing the new.
-    sequencer_add_step_cv(s, pat, 0, 2001, 12);
-    sequencer_ntick(s, 24);
-    sequencer_add_step_cv(s, pat, 0, 2002, 12);
-    sequencer_ntick(s, 12);
-    sequencer_add_step_cv(s, pat, 0, 2003, 12);
-    sequencer_ntick(s, 12);
-
-    for(int i=0;i<100;i++) {
-        sequencer_tick(s);
+    if (0) {
+        sequencer_init(s, pat_dispatch);
+        pattern_t pat1 = test_pattern_1(s);
+        pattern_t pat2 = test_pattern_2(s);
+        pattern_t pat3 = test_pattern_3(s);
+        LOG("pats %d %d %d\n", pat1, pat2, pat3);
     }
 
-    // Pressing record again won't do much except for leaving record
-    // mode.  Pattern is already playing.
+    sequencer_cursor_open(s, 24 * 2);
+    struct pattern_event ev = {.as = {.u8 = {1,2,3,4}}};
+    sequencer_cursor_write(s, &ev);
+    sequencer_ntick(s, 12);
+    sequencer_cursor_write(s, &ev);
+    sequencer_ntick(s, 24);
+    sequencer_cursor_write(s, &ev);
+    sequencer_info_pattern(s, s->cursor.pattern);
+
+    // Pattern should start playing at t = 24 * 2
+    sequencer_ntick(s, 12 + 2 * 24 * 2);
+
 
 }
 
 int main(int argc, char **argv) {
     LOG("test_drum.c\n");
     struct sequencer _s, *s  = &_s;
-    //test1(s);
-    test2(s);
+    sequencer_init(s, pat_dispatch);
+    //test_pool_and_play(s);
+    test_record(s);
     return 0;
 }
