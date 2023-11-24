@@ -155,6 +155,19 @@ static void to_erl_pterm(const char *pterm) {
     uint8_t *hole = to_erl_hole_6(nb);
     if (hole) { memcpy(hole, pterm, nb); }
 }
+static void to_erl_ptermvf(const char *fmt, va_list ap) {
+    char *pterm = NULL;
+    ASSERT(-1 != vasprintf(&pterm, fmt, ap));
+    to_erl_pterm(pterm);
+}
+// FIXME: This is so common it deserves a macro in uc_tools
+static void to_erl_ptermf(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    to_erl_ptermvf(fmt, ap);
+    va_end(ap);
+}
+
 static void to_erl_midi(const uint8_t *buf, int nb, uint8_t port) {
     uint8_t *hole = to_erl_hole_8(nb, port);
     if (hole) { memcpy(hole, buf, nb); }
@@ -316,7 +329,7 @@ void pd_midi(struct app *app, const uint8_t *msg, size_t len) {
 }
 void pd_cc(struct app *app, uint8_t ctrl, uint8_t val) {
     // Map it back to a CC after stateful processing
-    uint8_t msg[3] = {
+    uint8_t msg[] = {
         0xB0 + (app->remote.sel & 0x0F),
         ctrl & 0x7F,
         val & 0x7F
@@ -325,7 +338,7 @@ void pd_cc(struct app *app, uint8_t ctrl, uint8_t val) {
 }
 void pd_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
     // Route it to the proper channel
-    uint8_t msg[3] = {
+    uint8_t msg[] = {
         (on_off & 0xF0) + (app->remote.sel & 0xF),
         note & 0x7f,
         vel & 0x7f
@@ -340,16 +353,12 @@ void pd_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
            convenient to parse at the Erlang side and easy to generate
            here: printed terms.  Is also easy to embed in sysex as
            ASCII. */
-        char *pterm = NULL;
-        ASSERT(-1 != asprintf(
-                   &pterm,
-                   "{record,{%d,{%d,%d,%d,%d}}}",
-                   app->time,
-                   on_off >> 4,
-                   app->remote.sel,
-                   note,
-                   vel));
-        to_erl_pterm(pterm);
+
+        to_erl_ptermf(
+            "{record,{%d,{%d,%d,%d,%d}}}",
+            app->time,
+            PAT_MIDI_TAG(0), // FIXME: ports
+            msg[0], msg[1], msg[2]);
     }
 
 }
@@ -643,10 +652,11 @@ int handle_pattern_end(struct tag_u32 *req) {
     return reply_ok(req);
 }
 
+// FIXME: Use a byte interface for the events.
 int handle_step(struct tag_u32 *req) {
-    TAG_U32_UNPACK(req, 0, m, type, track, arg1, arg2, delay) {
+    TAG_U32_UNPACK(req, 0, m, type, arg0, arg1, arg2, delay) {
         LOG("add to pattern event %d,%d,%d,%d delay %d\n",
-            m->type, m->track, m->arg1, m->arg2, m->delay);
+            m->type, m->arg0, m->arg1, m->arg2, m->delay);
         struct app *app = req->context;
         struct sequencer *s = &app->sequencer;
         if (s->transaction.pattern == PATTERN_NONE) {
@@ -654,8 +664,8 @@ int handle_step(struct tag_u32 *req) {
             return reply_error(req);
         }
         struct pattern_event ev = { .as = {
-                .u8[0] = PAT_MIDI_TAG(0),
-                .u8[1] = (m->type << 4) + (m->track & 0x0F),
+                .u8[0] = m->type,
+                .u8[1] = m->arg0,
                 .u8[2] = m->arg1,
                 .u8[3] = m->arg2,
             }};
