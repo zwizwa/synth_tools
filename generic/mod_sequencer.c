@@ -222,14 +222,21 @@ struct sequencer;
 typedef void (*sequencer_fn)(struct sequencer *s, const struct pattern_step *p);
 
 struct sequencer_cursor {
+    /* Pattern we are recording to. */
     pattern_t pattern;
+    /* Used for live recording: number of MIDI clocks since last
+       recorded event. */
     dtime_t delay;
+};
+struct sequencer_transaction {
+    pattern_t pattern;
 };
 
 struct sequencer {
     sequencer_fn dispatch;
     uintptr_t time;
     struct sequencer_cursor cursor;
+    struct sequencer_transaction transaction;
     struct swtimer swtimer;
     struct swtimer_element swtimer_element[PATTERN_POOL_SIZE];
     struct step_pool step_pool;
@@ -246,6 +253,7 @@ struct pattern_step *sequencer_step(struct sequencer *s, step_t nb) {
 void sequencer_init(struct sequencer *s, sequencer_fn dispatch) {
     memset(s,0,sizeof(*s));
     s->cursor.pattern = PATTERN_NONE;
+    s->transaction.pattern = PATTERN_NONE;
     s->dispatch = dispatch;
     s->swtimer.arr = s->swtimer_element;
     step_pool_init(&s->step_pool);

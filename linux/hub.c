@@ -556,7 +556,6 @@ static int process (jack_nframes_t nframes, void *arg) {
     return 0;
 }
 
-
 const char t_map[] = "map";
 const char t_cmd[] = "cmd";
 
@@ -564,9 +563,23 @@ int reply_1(struct tag_u32 *req, uint32_t rv) {
     SEND_REPLY_TAG_U32(req, rv);
     return 0;
 }
+int reply_2(struct tag_u32 *req, uint32_t rv1, uint32_t rv2) {
+    SEND_REPLY_TAG_U32(req, rv1, rv2);
+    return 0;
+}
 int reply_ok(struct tag_u32 *req) {
     return reply_1(req, 0);
 }
+int reply_ok_1(struct tag_u32 *req, uint32_t val) {
+    return reply_2(req, 0, val);
+}
+int reply_error(struct tag_u32 *req) {
+    return reply_1(req, -1);
+}
+
+/* Note that the hub no longer contains the master clock, so for now
+   we need to ignore this.  How to fix?  Erlang has direct access to
+   the clock object so maybe best it is sent there. */
 int handle_clock_div(struct tag_u32 *req) {
     TAG_U32_UNPACK(req, 0, m, div) {
         LOG("FIXME: set sample clock div = %d\n", m->div);
@@ -574,57 +587,74 @@ int handle_clock_div(struct tag_u32 *req) {
     }
     return -1;
 }
-int handle_pat_clear(struct tag_u32 *req) {
-    // LOG("clock_div time = %d\n", app->time);
-    TAG_U32_UNPACK(req, 0, m, pat_nb) {
-        LOG("clear pattern nb = %d\n", m->pat_nb);
-        struct app *app = req->context;
-        sequencer_drop_pattern(&app->sequencer, m->pat_nb);
-        return reply_ok(req);
-    }
-    return -1;
+
+pattern_t sequencer_pattern_begin(struct sequencer *s, dtime_t nb_clocks) {
+    pattern_t pat_nb = pattern_pool_alloc(&s->pattern_pool);
+    LOG("alloc pattern nb = %d\n", pat_nb);
+    /* Caller should be aware of time scale, and should be able to
+       fill at least the first event before the pattern is
+       scheduled, otherwise an ASSERT will fail (FIXME). */
+    swtimer_schedule(&s->swtimer, nb_clocks, pat_nb);
+    /* Note that the cursor behaves as a weak pointer.  The strong
+       pointer is the reference inside the timer heap. */
+    s->cursor.pattern = pat_nb;
+    /* Also return a reference to the pattern. */
+    return pat_nb;
 }
-int handle_pat_alloc(struct tag_u32 *req) {
+
+int handle_pattern_begin(struct tag_u32 *req) {
     TAG_U32_UNPACK(req, 0, m, nb_clocks) {
         ASSERT(m->nb_clocks > 0);
         struct app *app = req->context;
         struct sequencer *s = &app->sequencer;
-        pattern_t pat_nb = pattern_pool_alloc(&s->pattern_pool);
-        LOG("alloc pattern nb = %d\n", pat_nb);
-        /* Caller should be aware of time scale, and should be able to
-           fill at least the first event before the pattern is
-           scheduled, otherwise an ASSERT will fail (FIXME). */
-        swtimer_schedule(&s->swtimer, m->nb_clocks, pat_nb);
-        return reply_1(req, pat_nb);
+        pattern_t pat_nb = sequencer_pattern_begin(s, m->nb_clocks);
+        return reply_ok_1(req, pat_nb);
     }
     return -1;
 }
-int handle_pat_add(struct tag_u32 *req) {
-    TAG_U32_UNPACK(req, 0, m, pat_nb, type, track, arg1, arg2, delay) {
-        LOG("add to pattern nb = %d %d %d %d %d %d\n",
-            m->pat_nb, m->type, m->track, m->arg1, m->arg2, m->delay);
+
+int handle_pattern_end(struct tag_u32 *req) {
+    struct app *app = req->context;
+    struct sequencer *s = &app->sequencer;
+    if (s->cursor.pattern == PATTERN_NONE) {
+        LOG("no current pattern\n");
+        return reply_error(req);
+    }
+    /* Note that the cursor behaves as a weak pointer.  The strong
+       pointer is the reference inside the timer heap. */
+    LOG("pattern_end %d\n", s->cursor.pattern);
+    sequencer_info_pattern(s, s->cursor.pattern);
+
+    s->cursor.pattern = PATTERN_NONE;
+    return reply_ok(req);
+}
+int handle_step(struct tag_u32 *req) {
+    TAG_U32_UNPACK(req, 0, m, type, track, arg1, arg2, delay) {
+        LOG("add to pattern event %d,%d,%d,%d delay %d\n",
+            m->type, m->track, m->arg1, m->arg2, m->delay);
+        struct app *app = req->context;
+        struct sequencer *s = &app->sequencer;
+        if (s->cursor.pattern == PATTERN_NONE) {
+            LOG("no current pattern\n");
+            return reply_error(req);
+        }
         struct pattern_event ev = { .as = {
                 .u8[0] = PAT_MIDI_TAG(0),
                 .u8[1] = (m->type << 4) + (m->track & 0x0F),
                 .u8[2] = m->arg1,
                 .u8[3] = m->arg2,
             }};
-        struct app *app = req->context;
-        sequencer_add_step_event(
-            &app->sequencer,
-            m->pat_nb, &ev, m->delay);
+        sequencer_add_step_event(s, s->cursor.pattern, &ev, m->delay);
         return reply_ok(req);
     }
     return -1;
 }
 int map_root(struct tag_u32 *req) {
     const struct tag_u32_entry map[] = {
-        {"clock_div", t_cmd, handle_clock_div, 1},
-        {"pat_clear", t_cmd, handle_pat_clear, 1},
-        {"pat_alloc", t_cmd, handle_pat_alloc, 0},
-        {"pat_add",   t_cmd, handle_pat_add, 6},
-        // {"led",      t_map, map_led},
-        // {"forth",    t_map, map_forth},
+        {"clock_div",     t_cmd, handle_clock_div, 1},
+        {"pattern_begin", t_cmd, handle_pattern_begin, 0},
+        {"pattern_end",   t_cmd, handle_pattern_end, 0},
+        {"step",          t_cmd, handle_step, 5},
     };
     return HANDLE_TAG_U32_MAP(req, map);
 }
