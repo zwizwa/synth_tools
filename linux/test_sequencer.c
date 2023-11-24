@@ -114,14 +114,6 @@ void test_record(struct sequencer *s) {
     // - track 0, establish main beat
     // - record additional tracks
 
-    if (0) {
-        sequencer_init(s, pat_dispatch);
-        pattern_t pat1 = test_pattern_1(s);
-        pattern_t pat2 = test_pattern_2(s);
-        pattern_t pat3 = test_pattern_3(s);
-        LOG("pats %d %d %d\n", pat1, pat2, pat3);
-    }
-
     sequencer_cursor_open(s, 24 * 2);
     struct pattern_event ev = {.as = {.u8 = {1,2,3,4}}};
     sequencer_cursor_write(s, &ev);
@@ -141,6 +133,7 @@ int main(int argc, char **argv) {
     LOG("test_drum.c\n");
     struct sequencer _s, *s  = &_s;
     sequencer_init(s, pat_dispatch);
+    s->verbose = 1;
     //test_pool_and_play(s);
     test_record(s);
     return 0;

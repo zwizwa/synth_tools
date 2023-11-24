@@ -171,6 +171,8 @@ static inline void process_z_debug(struct app *app) {
 void pat_tick(struct sequencer *seq, const struct pattern_step *step) {
     struct app *app = (void*)seq;
     const uint8_t *msg = step->event.as.u8;
+    LOG("pat_tick %02x %02x %02x %02x\n", msg[0], msg[1], msg[2], msg[3]);
+
     if (msg[0] < 16) {
         // FIXME: msg[0] is midi port, make numerical mapping
         send_midi(app->pd_out_buf, 0, msg + 1, 3);
@@ -187,15 +189,19 @@ void pattern_init(struct sequencer *s) {
 static inline void app_play(struct app *app) {
     LOG("app_play\n");
     app->running = 1;
-    sequencer_restart(&app->sequencer);
 }
 static inline void app_continue(struct app *app) {
     LOG("app_continue\n");
     app->running = 1;
 }
+static inline void app_pause(struct app *app) {
+    LOG("app_pause\n");
+    app->running = 0;
+}
 static inline void app_stop(struct app *app) {
     LOG("app_stop\n");
     app->running = 0;
+    sequencer_restart(&app->sequencer);
 }
 
 
@@ -214,6 +220,7 @@ static inline void process_clock_in(struct app *app) {
                 app_stop(app);
                 break;
             case 0xF8: { // clock
+                // LOG("tick, running=%d\n", app->running);
                 if (app->running) {
                     sequencer_tick(&app->sequencer);
                 }
@@ -300,24 +307,30 @@ static inline void process_keystation_in2(struct app *app) {
     }
 }
 
-
-void pd_remote_cc(struct app *app, uint8_t ctrl, uint8_t val) {
-    // Map it back to a CC after stateful processing
-    uint8_t msg[3] = {0xB0 + (app->remote.sel & 0xF), ctrl & 0x7f, val & 0x7f};
-    // Send it to Pd & Erlang
-    send_midi(app->pd_out_buf, 0, msg, sizeof(msg));
-    to_erl_midi(msg, sizeof(msg), 4 /* midi port */);
+void pd_midi(struct app *app, const uint8_t *msg, size_t len) {
+    /* Jack midi port connected to pd_io object, which takes jack midi
+     * in and converts it to netsend into Pd. */
+    send_midi(app->pd_out_buf, 0, msg, len);
+    /* Send a copy to Erlang. */
+    to_erl_midi(msg, len, 4 /* midi port */);
 }
-void pd_remote_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
+void pd_cc(struct app *app, uint8_t ctrl, uint8_t val) {
+    // Map it back to a CC after stateful processing
+    uint8_t msg[3] = {
+        0xB0 + (app->remote.sel & 0x0F),
+        ctrl & 0x7F,
+        val & 0x7F
+    };
+    pd_midi(app, msg, sizeof(msg));
+}
+void pd_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
     // Route it to the proper channel
     uint8_t msg[3] = {
         (on_off & 0xF0) + (app->remote.sel & 0xF),
         note & 0x7f,
         vel & 0x7f
     };
-    // Send it to Pd & Erlang
-    send_midi(app->pd_out_buf, 0, msg, sizeof(msg));
-    to_erl_midi(msg, sizeof(msg), 4 /* midi port */);
+    pd_midi(app, msg, sizeof(msg));
 
     // Recording
     if (app->remote.record) {
@@ -355,7 +368,7 @@ static inline void process_remote_in(struct app *app) {
                 /* Route it to the current track. */
                 uint8_t note = msg[1];
                 uint8_t vel = msg[2];
-                pd_remote_note(app, tag, note, vel);
+                pd_note(app, tag, note, vel);
                 break;
             }
             case 0xB0: {
@@ -366,33 +379,33 @@ static inline void process_remote_in(struct app *app) {
                 if (cc <= 7) {
                     uint8_t slider = cc;
                     r->sel = slider;
-                    pd_remote_cc(app, 0, val);
+                    pd_cc(app, 0, val);
                 }
                 else if (cc <= 15) {
                     uint8_t slider_but = cc - 8;
                     r->sel = slider_but;
-                    pd_remote_cc(app, 1, val);
+                    pd_cc(app, 1, val);
                 }
                 else if (cc <= 23) {
                     uint8_t knob = cc - 16;
                     r->sel = knob;
-                    pd_remote_cc(app, 2, val);
+                    pd_cc(app, 2, val);
                 }
                 else if (cc <= 31) {
                     uint8_t knob_but = cc - 24;
                     r->sel = knob_but;
-                    pd_remote_cc(app, 3, val);
+                    pd_cc(app, 3, val);
                 }
                 else if (cc <= 39) {
                     uint8_t rotary = cc - 32;
                     // local to r->sel
                     // FIXME: do rotary processing
-                    pd_remote_cc(app, 4 + rotary, val);
+                    pd_cc(app, 4 + rotary, val);
                 }
                 else if (cc <= 47) {
                     uint8_t rotary_but = cc - 40;
                     // local to r->sel
-                    pd_remote_cc(app, 4 + 8 + rotary_but, val);
+                    pd_cc(app, 4 + 8 + rotary_but, val);
                 }
                 else if (cc == 0x32) {
                     // stop
@@ -471,7 +484,7 @@ static inline void process_uma_in(struct app *app) {
                 uint8_t note = msg[1];
                 uint8_t vel = msg[2];
                 LOG("note %d %d\n", note, vel);
-                pd_remote_note(app, tag, note, vel);
+                pd_note(app, tag, note, vel);
                 break;
             }
             case 0xB0: {
@@ -479,7 +492,16 @@ static inline void process_uma_in(struct app *app) {
                    encoders mapped to CC in a linear fashion. */
                 uint8_t cc = msg[1];
                 uint8_t val = msg[2];
-                if (cc == 28) {
+                if (cc == 25) {
+                    app_stop(app);
+                }
+                else if (cc == 26) {
+                    app_pause(app);
+                }
+                else if (cc == 27) {
+                    app_play(app);
+                }
+                else if (cc == 28) {
                     if (val == 0) {
                         LOG("rec on\n");
                         to_erl_pterm("{record,start}");
@@ -490,6 +512,10 @@ static inline void process_uma_in(struct app *app) {
                         to_erl_pterm("{record,stop}");
                         r->record = 0;
                     }
+
+                    // app_play(app);
+
+
                 }
                 LOG("CC %d %d\n", cc, val);
             }

@@ -241,6 +241,7 @@ struct sequencer {
     struct swtimer_element swtimer_element[PATTERN_POOL_SIZE];
     struct step_pool step_pool;
     struct pattern_pool pattern_pool;
+    uint8_t verbose:1;
 };
 struct pattern_phase *sequencer_pattern(struct sequencer *s, pattern_t nb) {
     ASSERT(nb < PATTERN_POOL_SIZE);
@@ -269,14 +270,14 @@ void sequencer_tick(struct sequencer *s) {
         swtimer_element_t next = swtimer_peek(&s->swtimer);
         if (next.time_abs != s->swtimer.now_abs) break;
         if (!logged) {
-            LOG("tick time=%d\n", s->swtimer.now_abs);
+            if (s->verbose) { LOG("tick time=%d\n", s->swtimer.now_abs); };
             logged = 1;
         }
         swtimer_pop(&s->swtimer);
         /* The tag refers to the pattern number, which can be obtained
            to store the next step in the sequence. */
         uintptr_t pattern_nb = next.tag;
-        LOG("pattern %d\n", pattern_nb);
+        if (s->verbose) { LOG("pattern %d\n", pattern_nb); }
         ASSERT(pattern_nb < PATTERN_POOL_SIZE);
         struct pattern_phase *pp = sequencer_pattern(s, pattern_nb);
         step_t step = pp->head;
@@ -293,7 +294,7 @@ void sequencer_tick(struct sequencer *s) {
             /* Dispatch all events in this pattern that happen at this
                time instance. */
             for(;;) {
-                LOG("step %d\n", step);
+                if (s->verbose) { LOG("step %d\n", step); }
                 const struct pattern_step *p = sequencer_step(s, step);
                 s->dispatch(s, p);
                 if (p->delay > 0) {
