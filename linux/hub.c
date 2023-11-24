@@ -355,7 +355,7 @@ void pd_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
            ASCII. */
 
         to_erl_ptermf(
-            "{record,{%d,{%d,%d,%d,%d}}}",
+            "{record,{%d,<<%d,%d,%d,%d>>}}",
             app->time,
             PAT_MIDI_TAG(0), // FIXME: ports
             msg[0], msg[1], msg[2]);
@@ -654,21 +654,20 @@ int handle_pattern_end(struct tag_u32 *req) {
 
 // FIXME: Use a byte interface for the events.
 int handle_step(struct tag_u32 *req) {
-    TAG_U32_UNPACK(req, 0, m, type, arg0, arg1, arg2, delay) {
-        LOG("add to pattern event %d,%d,%d,%d delay %d\n",
-            m->type, m->arg0, m->arg1, m->arg2, m->delay);
+    TAG_U32_UNPACK(req, 0, m, delay) {
+        LOG("add to pattern, delay %d\n", m->delay);
         struct app *app = req->context;
         struct sequencer *s = &app->sequencer;
         if (s->transaction.pattern == PATTERN_NONE) {
             LOG("no current pattern\n");
             return reply_error(req);
         }
-        struct pattern_event ev = { .as = {
-                .u8[0] = m->type,
-                .u8[1] = m->arg0,
-                .u8[2] = m->arg1,
-                .u8[3] = m->arg2,
-            }};
+        if (req->nb_bytes > 4) {
+            LOG("event size to large: %d\n", req->nb_bytes);
+            return reply_error(req);
+        }
+        struct pattern_event ev = {};
+        memcpy(ev.as.u8, req->bytes, req->nb_bytes);
         sequencer_pattern_step(s, &ev, m->delay);
         return reply_ok(req);
     }
@@ -679,7 +678,7 @@ int map_root(struct tag_u32 *req) {
         {"clock_div",     t_cmd, handle_clock_div, 1},
         {"pattern_begin", t_cmd, handle_pattern_begin, 0},
         {"pattern_end",   t_cmd, handle_pattern_end, 0},
-        {"step",          t_cmd, handle_step, 5},
+        {"step",          t_cmd, handle_step, 1},
     };
     return HANDLE_TAG_U32_MAP(req, map);
 }
