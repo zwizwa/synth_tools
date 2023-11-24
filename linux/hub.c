@@ -588,25 +588,18 @@ int handle_clock_div(struct tag_u32 *req) {
     return -1;
 }
 
-pattern_t sequencer_pattern_begin(struct sequencer *s, dtime_t nb_clocks) {
-    pattern_t pat_nb = pattern_pool_alloc(&s->pattern_pool);
-    LOG("alloc pattern nb = %d\n", pat_nb);
-    /* Caller should be aware of time scale, and should be able to
-       fill at least the first event before the pattern is
-       scheduled, otherwise an ASSERT will fail (FIXME). */
-    swtimer_schedule(&s->swtimer, nb_clocks, pat_nb);
-    /* Note that the cursor behaves as a weak pointer.  The strong
-       pointer is the reference inside the timer heap. */
-    s->cursor.pattern = pat_nb;
-    /* Also return a reference to the pattern. */
-    return pat_nb;
-}
-
 int handle_pattern_begin(struct tag_u32 *req) {
     TAG_U32_UNPACK(req, 0, m, nb_clocks) {
-        ASSERT(m->nb_clocks > 0);
         struct app *app = req->context;
         struct sequencer *s = &app->sequencer;
+        if (s->transaction.pattern != PATTERN_NONE) {
+            LOG("already current pattern\n");
+            return reply_error(req);
+        }
+        if (m->nb_clocks == 0) {
+            LOG("can't have nb_clocks == 0\n");
+            return reply_error(req);
+        }
         pattern_t pat_nb = sequencer_pattern_begin(s, m->nb_clocks);
         return reply_ok_1(req, pat_nb);
     }
@@ -616,25 +609,21 @@ int handle_pattern_begin(struct tag_u32 *req) {
 int handle_pattern_end(struct tag_u32 *req) {
     struct app *app = req->context;
     struct sequencer *s = &app->sequencer;
-    if (s->cursor.pattern == PATTERN_NONE) {
+    if (s->transaction.pattern == PATTERN_NONE) {
         LOG("no current pattern\n");
         return reply_error(req);
     }
-    /* Note that the cursor behaves as a weak pointer.  The strong
-       pointer is the reference inside the timer heap. */
-    LOG("pattern_end %d\n", s->cursor.pattern);
-    sequencer_info_pattern(s, s->cursor.pattern);
-
-    s->cursor.pattern = PATTERN_NONE;
+    sequencer_pattern_end(s);
     return reply_ok(req);
 }
+
 int handle_step(struct tag_u32 *req) {
     TAG_U32_UNPACK(req, 0, m, type, track, arg1, arg2, delay) {
         LOG("add to pattern event %d,%d,%d,%d delay %d\n",
             m->type, m->track, m->arg1, m->arg2, m->delay);
         struct app *app = req->context;
         struct sequencer *s = &app->sequencer;
-        if (s->cursor.pattern == PATTERN_NONE) {
+        if (s->transaction.pattern == PATTERN_NONE) {
             LOG("no current pattern\n");
             return reply_error(req);
         }
@@ -644,7 +633,7 @@ int handle_step(struct tag_u32 *req) {
                 .u8[2] = m->arg1,
                 .u8[3] = m->arg2,
             }};
-        sequencer_add_step_event(s, s->cursor.pattern, &ev, m->delay);
+        sequencer_pattern_step(s, &ev, m->delay);
         return reply_ok(req);
     }
     return -1;
