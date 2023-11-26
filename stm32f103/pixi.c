@@ -617,7 +617,7 @@ void pat_dispatch(struct sequencer *seq, const struct pattern_step *step) {
 void pattern_init(struct sequencer *s) {
     sequencer_init(s, pat_dispatch);
     // FIXME: This has changed. Look at test_sequencer.c
-    sequencer_start(s);
+    sequencer_restart(s);
 }
 void pattern_start(struct sequencer *s) {
     /* Reset counters, enable playback. */
