@@ -4,6 +4,20 @@ GIT_VERSION ?= "unknown"
 # Note that bl_midi does not use the A/B partitions with crc, just the
 # original x8 slot.
 
+# See synth_tools/builder.sh in /etc/net
+# This is moved here as a target simplify updating.
+STUDIO_ELF := \
+	linux/clock.dynamic.host.elf \
+	linux/hub.dynamic.host.elf \
+	linux/pd.dynamic.host.elf \
+	linux/synth.dynamic.host.elf \
+	linux/envy24.dynamic.host.elf \
+	linux/jack_netsend.dynamic.host.elf \
+	linux/jack_snapshot.dynamic.host.elf \
+	linux/jack_midi.dynamic.host.elf \
+	linux/jack_control.dynamic.host.elf \
+	linux/a2jmidid.dynamic.host.elf \
+
 STM_ELF := \
 	stm32f103/bl_midi_bp.core.f103.elf \
 	stm32f103/bl_midi_bp_mod.core.f103.elf \
