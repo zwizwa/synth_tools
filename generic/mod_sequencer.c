@@ -214,7 +214,7 @@ static inline void pattern_pool_init(struct pattern_pool *p) {
     for(int i=PATTERN_POOL_SIZE-1; i>=0; i--) {
         pattern_pool_free(p, i);
     }
-    pattern_pool_info(p);
+    //pattern_pool_info(p);
 }
 
 
