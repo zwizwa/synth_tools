@@ -84,6 +84,7 @@ LIB_HOST_A_OBJECTS := \
 	$(UC_TOOLS)/tools.host.o \
 	$(UC_TOOLS)/cycle_counter.host.o \
 	$(UC_TOOLS)/linux/packet_bridge.host.o \
+	$(UC_TOOLS)/tag_u32.host.o \
 
 # For later auto-generated files
 GEN_DEPS_COMMON :=
