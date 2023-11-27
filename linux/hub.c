@@ -424,6 +424,7 @@ static inline void process_remote_in(struct app *app) {
                     }
                     else {
                         send_stop(app->transport_buf);
+                        app_stop(app);
                     }
                 }
                 else if (cc == 0x33) {
@@ -433,6 +434,7 @@ static inline void process_remote_in(struct app *app) {
                     }
                     else {
                         send_start(app->transport_buf);
+                        app_play(app);
                     }
                 }
                 else if (cc == 0x34) {
