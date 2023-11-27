@@ -673,12 +673,48 @@ int handle_step(struct tag_u32 *req) {
     }
     return -1;
 }
+
+#define CMD_CONNECT 1
+#define CMD_DISCONNECT 2
+
+int handle_jack_port(struct tag_u32 *req) {
+    TAG_U32_UNPACK(req, 0, m, cmd, nsrc, ndst) {
+        if (!((m->nsrc > 0) &&
+              (m->ndst > 0) &&
+              (m->nsrc + m->ndst == req->nb_bytes))) {
+            LOG("bad size: nsrc=%d, ndst=%d, bytes=%d\n",
+                m->nsrc, m->ndst, req->nb_bytes);
+            return reply_error(req);
+        }
+        char src[m->nsrc + 1];
+        char dst[m->ndst + 1];
+        memcpy(src, req->bytes, m->nsrc);
+        memcpy(dst, req->bytes + m->nsrc, m->ndst);
+        src[m->nsrc] = 0;
+        dst[m->ndst] = 0;
+        switch(m->cmd) {
+        case CMD_CONNECT:
+            jack_connect(client, src, dst);
+            return reply_ok(req);
+        case CMD_DISCONNECT:
+            jack_disconnect(client, src, dst);
+            return reply_ok(req);
+        default:
+            LOG("bad command %d\n", m->cmd);
+            return reply_error(req);
+        }
+    }
+    return -1;
+}
+
+
 int map_root(struct tag_u32 *req) {
     const struct tag_u32_entry map[] = {
         {"clock_div",     t_cmd, handle_clock_div, 1},
         {"pattern_begin", t_cmd, handle_pattern_begin, 0},
         {"pattern_end",   t_cmd, handle_pattern_end, 0},
         {"step",          t_cmd, handle_step, 1},
+        {"jack_port",     t_cmd, handle_jack_port, 3},
     };
     return HANDLE_TAG_U32_MAP(req, map);
 }
@@ -695,6 +731,36 @@ int handle_tag_u32(struct tag_u32 *req) {
     return 0;
 }
 
+/* Take over this functionality from jack_control.c
+   I've added one level of {jack_control,...} wrapping to make Erlang code simpler. */
+static void port_register(jack_port_id_t port_id, int reg, void *arg) {
+    jack_port_t *port = jack_port_by_id(client, port_id);
+    int flags = jack_port_flags(port);
+    const char *port_name = jack_port_name(port);
+    to_erl_ptermf("{jack_control,{port,%s,%s,\"%s\"}}",
+                  reg ? "reg" : "unreg",
+                  flags & JackPortIsInput ? "in" : "out",
+                  port_name);
+    char alias0[jack_port_name_size()];
+    char alias1[jack_port_name_size()];
+    char *const alias[2] = {alias0, alias1};
+    int nb_alias = jack_port_get_aliases(port, alias);
+    for (int i = 0; i<nb_alias; i++) {
+        to_erl_ptermf("{jack_control,{alias,\"%s\",\"%s\"}}", port_name, alias[i]);
+    }
+}
+static void port_connect(jack_port_id_t a, jack_port_id_t b, int connect, void *arg) {
+    jack_port_t *pa = jack_port_by_id(client, a);
+    jack_port_t *pb = jack_port_by_id(client, b);
+    const char *na = jack_port_name(pa);
+    const char *nb = jack_port_name(pb);
+    to_erl_ptermf("{jack_control,{connect,%s,\"%s\",\"%s\"}}",
+                  connect  ? "true" : "false", na, nb);
+
+}
+static void client_registration(const char *name, int reg, void *arg) {
+    to_erl_ptermf("{jack,{client,%s,\"%s\"}}", reg ? "reg" : "unreg", name);
+}
 
 int main(int argc, char **argv) {
 
@@ -707,6 +773,11 @@ int main(int argc, char **argv) {
     jack_status_t status = 0;
     client = jack_client_open (client_name, JackNullOption, &status);
     ASSERT(client);
+
+    ASSERT(0 == jack_set_port_registration_callback(client, port_register, NULL));
+    ASSERT(0 == jack_set_port_connect_callback(client, port_connect, NULL));
+    ASSERT(0 == jack_set_client_registration_callback(client, client_registration, NULL));
+
     FOR_MIDI_IN(REGISTER_JACK_MIDI_IN);
     FOR_MIDI_OUT(REGISTER_JACK_MIDI_OUT);
 

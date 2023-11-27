@@ -1,3 +1,8 @@
+/* TODO:
+   - Switch to {packet,4}
+   - Move jack_controler.erl code to jack_client.erl
+*/
+
 #include "erl_port.h"
 #include "macros.h"
 #include <jack/jack.h>
