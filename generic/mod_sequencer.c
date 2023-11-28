@@ -251,6 +251,7 @@ struct pattern_step *sequencer_step(struct sequencer *s, step_t nb) {
     ASSERT(nb < STEP_POOL_SIZE);
     return &s->step_pool.step[nb];
 }
+
 void sequencer_init(struct sequencer *s, sequencer_fn dispatch) {
     memset(s,0,sizeof(*s));
     s->cursor.pattern = PATTERN_NONE;
@@ -358,51 +359,68 @@ void sequencer_restart(struct sequencer *s) {
 }
 
 /* Expose internal structure as iterators.  Originally written to
-   create state dump functionality. */
-void sequencer_foreach_pattern(struct sequencer *s,
-                               void (*visit)(struct sequencer *s,
-                                             void *state, pattern_t),
-                               void *state) {
-    for(int pattern_nb=0; pattern_nb<PATTERN_POOL_SIZE; pattern_nb++) {
-        struct pattern_phase *pp = sequencer_pattern(s, pattern_nb);
-        switch(pattern_phase_lifecycle(pp)) {
-        case pattern_phase_used:
-            visit(s, state, pattern_nb);
-            break;
-        default:
-            break;
-        }
-    }
-}
-void sequencer_foreach_step(struct sequencer *s,
-                            pattern_t pattern_nb,
-                            void (*visit)(struct sequencer *s,
-                                          void *state, struct pattern_step *),
-                            void *state) {
+   create state dump functionality.  Follow the uc_tools lore that in
+   C it is really more convenient to use a for(;;) -based macro
+   because it can refer to local variables in the lexical environment.
+   Higher order functions (passing callback and state) are cumbersome
+   due to the lack of lexical capture, requiring the construction of
+   iteration state structures for each iteration.  Doing it this way
+   moves the struct boilerplate to the implementation of the for(;;)
+   macro, leaving the call/expansion site less verbose.. */
+struct sequencer_pattern_iterator {
+    struct sequencer *sequencer;
+    pattern_t pattern_nb;
+};
+#define FOR_SEQUENCER_PATTERNS(s, i)                              \
+    for(struct sequencer_pattern_iterator i = { .sequencer = s }; \
+        i.pattern_nb < PATTERN_POOL_SIZE; \
+        i.pattern_nb++)
+
+struct sequencer_step_iterator {
+    struct sequencer *sequencer;
+    struct pattern_step *step;
+    struct pattern_step *first_step;
+};
+struct sequencer_step_iterator
+sequencer_step_iterator_init(struct sequencer *s,
+                             pattern_t pattern_nb) {
     struct pattern_phase *pp = sequencer_pattern(s, pattern_nb);
     step_t last_step = pp->last;
     ASSERT(last_step != STEP_NONE);
     struct pattern_step *plast = sequencer_step(s, last_step);
     step_t first_step = plast->next;
+    struct pattern_step *pfirst = sequencer_step(s, first_step);
     ASSERT(first_step != STEP_NONE);
-    step_t step = first_step;
-    for(;;) {
-        struct pattern_step *pstep = sequencer_step(s, step);
-        visit(s, state, pstep);
-        if (step == last_step) break;
-        step = pstep->next;
-    }
+    struct sequencer_step_iterator i = {
+        .sequencer = s,
+        .step = pfirst,
+        .first_step = pfirst,
+    };
+    return i;
 }
-struct sequencer_dump {
-};
-void sequencer_dump_step(struct sequencer *s, void *_dump, struct pattern_step *ps) {
+void sequencer_step_iterator_next(struct sequencer_step_iterator *i) {
+    struct pattern_step *pnext = sequencer_step(i->sequencer, i->step->next);
+    i->step = (pnext == i->first_step) ? NULL : pnext;
 }
-void sequencer_dump_pattern(struct sequencer *s, void *_dump, pattern_t pattern_nb) {
-    sequencer_foreach_step(s, pattern_nb, sequencer_dump_step, _dump);
-}
+#define FOR_SEQUENCER_STEPS(s, p, i)                                    \
+    for(struct sequencer_step_iterator i = sequencer_step_iterator_init(s, p); \
+        i.step != NULL;                                                 \
+        sequencer_step_iterator_next(&i))
+
+
+/* Use the two iteraton macros to traverse the sequencer pattern state. */
 void sequencer_dump(struct sequencer *s) {
-    struct sequencer_dump dump = {};
-    sequencer_foreach_pattern(s, sequencer_dump_pattern, &dump);
+    FOR_SEQUENCER_PATTERNS(s, ip) {
+        struct pattern_phase *pp = sequencer_pattern(s, ip.pattern_nb);
+        if (pattern_phase_used == pattern_phase_lifecycle(pp)) {
+            FOR_SEQUENCER_STEPS(s, ip.pattern_nb, is) {
+                const uint8_t *msg =  is.step->event.as.u8;
+                LOG("%d %02x %02x %02x %02x %d\n", ip.pattern_nb,
+                    msg[0],msg[1],msg[2],msg[3],
+                    is.step->delay);
+            }
+        }
+    }
 }
 
 

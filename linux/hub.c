@@ -709,6 +709,13 @@ int handle_jack_port(struct tag_u32 *req) {
     return -1;
 }
 
+int handle_dump(struct tag_u32 *req) {
+    struct app *app = req->context;
+    struct sequencer *s = &app->sequencer;
+    sequencer_dump(s);
+    return reply_ok(req);
+}
+
 
 int map_root(struct tag_u32 *req) {
     const struct tag_u32_entry map[] = {
@@ -717,6 +724,7 @@ int map_root(struct tag_u32 *req) {
         {"pattern_end",   t_cmd, handle_pattern_end, 0},
         {"step",          t_cmd, handle_step, 1},
         {"jack_port",     t_cmd, handle_jack_port, 3},
+        {"dump",          t_cmd, handle_dump, 0},
     };
     return HANDLE_TAG_U32_MAP(req, map);
 }
