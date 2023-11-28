@@ -357,6 +357,55 @@ void sequencer_restart(struct sequencer *s) {
     }
 }
 
+/* Expose internal structure as iterators.  Originally written to
+   create state dump functionality. */
+void sequencer_foreach_pattern(struct sequencer *s,
+                               void (*visit)(struct sequencer *s,
+                                             void *state, pattern_t),
+                               void *state) {
+    for(int pattern_nb=0; pattern_nb<PATTERN_POOL_SIZE; pattern_nb++) {
+        struct pattern_phase *pp = sequencer_pattern(s, pattern_nb);
+        switch(pattern_phase_lifecycle(pp)) {
+        case pattern_phase_used:
+            visit(s, state, pattern_nb);
+            break;
+        default:
+            break;
+        }
+    }
+}
+void sequencer_foreach_step(struct sequencer *s,
+                            pattern_t pattern_nb,
+                            void (*visit)(struct sequencer *s,
+                                          void *state, struct pattern_step *),
+                            void *state) {
+    struct pattern_phase *pp = sequencer_pattern(s, pattern_nb);
+    step_t last_step = pp->last;
+    ASSERT(last_step != STEP_NONE);
+    struct pattern_step *plast = sequencer_step(s, last_step);
+    step_t first_step = plast->next;
+    ASSERT(first_step != STEP_NONE);
+    step_t step = first_step;
+    for(;;) {
+        struct pattern_step *pstep = sequencer_step(s, step);
+        visit(s, state, pstep);
+        if (step == last_step) break;
+        step = pstep->next;
+    }
+}
+struct sequencer_dump {
+};
+void sequencer_dump_step(struct sequencer *s, void *_dump, struct pattern_step *ps) {
+}
+void sequencer_dump_pattern(struct sequencer *s, void *_dump, pattern_t pattern_nb) {
+    sequencer_foreach_step(s, pattern_nb, sequencer_dump_step, _dump);
+}
+void sequencer_dump(struct sequencer *s) {
+    struct sequencer_dump dump = {};
+    sequencer_foreach_pattern(s, sequencer_dump_pattern, &dump);
+}
+
+
 /* FIXME: Create a function that checks the main invariants:
    - the timer heap should not contain duplicate references
    - each allocated pattern should be referenced in the timer heap
