@@ -12,11 +12,12 @@
 
 // The scheduler is a software timer playing back loops.
 
-void pat_dispatch(struct sequencer *seq, const struct pattern_step *step) {
-    LOG("%4d pat_dispach %d %d\n",
+/* Note that dispatch does not know about the step delay to the
+   following event: that is considered sequencer implementation. */
+void pat_dispatch(struct sequencer *seq, const union pattern_event *ev) {
+    LOG("%4d pat_dispach %d\n",
         seq->time,
-        step->event.as.u16[1],
-        step->delay);
+        ev->u16[1]);
 }
 
 pattern_t test_pattern_1(struct sequencer *s) {
@@ -115,7 +116,7 @@ void test_record(struct sequencer *s) {
     // - record additional tracks
 
     sequencer_cursor_open(s, 24 * 2);
-    struct pattern_event ev = {.as = {.u8 = {1,2,3,4}}};
+    union pattern_event ev = {.u8 = {1,2,3,4}};
     sequencer_cursor_write(s, &ev);
     sequencer_ntick(s, 12);
     sequencer_cursor_write(s, &ev);

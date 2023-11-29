@@ -5,6 +5,18 @@
    Core of the implementation is the software timer from uc_tools.
 */
 
+/* Design goals:
+   - Loop-based
+   - Fine time resolution (i.e. tickless, start with MIDI clock as grid)
+   - Loops have independent timing to allow polymeter, polyrhythm
+   - O(1) updates in the real time code
+   - Two thread design: RT + bookkeep
+   - Online recording + offline (time-processing) recording
+   - Full get/set serialization
+   - Memory-efficient + no dynamic memory allocation (allow embedded)
+*/
+
+
 /* About recording:
    There are two modes.
 
@@ -57,23 +69,22 @@ struct pattern_midi_cc {
     uint8_t cc;    // Controller number
     uint8_t val;   // Controller value
 };
-struct pattern_event {
-    /* For now just use midi plus maybe some extensions.
-       E.g. we know here that midi[0] contains the control code 80-FF,
-       so 00-7F could be used for non-midi events. */
-    union {
-        uint8_t  u8[4];
-        uint16_t u16[2];
-        uint32_t u32;
-        struct pattern_midi_note note;
-        struct pattern_midi_cc   cc;
-    } as;
+
+/* For now just use midi plus maybe some extensions.  E.g. we know
+   here that midi[0] contains the control code 80-FF, so 00-7F could
+   be used for non-midi events. */
+union pattern_event {
+    uint8_t  u8[4];
+    uint16_t u16[2];
+    uint32_t u32;
+    struct pattern_midi_note note;
+    struct pattern_midi_cc   cc;
 };
 
 #define STEP_DELAY_NONE 0xFFFF
 
 struct pattern_step {
-    struct pattern_event event;
+    union pattern_event event;
     /* Time delay to next event. */
     dtime_t delay;
     /* Index of next event in event pool. */
@@ -156,7 +167,7 @@ static inline void step_pool_init(struct step_pool *p) {
     }
 }
 static inline uint16_t step_pool_new_event(
-    struct step_pool *sp, const struct pattern_event *ev, dtime_t delay) {
+    struct step_pool *sp, const union pattern_event *ev, dtime_t delay) {
     step_t i = step_pool_alloc(sp);
     struct pattern_step *p = sp->step + i;
     p->event = *ev;
@@ -247,7 +258,7 @@ static inline void pattern_pool_init(struct pattern_pool *p) {
 
 
 struct sequencer;
-typedef void (*sequencer_fn)(struct sequencer *s, const struct pattern_step *p);
+typedef void (*sequencer_fn)(struct sequencer *s, const union pattern_event *ev);
 
 struct sequencer_cursor {
     /* Pattern we are recording to. */
@@ -255,6 +266,9 @@ struct sequencer_cursor {
     /* Used for live recording: number of MIDI clocks since last
        recorded event. */
     dtime_t delay;
+    /* Duration is saved so a new pattern can be created to handle
+       subsequent loop passes. */
+    dtime_t duration;
 };
 struct sequencer_transaction {
     pattern_t pattern;
@@ -293,29 +307,37 @@ static inline int sequencer_recording(struct sequencer *s) {
     return s->cursor.pattern != PATTERN_NONE;
 }
 
-void sequencer_seq_cmd(struct sequencer *s, const struct pattern_step *p) {
-    const uint8_t *u8 = p->event.as.u8;
+pattern_t sequencer_cursor_dup(struct sequencer *s);
+
+void sequencer_seq_cmd(struct sequencer *s,
+                       pattern_t pattern_nb, const struct pattern_step *p) {
+    const uint8_t *u8 = p->event.u8;
     switch(u8[1]) {
     case PAT_SEQ_CMD_HEAD:
         /* Live recordings have a pattern header, which can be used to
            take some record-mode actions. */
-        if (sequencer_recording(s)) {
+        if (sequencer_recording(s) &&
+            (pattern_nb == s->cursor.pattern)) {
+
             /* Conceptually we keep recording over the current loop
                until recording is turned off.  This is implemented by
                recording a new loop if the previous one had events, or
                by reusing the current empty loop. */
             struct pattern_phase *pp = sequencer_pattern(s, s->cursor.pattern);
             struct pattern_step *plast = sequencer_step(s, pp->last);
+
             if (pp->last == plast->next) {
                 /* Using the precondition that the cursor always
                    contains a header step, we know this is otherwise
                    empty, so re-use this pattern for the next loop. */
-                LOG("resetting loop recorder\n");
+                LOG("record: reusing empty pattern %d\n", pattern_nb);
                 s->cursor.delay = 0;
             }
             else {
-                /* Some events got recorded. */
-                LOG("FIXME: need to alloc new event.\n");
+                /* Some events got recorded so we need to keep the
+                   current loop and install a new empty one. */
+                LOG("record: creating new pattern\n");
+                sequencer_cursor_dup(s);
             }
         }
         else {
@@ -365,26 +387,26 @@ void sequencer_tick(struct sequencer *s) {
                time instance. */
             for(;;) {
                 if (s->verbose) { LOG("step %d\n", step); }
-                const struct pattern_step *p = sequencer_step(s, step);
-                const uint8_t *u8 = p->event.as.u8;
+                const struct pattern_step *ps = sequencer_step(s, step);
+                const uint8_t *u8 = ps->event.u8;
                 if (PAT_SEQ_CMD == u8[0]) {
                     /* Handle internal sequencer events. */
-                    sequencer_seq_cmd(s, p);
+                    sequencer_seq_cmd(s, pattern_nb, ps);
                 }
                 else {
                     /* All the rest is user-defined. */
-                    s->dispatch(s, p);
+                    s->dispatch(s, &ps->event);
                 }
-                if (p->delay > 0) {
+                if (ps->delay > 0) {
                     /* Next event is in the future. */
-                    pp->head = p->next;
-                    swtimer_schedule(&s->swtimer, p->delay, pattern_nb);
+                    pp->head = ps->next;
+                    swtimer_schedule(&s->swtimer, ps->delay, pattern_nb);
                     break;
                 }
                 else {
                     /* Next event has the same timestamp. */
-                    ASSERT(step != p->next);
-                    step = p->next;
+                    ASSERT(step != ps->next);
+                    step = ps->next;
                     continue;
                 }
             }
@@ -495,7 +517,7 @@ void sequencer_check_invariants(struct sequencer *s) {
 
 /* Add a step to an existing pattern, i.e. insert last element in the list. */
 void sequencer_add_step_event(struct sequencer *s, pattern_t pat_nb,
-                              const struct pattern_event *ev, dtime_t delay) {
+                              const union pattern_event *ev, dtime_t delay) {
     step_t step = step_pool_new_event(&s->step_pool, ev, delay);
     struct pattern_step *pstep = sequencer_step(s, step);
     struct pattern_phase *pp = sequencer_pattern(s, pat_nb);
@@ -522,10 +544,10 @@ void sequencer_add_step_event(struct sequencer *s, pattern_t pat_nb,
 }
 void sequencer_add_step_cv(struct sequencer *s, pattern_t pat_nb,
                            uint8_t chan, uint16_t val, dtime_t delay) {
-    struct pattern_event ev = {};
-    ev.as.u8[0] = PAT_CV_TAG;
-    ev.as.u8[1] = chan;
-    ev.as.u16[1] = val;
+    union pattern_event ev = {};
+    ev.u8[0] = PAT_CV_TAG;
+    ev.u8[1] = chan;
+    ev.u16[1] = val;
     sequencer_add_step_event(s, pat_nb, &ev, delay);
 }
 
@@ -558,7 +580,7 @@ void sequencer_info_pattern(struct sequencer *s, pattern_t pat_nb) {
     for(;;) {
         struct pattern_step *ps = sequencer_step(s, p);
         LOG("  step %d:", p);
-        for (int i=0; i<4; i++) LOG(" %02x", ps->event.as.u8[i]);
+        for (int i=0; i<4; i++) LOG(" %02x", ps->event.u8[i]);
         LOG(" delay %d\n", ps->delay);
         if (p == pp->last) { break; }
         p = ps->next;
@@ -576,20 +598,36 @@ pattern_t sequencer_cursor_open(struct sequencer *s, dtime_t duration) {
     struct sequencer_cursor *c = &s->cursor;
     ASSERT(c->pattern == PATTERN_NONE);
     c->delay = 0;
+    c->duration = duration;
     pattern_t pat = pattern_pool_alloc(&s->pattern_pool);
     c->pattern = pat;
     /* Schedule an internal head command.  This has two functions: it
        implements the delay from the start of the loop up to the first
        recorded event, and it is used to perform some bookkeeping
        during recording. */
-    struct pattern_event ev = {
-        .as = {.u8 = {PAT_SEQ_CMD, PAT_SEQ_CMD_HEAD}}
+    union pattern_event ev = {
+        .u8 = {PAT_SEQ_CMD, PAT_SEQ_CMD_HEAD}
     };
     sequencer_add_step_event(s, pat, &ev, duration);
     swtimer_schedule(&s->swtimer, duration, pat);
     return pat;
 }
-void sequencer_cursor_write(struct sequencer *s, const struct pattern_event *ev) {
+void sequencer_cursor_close(struct sequencer *s) {
+    struct sequencer_cursor *c = &s->cursor;
+    ASSERT(c->pattern != PATTERN_NONE);
+    /* Not much to do here as this is just a weak reference. */
+    c->pattern = PATTERN_NONE;
+    c->duration = 0;
+    c->delay = 0;
+}
+pattern_t sequencer_cursor_dup(struct sequencer *s) {
+    struct sequencer_cursor *c = &s->cursor;
+    ASSERT(c->pattern != PATTERN_NONE);
+    dtime_t duration = c->duration;
+    sequencer_cursor_close(s);
+    return sequencer_cursor_open(s, duration);
+}
+void sequencer_cursor_write(struct sequencer *s, const union pattern_event *ev) {
     struct sequencer_cursor *c = &s->cursor;
     struct pattern_phase *pp = sequencer_pattern(s, c->pattern);
     struct pattern_step *last = sequencer_step(s, pp->last);
@@ -629,7 +667,8 @@ void sequencer_pattern_end(struct sequencer *s) {
     sequencer_info_pattern(s, s->transaction.pattern);
     s->transaction.pattern = PATTERN_NONE;
 }
-void sequencer_pattern_step(struct sequencer *s, const struct pattern_event *ev, dtime_t delay) {
+void sequencer_pattern_step(struct sequencer *s,
+                            const union pattern_event *ev, dtime_t delay) {
     ASSERT(s->transaction.pattern != PATTERN_NONE);
     sequencer_add_step_event(s, s->transaction.pattern, ev, delay);
 }

@@ -153,7 +153,13 @@ static uint8_t *to_erl_hole_6(int nb) {
 static void to_erl_pterm(const char *pterm) {
     int nb = strlen(pterm);
     uint8_t *hole = to_erl_hole_6(nb);
-    if (hole) { memcpy(hole, pterm, nb); }
+    if (hole) {
+        LOG("sending pterm %s\n", pterm);
+        memcpy(hole, pterm, nb);
+    }
+    else {
+        LOG("WARNING: not sending pterm %s\n", pterm);
+    }
 }
 static void to_erl_ptermvf(const char *fmt, va_list ap) {
     char *pterm = NULL;
@@ -181,9 +187,9 @@ static inline void process_z_debug(struct app *app) {
     }
 }
 
-void pat_tick(struct sequencer *seq, const struct pattern_step *step) {
+void pat_tick(struct sequencer *seq, const union pattern_event *ev) {
     struct app *app = (void*)seq;
-    const uint8_t *msg = step->event.as.u8;
+    const uint8_t *msg = ev->u8;
     LOG("pat_tick %02x %02x %02x %02x\n", msg[0], msg[1], msg[2], msg[3]);
 
     if (msg[0] < 16) {
@@ -200,7 +206,7 @@ void pattern_init(struct sequencer *s) {
 }
 
 static inline void app_play(struct app *app) {
-    LOG("app_play\n");
+    LOG("app_play %d->1\n", app->running);
     app->running = 1;
 }
 static inline void app_continue(struct app *app) {
@@ -212,7 +218,7 @@ static inline void app_pause(struct app *app) {
     app->running = 0;
 }
 static inline void app_stop(struct app *app) {
-    LOG("app_stop\n");
+    LOG("app_stop %d->0\n", app->running);
     app->running = 0;
     sequencer_restart(&app->sequencer);
 }
@@ -224,6 +230,7 @@ static inline void process_clock_in(struct app *app) {
         if (iter.event.size == 1) {
             switch(msg[0]) {
             case 0xFA: // start
+                LOG("clock_in start->app_play\n");
                 app_play(app);
                 break;
             case 0xFB: // continue
@@ -338,18 +345,16 @@ void pd_cc(struct app *app, uint8_t ctrl, uint8_t val) {
 }
 void pd_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
     // Route it to the proper channel
-    struct pattern_event ev = {
-        .as = {
-            .u8 = {
-                PAT_MIDI_TAG(0 /* port: FIXME */),
-                (on_off & 0xF0) + (app->remote.sel & 0xF),
-                note & 0x7f,
-                vel & 0x7f
-            }
+    union pattern_event ev = {
+        .u8 = {
+            PAT_MIDI_TAG(0 /* port: FIXME */),
+            (on_off & 0xF0) + (app->remote.sel & 0xF),
+            note & 0x7f,
+            vel & 0x7f
         }
     };
     struct sequencer *s = &app->sequencer;
-    const uint8_t *msg = &ev.as.u8[1];
+    const uint8_t *msg = &ev.u8[1];
     pd_midi(app, msg, 3);
 
     // Recording
@@ -433,23 +438,38 @@ static inline void process_remote_in(struct app *app) {
                 }
                 else if (cc == 0x32) {
                     // stop
-                    if (app->remote.record) {
-                        to_erl_pterm("{record,stop}");
-                        app->remote.record = 0;
-                    }
-                    else {
-                        send_stop(app->transport_buf);
-                        app_stop(app);
+                    if (val == 0) {
+                        if (app->remote.record) {
+                            /* This is a special case for the
+                               remote25, because pressing stop also
+                               turns off recording. */
+                            if (app->running) {
+                                LOG("live recorder stop (record->off)\n");
+                                sequencer_cursor_close(s);
+                            }
+                            else {
+                                to_erl_pterm("{record,stop}");
+                            }
+                            app->remote.record = 0;
+                            app_stop(app);
+                        }
+                        else {
+                            send_stop(app->transport_buf);
+                            app_stop(app);
+                        }
                     }
                 }
                 else if (cc == 0x33) {
-                    // play
-                    if (app->remote.record) {
-                        to_erl_pterm("{record,play}}");
-                    }
-                    else {
-                        send_start(app->transport_buf);
-                        app_play(app);
+                    if (val == 0) {
+                        // play
+                        if (app->remote.record) {
+                            to_erl_pterm("{record,play}}");
+                        }
+                        else {
+                            send_start(app->transport_buf);
+                            LOG("remote play->app_play\n");
+                            app_play(app);
+                        }
                     }
                 }
                 else if (cc == 0x34) {
@@ -468,9 +488,12 @@ static inline void process_remote_in(struct app *app) {
                                recorder. */
                             if (app->remote.record) {
                                 dtime_t pat_len = 48; // FIXME
+                                LOG("live recorder start, pat_len = %d\n", pat_len);
                                 sequencer_cursor_open(s, pat_len);
                             }
                             else {
+                                LOG("live recorder stop (record->off)\n");
+                                sequencer_cursor_close(s);
                             }
                         }
                         else {
@@ -699,8 +722,8 @@ int handle_step(struct tag_u32 *req) {
             LOG("event size to large: %d\n", req->nb_bytes);
             return reply_error(req);
         }
-        struct pattern_event ev = {};
-        memcpy(ev.as.u8, req->bytes, req->nb_bytes);
+        union pattern_event ev = {};
+        memcpy(ev.u8, req->bytes, req->nb_bytes);
         sequencer_pattern_step(s, &ev, m->delay);
         return reply_ok(req);
     }
@@ -816,7 +839,7 @@ int handle_get_pattern(struct tag_u32 *req) {
 
         /* Then again to fill the array. */
         FOR_SEQUENCER_STEPS(s, m->pattern_nb, is) {
-            step[i].u32 = is.step->event.as.u32;
+            step[i].u32 = is.step->event.u32;
             step[i].delay = is.step->delay;
             i++;
         }
@@ -834,7 +857,7 @@ int handle_set_pattern(struct tag_u32 *req) {
         struct pattern_step_ser *step = (void*)req->bytes;
         size_t nb_steps = req->nb_bytes / sizeof(*step);
         for (size_t i = 0; i<nb_steps; i++) {
-            struct pattern_event ev = {.as = {.u32 = step[i].u32}};
+            union pattern_event ev = {.u32 = step[i].u32};
             sequencer_add_step_event(s, pat_nb, &ev, step[i].delay);
         }
         return reply_ok_1(req,pat_nb);
