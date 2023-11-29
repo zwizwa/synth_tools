@@ -270,15 +270,11 @@ struct sequencer_cursor {
        subsequent loop passes. */
     dtime_t duration;
 };
-struct sequencer_transaction {
-    pattern_t pattern;
-};
 
 struct sequencer {
     sequencer_fn dispatch;
     uintptr_t time;
     struct sequencer_cursor cursor;
-    struct sequencer_transaction transaction;
     struct swtimer swtimer;
     struct swtimer_element swtimer_element[PATTERN_POOL_SIZE];
     struct step_pool step_pool;
@@ -297,7 +293,6 @@ struct pattern_step *sequencer_step(struct sequencer *s, step_t nb) {
 void sequencer_init(struct sequencer *s, sequencer_fn dispatch) {
     memset(s,0,sizeof(*s));
     s->cursor.pattern = PATTERN_NONE;
-    s->transaction.pattern = PATTERN_NONE;
     s->dispatch = dispatch;
     s->swtimer.arr = s->swtimer_element;
     step_pool_init(&s->step_pool);
@@ -638,38 +633,4 @@ void sequencer_cursor_write(struct sequencer *s, const union pattern_event *ev) 
 }
 
 
-/* Command transactions. */
-
-// FIXME: See hub.c which now has a binary "all steps at once" method,
-// so this is not needed any more.
-
-pattern_t sequencer_pattern_begin(struct sequencer *s, dtime_t nb_clocks) {
-    ASSERT(s->transaction.pattern == PATTERN_NONE);
-    ASSERT(nb_clocks > 0);
-
-    pattern_t pat_nb = pattern_pool_alloc(&s->pattern_pool);
-    LOG("alloc pattern nb = %d\n", pat_nb);
-    /* Caller should be aware of time scale, and should be able to
-       fill at least the first event before the pattern is
-       scheduled, otherwise an ASSERT will fail (FIXME). */
-    swtimer_schedule(&s->swtimer, nb_clocks, pat_nb);
-    /* Note that the cursor behaves as a weak pointer.  The strong
-       pointer is the reference inside the timer heap. */
-    s->transaction.pattern = pat_nb;
-    /* Also return a reference to the pattern. */
-    return pat_nb;
-}
-void sequencer_pattern_end(struct sequencer *s) {
-    ASSERT(s->transaction.pattern != PATTERN_NONE);
-    /* Note that the cursor behaves as a weak pointer.  The strong
-       pointer is the reference inside the timer heap. */
-    LOG("pattern_end %d\n", s->transaction.pattern);
-    sequencer_info_pattern(s, s->transaction.pattern);
-    s->transaction.pattern = PATTERN_NONE;
-}
-void sequencer_pattern_step(struct sequencer *s,
-                            const union pattern_event *ev, dtime_t delay) {
-    ASSERT(s->transaction.pattern != PATTERN_NONE);
-    sequencer_add_step_event(s, s->transaction.pattern, ev, delay);
-}
 

@@ -679,56 +679,7 @@ int handle_clock_div(struct tag_u32 *req) {
     return -1;
 }
 
-int handle_pattern_begin(struct tag_u32 *req) {
-    TAG_U32_UNPACK(req, 0, m, nb_clocks) {
-        struct app *app = req->context;
-        struct sequencer *s = &app->sequencer;
-        if (s->transaction.pattern != PATTERN_NONE) {
-            LOG("already current pattern\n");
-            return reply_error(req);
-        }
-        if (m->nb_clocks == 0) {
-            LOG("can't have nb_clocks == 0\n");
-            return reply_error(req);
-        }
-        pattern_t pat_nb = sequencer_pattern_begin(s, m->nb_clocks);
-        return reply_ok_1(req, pat_nb);
-    }
-    return -1;
-}
 
-int handle_pattern_end(struct tag_u32 *req) {
-    struct app *app = req->context;
-    struct sequencer *s = &app->sequencer;
-    if (s->transaction.pattern == PATTERN_NONE) {
-        LOG("no current pattern\n");
-        return reply_error(req);
-    }
-    sequencer_pattern_end(s);
-    return reply_ok(req);
-}
-
-// FIXME: Use a byte interface for the events.
-int handle_step(struct tag_u32 *req) {
-    TAG_U32_UNPACK(req, 0, m, delay) {
-        LOG("add to pattern, delay %d\n", m->delay);
-        struct app *app = req->context;
-        struct sequencer *s = &app->sequencer;
-        if (s->transaction.pattern == PATTERN_NONE) {
-            LOG("no current pattern\n");
-            return reply_error(req);
-        }
-        if (req->nb_bytes > 4) {
-            LOG("event size to large: %d\n", req->nb_bytes);
-            return reply_error(req);
-        }
-        union pattern_event ev = {};
-        memcpy(ev.u8, req->bytes, req->nb_bytes);
-        sequencer_pattern_step(s, &ev, m->delay);
-        return reply_ok(req);
-    }
-    return -1;
-}
 
 #define CMD_CONNECT 1
 #define CMD_DISCONNECT 2
@@ -786,7 +737,7 @@ int handle_unlock(struct tag_u32 *req) {
 }
 
 
-int handle_save_patterns(struct tag_u32 *req) {
+int handle_list_patterns(struct tag_u32 *req) {
     struct app *app = req->context;
     struct sequencer *s = &app->sequencer;
 
@@ -869,11 +820,8 @@ int handle_load_pattern(struct tag_u32 *req) {
 int map_root(struct tag_u32 *req) {
     const struct tag_u32_entry map[] = {
         {"clock_div",     t_cmd, handle_clock_div, 1},
-        {"pattern_begin", t_cmd, handle_pattern_begin, 0},
-        {"pattern_end",   t_cmd, handle_pattern_end, 0},
-        {"step",          t_cmd, handle_step, 1},
         {"jack_port",     t_cmd, handle_jack_port, 3},
-        {"save_patterns", t_cmd, handle_save_patterns, 0},
+        {"list_patterns", t_cmd, handle_list_patterns, 0},
         {"save_pattern",  t_cmd, handle_save_pattern, 1},
         {"load_pattern",  t_cmd, handle_load_pattern, 0},
     };
