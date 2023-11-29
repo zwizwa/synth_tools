@@ -6,12 +6,16 @@
 
 #include "macros.h"
 #include "assert_read.h"
+#include "assert_write.h"
 #include "uct_byteswap.h"
 
 #include <jack/jack.h>
 #include <jack/midiport.h>
 
 #include "jack_tools.h"
+
+#include "tag_u32.h"
+
 
 /* QUEUES */
 
@@ -144,6 +148,59 @@ static void handle_midi(const uint8_t *midi, uint32_t nb) {
 }
 
 
+void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
+    uint8_t len_buf[4];
+    write_be(len_buf, len, 4);
+    assert_write(1, len_buf, 4);
+    assert_write(1, buf, len);
+}
+#define SEND_TAG_U32_BUF_WRITE send_tag_u32_buf_write
+#include "mod_send_tag_u32.c"
+
+const char t_map[] = "map";
+const char t_cmd[] = "cmd";
+
+int reply_1(struct tag_u32 *req, uint32_t rv) {
+    SEND_REPLY_TAG_U32(req, rv);
+    return 0;
+}
+int reply_2(struct tag_u32 *req, uint32_t rv1, uint32_t rv2) {
+    SEND_REPLY_TAG_U32(req, rv1, rv2);
+    return 0;
+}
+int reply_ok(struct tag_u32 *req) {
+    return reply_1(req, 0);
+}
+int reply_ok_1(struct tag_u32 *req, uint32_t val) {
+    return reply_2(req, 0, val);
+}
+int reply_error(struct tag_u32 *req) {
+    return reply_1(req, -1);
+}
+int handle_clock_div(struct tag_u32 *req) {
+    TAG_U32_UNPACK(req, 0, m, div) {
+        LOG("set sample clock div = %d\n", m->div);
+        clock_hperiod = m->div / 2; // FIXME: rounding!
+        return reply_ok(req);
+    }
+    return -1;
+}
+int map_root(struct tag_u32 *req) {
+    const struct tag_u32_entry map[] = {
+        {"clock_div", t_cmd, handle_clock_div, 1},
+    };
+    return HANDLE_TAG_U32_MAP(req, map);
+}
+int handle_tag_u32(struct tag_u32 *req) {
+    int rv = map_root(req);
+    if (rv) {
+        LOG("handle_tag_u32 returned %d\n", rv);
+        /* Always send a reply when there is a from address. */
+        send_reply_tag_u32_status_cstring(req, 1, "bad_ref");
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
 
     /* Jack client setup */
@@ -192,6 +249,13 @@ int main(int argc, char **argv) {
                 }
                 break;
             }
+            case TAG_U32:
+                tag_u32_dispatch(handle_tag_u32,
+                                 send_reply_tag_u32,
+                                 NULL,
+                                 buf, nb);
+                break;
+
             }
         }
     }

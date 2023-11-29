@@ -6,7 +6,7 @@
 */
 
 /* About recording:
-   Currently there are two implementations.
+   There are two modes.
 
    1. A live recorder: start with empty fixed loop and add events
       on-the-fly.  Play immediately.
@@ -15,7 +15,20 @@
       perform a computation to snap to midi grid and obtain tempo, and
       let it push that data to the sequencer and start.
 
+   It can choose between these two modes based on whether the player
+   is on or off.  For live performance, only 1 will ever be used.
+
+
+   EDIT: Two modes. These get choses based on whether play is on or
+   off.
+
 */
+
+/* TODO
+   - add pattern mute
+   - show each pattern on the fire
+*/
+
 
 #include "swtimer.h"
 #include <string.h>
@@ -32,6 +45,18 @@
 typedef uint16_t step_t;   // identifier for step event + link
 typedef uint16_t dtime_t;  // delta-time in midi clocks
 
+struct pattern_midi_note {
+    uint8_t tag;  // Contains midi tag bits + port number.
+    uint8_t head; // Note on/off tag + channel
+    uint8_t key;
+    uint8_t vel;
+};
+struct pattern_midi_cc {
+    uint8_t tag;   // Contains midi tag bits + port number.
+    uint8_t head;  // CC tag + channel
+    uint8_t cc;    // Controller number
+    uint8_t val;   // Controller value
+};
 struct pattern_event {
     /* For now just use midi plus maybe some extensions.
        E.g. we know here that midi[0] contains the control code 80-FF,
@@ -40,6 +65,8 @@ struct pattern_event {
         uint8_t  u8[4];
         uint16_t u16[2];
         uint32_t u32;
+        struct pattern_midi_note note;
+        struct pattern_midi_cc   cc;
     } as;
 };
 
@@ -60,7 +87,8 @@ struct pattern_step {
 /* A 16-bit CV/Gate signal. */
 #define PAT_CV_TAG   0xFE
 /* Internal sequencer bookkeeping. */
-#define PAT_SEQ_CMD  0xFF
+#define PAT_SEQ_CMD       0xFF
+#define PAT_SEQ_CMD_HEAD  0x00
 #define PAT_CV(chan, val) {                     \
         .u8  = {                                \
             [0] = PAT_CV_TAG,                   \
@@ -261,6 +289,47 @@ void sequencer_init(struct sequencer *s, sequencer_fn dispatch) {
     step_pool_init(&s->step_pool);
     pattern_pool_init(&s->pattern_pool);
 }
+static inline int sequencer_recording(struct sequencer *s) {
+    return s->cursor.pattern != PATTERN_NONE;
+}
+
+void sequencer_seq_cmd(struct sequencer *s, const struct pattern_step *p) {
+    const uint8_t *u8 = p->event.as.u8;
+    switch(u8[1]) {
+    case PAT_SEQ_CMD_HEAD:
+        /* Live recordings have a pattern header, which can be used to
+           take some record-mode actions. */
+        if (sequencer_recording(s)) {
+            /* Conceptually we keep recording over the current loop
+               until recording is turned off.  This is implemented by
+               recording a new loop if the previous one had events, or
+               by reusing the current empty loop. */
+            struct pattern_phase *pp = sequencer_pattern(s, s->cursor.pattern);
+            struct pattern_step *plast = sequencer_step(s, pp->last);
+            if (pp->last == plast->next) {
+                /* Using the precondition that the cursor always
+                   contains a header step, we know this is otherwise
+                   empty, so re-use this pattern for the next loop. */
+                LOG("resetting loop recorder\n");
+                s->cursor.delay = 0;
+            }
+            else {
+                /* Some events got recorded. */
+                LOG("FIXME: need to alloc new event.\n");
+            }
+        }
+        else {
+            /* The header's function at playback is to implement the
+               delay up to the first recorded event, so nothing to do
+               here. */
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+
 void sequencer_tick(struct sequencer *s) {
     int logged = 0;
     for(;;) {
@@ -277,7 +346,7 @@ void sequencer_tick(struct sequencer *s) {
         swtimer_pop(&s->swtimer);
         /* The tag refers to the pattern number, which can be obtained
            to store the next step in the sequence. */
-        uintptr_t pattern_nb = next.tag;
+        pattern_t pattern_nb = next.tag;
         if (s->verbose) { LOG("pattern %d\n", pattern_nb); }
         ASSERT(pattern_nb < PATTERN_POOL_SIZE);
         struct pattern_phase *pp = sequencer_pattern(s, pattern_nb);
@@ -297,7 +366,15 @@ void sequencer_tick(struct sequencer *s) {
             for(;;) {
                 if (s->verbose) { LOG("step %d\n", step); }
                 const struct pattern_step *p = sequencer_step(s, step);
-                s->dispatch(s, p);
+                const uint8_t *u8 = p->event.as.u8;
+                if (PAT_SEQ_CMD == u8[0]) {
+                    /* Handle internal sequencer events. */
+                    sequencer_seq_cmd(s, p);
+                }
+                else {
+                    /* All the rest is user-defined. */
+                    s->dispatch(s, p);
+                }
                 if (p->delay > 0) {
                     /* Next event is in the future. */
                     pp->head = p->next;
@@ -408,22 +485,6 @@ void sequencer_step_iterator_next(struct sequencer_step_iterator *i) {
         sequencer_step_iterator_next(&i))
 
 
-/* Use the two iteraton macros to traverse the sequencer pattern state. */
-void sequencer_dump(struct sequencer *s) {
-    FOR_SEQUENCER_PATTERNS(s, ip) {
-        struct pattern_phase *pp = sequencer_pattern(s, ip.pattern_nb);
-        if (pattern_phase_used == pattern_phase_lifecycle(pp)) {
-            FOR_SEQUENCER_STEPS(s, ip.pattern_nb, is) {
-                const uint8_t *msg =  is.step->event.as.u8;
-                LOG("%d %02x %02x %02x %02x %d\n", ip.pattern_nb,
-                    msg[0],msg[1],msg[2],msg[3],
-                    is.step->delay);
-            }
-        }
-    }
-}
-
-
 /* FIXME: Create a function that checks the main invariants:
    - the timer heap should not contain duplicate references
    - each allocated pattern should be referenced in the timer heap
@@ -517,9 +578,13 @@ pattern_t sequencer_cursor_open(struct sequencer *s, dtime_t duration) {
     c->delay = 0;
     pattern_t pat = pattern_pool_alloc(&s->pattern_pool);
     c->pattern = pat;
-    // FIXME: This should be an event that performs some cleanup,
-    // e.g. remove the pattern from the cursor.
-    struct pattern_event ev = {};
+    /* Schedule an internal head command.  This has two functions: it
+       implements the delay from the start of the loop up to the first
+       recorded event, and it is used to perform some bookkeeping
+       during recording. */
+    struct pattern_event ev = {
+        .as = {.u8 = {PAT_SEQ_CMD, PAT_SEQ_CMD_HEAD}}
+    };
     sequencer_add_step_event(s, pat, &ev, duration);
     swtimer_schedule(&s->swtimer, duration, pat);
     return pat;
@@ -536,6 +601,10 @@ void sequencer_cursor_write(struct sequencer *s, const struct pattern_event *ev)
 
 
 /* Command transactions. */
+
+// FIXME: See hub.c which now has a binary "all steps at once" method,
+// so this is not needed any more.
+
 pattern_t sequencer_pattern_begin(struct sequencer *s, dtime_t nb_clocks) {
     ASSERT(s->transaction.pattern == PATTERN_NONE);
     ASSERT(nb_clocks > 0);

@@ -338,12 +338,19 @@ void pd_cc(struct app *app, uint8_t ctrl, uint8_t val) {
 }
 void pd_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
     // Route it to the proper channel
-    uint8_t msg[] = {
-        (on_off & 0xF0) + (app->remote.sel & 0xF),
-        note & 0x7f,
-        vel & 0x7f
+    struct pattern_event ev = {
+        .as = {
+            .u8 = {
+                PAT_MIDI_TAG(0 /* port: FIXME */),
+                (on_off & 0xF0) + (app->remote.sel & 0xF),
+                note & 0x7f,
+                vel & 0x7f
+            }
+        }
     };
-    pd_midi(app, msg, sizeof(msg));
+    struct sequencer *s = &app->sequencer;
+    const uint8_t *msg = &ev.as.u8[1];
+    pd_midi(app, msg, 3);
 
     // Recording
     if (app->remote.record) {
@@ -354,17 +361,25 @@ void pd_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
            here: printed terms.  Is also easy to embed in sysex as
            ASCII. */
 
-        to_erl_ptermf(
-            "{record,{%d,<<%d,%d,%d,%d>>}}",
-            app->time,
-            PAT_MIDI_TAG(0), // FIXME: ports
-            msg[0], msg[1], msg[2]);
+        if (app->running) {
+            /* Send the event to the online recorder. */
+            sequencer_cursor_write(s, &ev);
+        }
+        else {
+            /* If the player is off, we send the events upstream. */
+            to_erl_ptermf(
+                "{record,{%d,<<%d,%d,%d,%d>>}}",
+                app->time,
+                PAT_MIDI_TAG(0), // FIXME: ports
+                msg[0], msg[1], msg[2]);
+        }
     }
 
 }
 
 static inline void process_remote_in(struct app *app) {
     struct remote *r = &app->remote;
+    struct sequencer *s = &app->sequencer;
     FOR_MIDI_EVENTS(iter, remote_in, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
@@ -448,12 +463,28 @@ static inline void process_remote_in(struct app *app) {
                     to_erl_midi(msg, n, 3 /*midi port*/);
                     if (val == 0) {
                         app->remote.record = !app->remote.record;
-                        if (app->remote.record) {
-                            app->time = 0;
-                            to_erl_pterm("{record,start}");
+                        if (app->running) {
+                            /* If the player is on, we use the online
+                               recorder. */
+                            if (app->remote.record) {
+                                dtime_t pat_len = 48; // FIXME
+                                sequencer_cursor_open(s, pat_len);
+                            }
+                            else {
+                            }
                         }
                         else {
-                            to_erl_pterm("{record,stop}");
+                            /* When recording is on but the playback
+                               isn't, we send the events upstream for
+                               processing and tempo + pattern
+                               config. */
+                            if (app->remote.record) {
+                                app->time = 0;
+                                to_erl_pterm("{record,start}");
+                            }
+                            else {
+                                to_erl_pterm("{record,stop}");
+                            }
                         }
                     }
                     else {
@@ -709,11 +740,106 @@ int handle_jack_port(struct tag_u32 *req) {
     return -1;
 }
 
-int handle_dump(struct tag_u32 *req) {
+// Create two functions:
+// One to get a list of patterns
+// One to get a pattern's step sequence
+
+// Still using the idea that complex data structures should be
+// avoided. Complex refers to the code complexity of an
+// encoder/decoder.  E.g. an array of a flat struct is ok, and because
+// it covers a lot of ground it would be silly to omit. But larger
+// (nested) structures are best split up into multiple calls.  It is
+// going to be necessary to have locking anyway, so semantically
+// mutiple calls work out just fine as a way to subdivide.
+
+// Important here is to create a locking mechanism: during the
+// traversal from the other thread, the data structure cannot be
+// modified.
+int handle_lock(struct tag_u32 *req) {
+    return -1;
+}
+int handle_unlock(struct tag_u32 *req) {
+    return -1;
+}
+
+
+int handle_get_patterns(struct tag_u32 *req) {
     struct app *app = req->context;
     struct sequencer *s = &app->sequencer;
-    sequencer_dump(s);
-    return reply_ok(req);
+
+    // ASSERT LOCKED
+
+    /* The size information is implicit, so we count nb_patterns
+       before we can allocate. */
+    size_t nb_patterns = 0;
+    FOR_SEQUENCER_PATTERNS(s, ip) {
+        struct pattern_phase *pp = sequencer_pattern(s, ip.pattern_nb);
+        if (pattern_phase_used == pattern_phase_lifecycle(pp)) {
+            nb_patterns++;
+        }
+    }
+    size_t nb_bytes = sizeof(pattern_t) * nb_patterns;
+    pattern_t *pat = alloca(nb_bytes);
+    size_t i = 0;
+
+    /* Iterate a second time to record the patterns. */
+    FOR_SEQUENCER_PATTERNS(s, ip) {
+        struct pattern_phase *pp = sequencer_pattern(s, ip.pattern_nb);
+        if (pattern_phase_used == pattern_phase_lifecycle(pp)) {
+            pat[i++] = ip.pattern_nb;
+        }
+    }
+    // FIXME: This could just as well send u32
+    SEND_REPLY_TAG_U32_BYTES(req, (uint8_t*)pat, nb_bytes, 0 /* ok */);
+    return 0;
+}
+struct pattern_step_ser {
+    uint32_t u32;
+    uint16_t delay;
+} __attribute__((__packed__));
+int handle_get_pattern(struct tag_u32 *req) {
+    TAG_U32_UNPACK(req, 0, m, pattern_nb) {
+        struct app *app = req->context;
+        struct sequencer *s = &app->sequencer;
+        struct pattern_phase *pp = sequencer_pattern(s, m->pattern_nb);
+        if (pattern_phase_used != pattern_phase_lifecycle(pp)) {
+            LOG("unused pattern %d\n", m->pattern_nb);
+            return reply_error(req);
+        }
+        /* Iterate once to find size. */
+        size_t nb_steps = 0;
+        FOR_SEQUENCER_STEPS(s, m->pattern_nb, is) { nb_steps++; }
+
+        size_t nb_bytes = sizeof(struct pattern_step_ser) * nb_steps;
+        struct pattern_step_ser *step = alloca(nb_bytes);
+        size_t i = 0;
+
+        /* Then again to fill the array. */
+        FOR_SEQUENCER_STEPS(s, m->pattern_nb, is) {
+            step[i].u32 = is.step->event.as.u32;
+            step[i].delay = is.step->delay;
+            i++;
+        }
+        SEND_REPLY_TAG_U32_BYTES(req, (uint8_t*)step, nb_bytes, 0 /* ok */);
+        return 0;
+    }
+    return -1;
+}
+int handle_set_pattern(struct tag_u32 *req) {
+    TAG_U32_UNPACK(req, 0, m, nb_clocks) {
+        struct app *app = req->context;
+        struct sequencer *s = &app->sequencer;
+        pattern_t pat_nb = pattern_pool_alloc(&s->pattern_pool);
+        swtimer_schedule(&s->swtimer, m->nb_clocks, pat_nb);
+        struct pattern_step_ser *step = (void*)req->bytes;
+        size_t nb_steps = req->nb_bytes / sizeof(*step);
+        for (size_t i = 0; i<nb_steps; i++) {
+            struct pattern_event ev = {.as = {.u32 = step[i].u32}};
+            sequencer_add_step_event(s, pat_nb, &ev, step[i].delay);
+        }
+        return reply_ok_1(req,pat_nb);
+    }
+    return -1;
 }
 
 
@@ -724,7 +850,9 @@ int map_root(struct tag_u32 *req) {
         {"pattern_end",   t_cmd, handle_pattern_end, 0},
         {"step",          t_cmd, handle_step, 1},
         {"jack_port",     t_cmd, handle_jack_port, 3},
-        {"dump",          t_cmd, handle_dump, 0},
+        {"get_patterns",  t_cmd, handle_get_patterns, 0},
+        {"get_pattern",   t_cmd, handle_get_pattern, 1},
+        {"set_pattern",   t_cmd, handle_set_pattern, 1},
     };
     return HANDLE_TAG_U32_MAP(req, map);
 }
