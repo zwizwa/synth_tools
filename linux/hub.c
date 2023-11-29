@@ -25,6 +25,7 @@
 #include "tag_u32.h"
 
 #include "mod_sequencer.c"
+#include "mod_akai_fire.c"
 
 void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
     uint8_t len_buf[4];
@@ -77,10 +78,12 @@ struct app {
 
     /* stateful processors */
     struct remote remote;
+    struct akai_fire fire;
 
     /* midi out ports */
     void *pd_out_buf;
     void *transport_buf;
+    void *fire_out_buf;
 
     /* rolling time */
     uint32_t time;
@@ -635,6 +638,11 @@ static void app_process(struct app *app) {
     process_remote_in(app);
     process_uma_in(app);
     process_erl_out(app);
+
+    /* FIXME: Normalize this. */
+    void *fire_in_buf = jack_port_get_buffer(fire_in, app->nframes);
+    akai_fire_process(&app->fire, app->fire_out_buf, fire_in_buf);
+
 }
 
 static int process (jack_nframes_t nframes, void *arg) {
@@ -642,6 +650,7 @@ static int process (jack_nframes_t nframes, void *arg) {
     app->nframes = nframes;
     app->pd_out_buf    = midi_out_buf_cleared(pd_out, nframes);
     app->transport_buf = midi_out_buf_cleared(transport, nframes);
+    app->fire_out_buf  = midi_out_buf_cleared(fire_out, nframes);
     app_process(app);
     app->time += nframes;
     return 0;
@@ -872,7 +881,7 @@ static void client_registration(const char *name, int reg, void *arg) {
 }
 
 int main(int argc, char **argv) {
-
+    
     struct app *app = &app_state;
     pattern_init(&app->sequencer);
 
@@ -893,6 +902,8 @@ int main(int argc, char **argv) {
     jack_set_process_callback (client, process, 0);
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
     ASSERT(!jack_activate(client));
+
+
 
     /* Use the generic {packet,4} + tag protocol on stdin, since hub.c
        might be hosting a lot of in-image functionality later. */
