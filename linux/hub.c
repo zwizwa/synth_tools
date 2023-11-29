@@ -786,7 +786,7 @@ int handle_unlock(struct tag_u32 *req) {
 }
 
 
-int handle_get_patterns(struct tag_u32 *req) {
+int handle_save_patterns(struct tag_u32 *req) {
     struct app *app = req->context;
     struct sequencer *s = &app->sequencer;
 
@@ -820,7 +820,7 @@ struct pattern_step_ser {
     uint32_t u32;
     uint16_t delay;
 } __attribute__((__packed__));
-int handle_get_pattern(struct tag_u32 *req) {
+int handle_save_pattern(struct tag_u32 *req) {
     TAG_U32_UNPACK(req, 0, m, pattern_nb) {
         struct app *app = req->context;
         struct sequencer *s = &app->sequencer;
@@ -848,23 +848,23 @@ int handle_get_pattern(struct tag_u32 *req) {
     }
     return -1;
 }
-int handle_set_pattern(struct tag_u32 *req) {
-    TAG_U32_UNPACK(req, 0, m, nb_clocks) {
-        struct app *app = req->context;
-        struct sequencer *s = &app->sequencer;
-        pattern_t pat_nb = pattern_pool_alloc(&s->pattern_pool);
-        swtimer_schedule(&s->swtimer, m->nb_clocks, pat_nb);
-        struct pattern_step_ser *step = (void*)req->bytes;
-        size_t nb_steps = req->nb_bytes / sizeof(*step);
-        for (size_t i = 0; i<nb_steps; i++) {
-            union pattern_event ev = {.u32 = step[i].u32};
-            sequencer_add_step_event(s, pat_nb, &ev, step[i].delay);
-        }
-        return reply_ok_1(req,pat_nb);
+int handle_load_pattern(struct tag_u32 *req) {
+    struct app *app = req->context;
+    struct sequencer *s = &app->sequencer;
+    pattern_t pat_nb = pattern_pool_alloc(&s->pattern_pool);
+
+    struct pattern_step_ser *step = (void*)req->bytes;
+    size_t nb_steps = req->nb_bytes / sizeof(*step);
+    for (size_t i = 0; i<nb_steps; i++) {
+        union pattern_event ev = {.u32 = step[i].u32};
+        sequencer_add_step_event(s, pat_nb, &ev, step[i].delay);
     }
-    return -1;
+    swtimer_schedule(&s->swtimer, 0, pat_nb);
+    return reply_ok_1(req,pat_nb);
 }
 
+/* Here "save" means from sequencer structure to tag_u32 return value,
+   and "load" means tag_u32 argument to sequencer. */
 
 int map_root(struct tag_u32 *req) {
     const struct tag_u32_entry map[] = {
@@ -873,9 +873,9 @@ int map_root(struct tag_u32 *req) {
         {"pattern_end",   t_cmd, handle_pattern_end, 0},
         {"step",          t_cmd, handle_step, 1},
         {"jack_port",     t_cmd, handle_jack_port, 3},
-        {"get_patterns",  t_cmd, handle_get_patterns, 0},
-        {"get_pattern",   t_cmd, handle_get_pattern, 1},
-        {"set_pattern",   t_cmd, handle_set_pattern, 1},
+        {"save_patterns", t_cmd, handle_save_patterns, 0},
+        {"save_pattern",  t_cmd, handle_save_pattern, 1},
+        {"load_pattern",  t_cmd, handle_load_pattern, 0},
     };
     return HANDLE_TAG_U32_MAP(req, map);
 }
