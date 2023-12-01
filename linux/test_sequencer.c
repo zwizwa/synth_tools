@@ -22,7 +22,7 @@ void pat_dispatch(struct sequencer *seq, const union pattern_event *ev) {
 
 pattern_t test_pattern_1(struct sequencer *s) {
     LOG("alloc pat1\n");
-    pattern_t pat = pattern_pool_alloc(&s->pattern_pool);
+    pattern_t pat = sequencer_pattern_alloc(s);
     sequencer_add_step_cv(s, pat, 0, 100, 12);
     sequencer_add_step_cv(s, pat, 0, 200,  8);
     sequencer_add_step_cv(s, pat, 0, 150,  8);
@@ -32,7 +32,7 @@ pattern_t test_pattern_1(struct sequencer *s) {
 }
 pattern_t test_pattern_2(struct sequencer *s) {
     LOG("alloc pat2\n");
-    pattern_t pat = pattern_pool_alloc(&s->pattern_pool);
+    pattern_t pat = sequencer_pattern_alloc(s);
     sequencer_add_step_cv(s, pat, 0, 1001, 4);
     swtimer_schedule(&s->swtimer, 0, pat);
     sequencer_info_pattern(s, pat);
@@ -41,7 +41,7 @@ pattern_t test_pattern_2(struct sequencer *s) {
 
 pattern_t test_pattern_3(struct sequencer *s) {
     LOG("alloc pat3\n");
-    pattern_t pat = pattern_pool_alloc(&s->pattern_pool);
+    pattern_t pat = sequencer_pattern_alloc(s);
     sequencer_add_step_cv(s, pat, 0, 1002, 8);
     swtimer_schedule(&s->swtimer, 0, pat);
     sequencer_info_pattern(s, pat);

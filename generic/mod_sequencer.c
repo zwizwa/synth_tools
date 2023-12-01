@@ -187,6 +187,10 @@ struct pattern_phase {
        and not first, so that start and insertion at end are both
        O(1) operations */
     step_t last;
+
+    /* Flags */
+    uint32_t mute:1;
+
 };
 
 /* The representation got a bit confusing, so make a separate
@@ -219,7 +223,8 @@ struct pattern_pool {
 };
 
 
-static inline void pattern_pool_free(struct pattern_pool *p, pattern_t index) {
+/* Don't use these two directly.  Use the sequencer_ methods instead. */
+static inline void pattern_pool_free_(struct pattern_pool *p, pattern_t index) {
     /* Note that in the freelist, the head pointer is used to link the
        patterns together. */
     p->pattern[index].head = p->free;
@@ -227,7 +232,7 @@ static inline void pattern_pool_free(struct pattern_pool *p, pattern_t index) {
     p->pattern[index].last = STEP_NONE;
     p->free = index;
 }
-static inline pattern_t pattern_pool_alloc(struct pattern_pool *p) {
+static inline pattern_t pattern_pool_alloc_(struct pattern_pool *p) {
     LOG("pattern_pool_alloc p->free = 0x%x\n", p->free);
     uint16_t index = p->free;
     ASSERT(index != PATTERN_NONE); // out-of-memory
@@ -235,6 +240,8 @@ static inline pattern_t pattern_pool_alloc(struct pattern_pool *p) {
     p->pattern[index].head = STEP_NONE;
     return index;
 }
+
+
 static inline uint64_t pattern_pool_info(struct pattern_pool *p) {
     uint64_t mask = 0;
     LOG("patn free:");
@@ -251,7 +258,7 @@ static inline void pattern_pool_init(struct pattern_pool *p) {
     /* Initialize the free list. */
     p->free = PATTERN_NONE;
     for(int i=PATTERN_POOL_SIZE-1; i>=0; i--) {
-        pattern_pool_free(p, i);
+        pattern_pool_free_(p, i);
     }
     //pattern_pool_info(p);
 }
@@ -271,6 +278,8 @@ struct sequencer_cursor {
     dtime_t duration;
 };
 
+typedef void (*sequencer_pattern_event_fn)(struct sequencer *, pattern_t);
+
 struct sequencer {
     sequencer_fn dispatch;
     uintptr_t time;
@@ -279,6 +288,8 @@ struct sequencer {
     struct swtimer_element swtimer_element[PATTERN_POOL_SIZE];
     struct step_pool step_pool;
     struct pattern_pool pattern_pool;
+    sequencer_pattern_event_fn pattern_alloc_notify;
+    sequencer_pattern_event_fn pattern_free_notify;
     uint8_t verbose:1;
 };
 struct pattern_phase *sequencer_pattern(struct sequencer *s, pattern_t nb) {
@@ -288,6 +299,22 @@ struct pattern_phase *sequencer_pattern(struct sequencer *s, pattern_t nb) {
 struct pattern_step *sequencer_step(struct sequencer *s, step_t nb) {
     ASSERT(nb < STEP_POOL_SIZE);
     return &s->step_pool.step[nb];
+}
+
+// Note: don't use pattern_pool_alloc/free() directly.
+pattern_t sequencer_pattern_alloc(struct sequencer *s) {
+    pattern_t index = pattern_pool_alloc_(&s->pattern_pool);
+    if (s->pattern_alloc_notify) {
+        s->pattern_alloc_notify(s, index);
+    }
+    s->pattern_pool.pattern[index].mute = 0;
+    return index;
+}
+void sequencer_pattern_free(struct sequencer *s, pattern_t index) {
+    pattern_pool_free_(&s->pattern_pool, index);
+    if (s->pattern_free_notify) {
+        s->pattern_free_notify(s, index);
+    }
 }
 
 void sequencer_init(struct sequencer *s, sequencer_fn dispatch) {
@@ -375,7 +402,7 @@ void sequencer_tick(struct sequencer *s) {
                sequencer_drop_pattern(). We collect it here */
             ASSERT(pp->last == STEP_DEAD);
             LOG("collecting pattern_nb %d\n", pattern_nb);
-            pattern_pool_free(&s->pattern_pool, pattern_nb);
+            sequencer_pattern_free(s, pattern_nb);
             break;
         case pattern_phase_used:
             /* Dispatch all events in this pattern that happen at this
@@ -389,8 +416,11 @@ void sequencer_tick(struct sequencer *s) {
                     sequencer_seq_cmd(s, pattern_nb, ps);
                 }
                 else {
-                    /* All the rest is user-defined. */
-                    s->dispatch(s, &ps->event);
+                    /* All the rest is user-defined.  Individual
+                       patterns can be muted. */
+                    if (!pp->mute) {
+                        s->dispatch(s, &ps->event);
+                    }
                 }
                 if (ps->delay > 0) {
                     /* Next event is in the future. */
@@ -436,7 +466,7 @@ void sequencer_restart(struct sequencer *s) {
         switch(pattern_phase_lifecycle(pp)) {
         case pattern_phase_dead:
             LOG("collecting pattern_nb %d\n", pattern_nb);
-            pattern_pool_free(&s->pattern_pool, pattern_nb);
+            sequencer_pattern_free(s, pattern_nb);
             break;
         case pattern_phase_used: {
             struct pattern_step *plast = sequencer_step(s, last_step);
@@ -594,7 +624,7 @@ pattern_t sequencer_cursor_open(struct sequencer *s, dtime_t duration) {
     ASSERT(c->pattern == PATTERN_NONE);
     c->delay = 0;
     c->duration = duration;
-    pattern_t pat = pattern_pool_alloc(&s->pattern_pool);
+    pattern_t pat = sequencer_pattern_alloc(s);
     c->pattern = pat;
     /* Schedule an internal head command.  This has two functions: it
        implements the delay from the start of the loop up to the first

@@ -190,10 +190,10 @@ static inline void process_z_debug(struct app *app) {
     }
 }
 
-void pat_tick(struct sequencer *seq, const union pattern_event *ev) {
+void app_sequencer_tick(struct sequencer *seq, const union pattern_event *ev) {
     struct app *app = (void*)seq;
     const uint8_t *msg = ev->u8;
-    LOG("pat_tick %02x %02x %02x %02x\n", msg[0], msg[1], msg[2], msg[3]);
+    LOG("tick %02x %02x %02x %02x\n", msg[0], msg[1], msg[2], msg[3]);
 
     if (msg[0] < 16) {
         // FIXME: msg[0] is midi port, make numerical mapping
@@ -202,10 +202,6 @@ void pat_tick(struct sequencer *seq, const union pattern_event *ev) {
     else {
         LOG("unsupported event tag %d\n", msg[0]);
     }
-}
-void pattern_init(struct sequencer *s) {
-    sequencer_init(s, pat_tick);
-    sequencer_restart(s);
 }
 
 static inline void app_play(struct app *app) {
@@ -812,7 +808,7 @@ int handle_save_pattern(struct tag_u32 *req) {
 int handle_load_pattern(struct tag_u32 *req) {
     struct app *app = req->context;
     struct sequencer *s = &app->sequencer;
-    pattern_t pat_nb = pattern_pool_alloc(&s->pattern_pool);
+    pattern_t pat_nb = sequencer_pattern_alloc(s);
 
     struct pattern_step_ser *step = (void*)req->bytes;
     size_t nb_steps = req->nb_bytes / sizeof(*step);
@@ -829,7 +825,14 @@ int handle_fire_update(struct tag_u32 *req) {
     app->fire.need_update = 1;
     return reply_ok(req);
 }
-
+int handle_fire_button(struct tag_u32 *req) {
+    TAG_U32_UNPACK(req, 0, m, row, col) {
+        struct app *app = req->context;
+        akai_fire_pad_event(&app->fire, m->row, m->col);
+        return reply_ok(req);
+    }
+    return -1;
+}
 
 /* Here "save" means from sequencer structure to tag_u32 return value,
    and "load" means tag_u32 argument to sequencer. */
@@ -842,6 +845,7 @@ int map_root(struct tag_u32 *req) {
         {"save_pattern",  t_cmd, handle_save_pattern, 1},
         {"load_pattern",  t_cmd, handle_load_pattern, 0},
         {"fire_update",   t_cmd, handle_fire_update, 0},
+        {"fire_button",   t_cmd, handle_fire_button, 2},
     };
     return HANDLE_TAG_U32_MAP(req, map);
 }
@@ -889,11 +893,70 @@ static void client_registration(const char *name, int reg, void *arg) {
     to_erl_ptermf("{jack,{client,%s,\"%s\"}}", reg ? "reg" : "unreg", name);
 }
 
-int main(int argc, char **argv) {
-    
-    struct app *app = &app_state;
-    pattern_init(&app->sequencer);
+/* Cross-link */
+#define DEF_FIELD_TO_PARENT(function_name, parent_type, field_type, field_name) \
+    static inline parent_type *function_name(field_type *field_ptr) {   \
+        uint8_t *u8 = ((uint8_t *)field_ptr) - OFFSETOF(parent_type,field_name); \
+        return (parent_type *)u8;                                       \
+    }
+
+DEF_FIELD_TO_PARENT(sequencer_to_app,
+                    struct app,
+                    struct sequencer,
+                    sequencer);
+DEF_FIELD_TO_PARENT(fire_to_app,
+                    struct app,
+                    struct akai_fire,
+                    fire);
+
+/* Create/delete pattern turns on the LED on/off */
+void app_pattern_state(struct sequencer *s, pattern_t pat, int state) {
+    LOG("pattern %d alloc\n", pat);
+    struct app *app = sequencer_to_app(s);
+    int row = pat / 16;
+    int col = pat % 16;
+    app->fire.pads[row][col] = state;
     app->fire.need_update = 1;
+}
+void app_pattern_alloc_notify(struct sequencer *s, pattern_t pat) {
+    app_pattern_state(s, pat, 1);
+}
+void app_pattern_free_notify(struct sequencer *s, pattern_t pat) {
+    app_pattern_state(s, pat, 0);
+}
+
+/* Button press changes mute state.  If the pattern is not active, it
+   doesn't do anything. */
+void app_fire_button_notify(struct akai_fire *fire, int row, int col) {
+    pattern_t pat = row * 16 + col;
+    LOG("pattern %d mute toggle\n", pat);
+    struct app *app = fire_to_app(fire);
+    struct pattern_phase *pp = sequencer_pattern(&app->sequencer, pat);
+    if (pattern_phase_used == pattern_phase_lifecycle(pp)) {
+        pp->mute ^= 1;
+        app_pattern_state(&app->sequencer, pat, !pp->mute);
+    }
+    //fire->pads[row][col] ^= 1;
+    //fire->need_update = 1;
+}
+
+void app_init(struct app *app) {
+    /* Initialize the components. */
+    akai_fire_init(&app->fire);
+    sequencer_init(&app->sequencer, app_sequencer_tick);
+    sequencer_restart(&app->sequencer);
+
+    /* Cross-link */
+    app->sequencer.pattern_alloc_notify = app_pattern_alloc_notify;
+    app->sequencer.pattern_free_notify = app_pattern_free_notify;
+    app->fire.button_notify = app_fire_button_notify;
+
+}
+
+int main(int argc, char **argv) {
+
+    struct app *app = &app_state;
+    app_init(app);
 
     /* Jack client setup */
     const char *client_name = "hub"; // argv[1];

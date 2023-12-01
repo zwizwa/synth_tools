@@ -13,9 +13,11 @@
 /* AKAI FIRE */
 #define AKAI_FIRE_ROWS 4
 #define AKAI_FIRE_COLS 16
+struct akai_fire;
 struct akai_fire {
-    int need_update;
+    void (*button_notify)(struct akai_fire *, int row, int col);
     uint8_t pads[AKAI_FIRE_ROWS][AKAI_FIRE_COLS];
+    uint32_t need_update:1;
 };
 
 
@@ -93,7 +95,7 @@ void akai_fire_pad_update(struct akai_fire *fire, void *out_buf) {
         // akai_fire_sysex_buttons(fire, out_buf, 1, 4);
     }
 
-    if (1) {
+    if (0) {
         const uint8_t testmsg[] = { 0xB0, 0x33 /* play button */, 0x04 /* hig green */};
         uint8_t *buf = jack_midi_event_reserve(out_buf, 0 /*time*/, sizeof(testmsg));
         ASSERT(buf);
@@ -101,9 +103,15 @@ void akai_fire_pad_update(struct akai_fire *fire, void *out_buf) {
     }
 }
 void akai_fire_pad_event(struct akai_fire *fire, uint8_t row, uint8_t col) {
-    fire->pads[row][col] ^= 1;
-    LOG("%d %d = %d\n", row, col, fire->pads[row][col]);
-    fire->need_update = 1;
+    if (fire->button_notify) {
+        /* Handler is supposed to update the state and set need_update. */
+        fire->button_notify(fire, row, col);
+    }
+    else {
+        fire->pads[row][col] ^= 1;
+        fire->need_update = 1;
+    }
+    LOG("button %d %d = %d\n", row, col, fire->pads[row][col]);
 }
 
 void akai_fire_process(struct akai_fire *fire,
@@ -144,11 +152,9 @@ void akai_fire_process(struct akai_fire *fire,
 
 }
 
-#if 0 // FIXME: clean up all the C struct inits
 void akai_fire_init(struct akai_fire *fire) {
     memset(fire,0,sizeof(*fire));
     fire->need_update = 1;
 }
-#endif
 
 #endif
