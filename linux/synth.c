@@ -222,16 +222,17 @@ FOR_AUDIO_OUT(DEF_JACK_PORT)
 
 static jack_client_t *client = NULL;
 
-static int count = 0;
+//static int count = 0;
 
 static inline void process_midi(jack_nframes_t nframes) {
     void *midi_in_buf  = jack_port_get_buffer(midi_in, nframes);
     jack_nframes_t n = jack_midi_get_event_count(midi_in_buf);
     for (jack_nframes_t i = 0; i < n; i++) {
-        LOG("\rmidi %d ", count++);
+        // LOG("\rmidi %d ", count++);
         jack_midi_event_t event;
         jack_midi_event_get(&event, midi_in_buf, i);
         const uint8_t *msg = event.buffer;
+        LOG_HEX("synth:", msg, event.size);
         if (event.size == 3 &&
             msg[0] == 0xB0 && // CC channel 0
             (msg[1] >= 23) && // CC num on Easycontrol 9

@@ -630,7 +630,6 @@ static void app_process(struct app *app) {
     app->stamp = (f / app->nframes);
 
     /* Order is important. */
-    process_z_debug(app);
     process_clock_in(app);
     process_easycontrol_in(app);
     process_keystation_in1(app);
@@ -642,6 +641,8 @@ static void app_process(struct app *app) {
     /* FIXME: Normalize this. */
     void *fire_in_buf = jack_port_get_buffer(fire_in, app->nframes);
     akai_fire_process(&app->fire, app->fire_out_buf, fire_in_buf);
+
+    process_z_debug(app);
 
 }
 
@@ -823,6 +824,13 @@ int handle_load_pattern(struct tag_u32 *req) {
     return reply_ok_1(req,pat_nb);
 }
 
+int handle_fire_update(struct tag_u32 *req) {
+    struct app *app = req->context;
+    app->fire.need_update = 1;
+    return reply_ok(req);
+}
+
+
 /* Here "save" means from sequencer structure to tag_u32 return value,
    and "load" means tag_u32 argument to sequencer. */
 
@@ -833,6 +841,7 @@ int map_root(struct tag_u32 *req) {
         {"list_patterns", t_cmd, handle_list_patterns, 0},
         {"save_pattern",  t_cmd, handle_save_pattern, 1},
         {"load_pattern",  t_cmd, handle_load_pattern, 0},
+        {"fire_update",   t_cmd, handle_fire_update, 0},
     };
     return HANDLE_TAG_U32_MAP(req, map);
 }
@@ -884,6 +893,7 @@ int main(int argc, char **argv) {
     
     struct app *app = &app_state;
     pattern_init(&app->sequencer);
+    app->fire.need_update = 1;
 
     /* Jack client setup */
     const char *client_name = "hub"; // argv[1];
