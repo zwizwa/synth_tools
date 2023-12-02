@@ -123,6 +123,7 @@ void test_record(struct sequencer *s) {
     sequencer_ntick(s, 24);
     sequencer_cursor_write(s, &ev);
     sequencer_info_pattern(s, s->cursor.pattern);
+    sequencer_cursor_close(s);
 
     // Pattern should start playing at t = 24 * 2
     sequencer_ntick(s, 12 + 2 * 24 * 2);
@@ -130,12 +131,24 @@ void test_record(struct sequencer *s) {
 
 }
 
+void test_record_empty(struct sequencer *s) {
+    // FIXME: step leak issue?
+    for(int i=0; i<3; i++) {
+        sequencer_cursor_open(s, 24 * 2);
+        sequencer_cursor_close(s);
+        pattern_pool_info(&s->pattern_pool);
+        step_pool_info(&s->step_pool);
+    }
+}
+
+
 int main(int argc, char **argv) {
     LOG("test_drum.c\n");
     struct sequencer _s, *s  = &_s;
     sequencer_init(s, pat_dispatch);
     s->verbose = 1;
     //test_pool_and_play(s);
-    test_record(s);
+    //test_record(s);
+    test_record_empty(s);
     return 0;
 }

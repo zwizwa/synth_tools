@@ -646,6 +646,7 @@ void sequencer_cursor_close(struct sequencer *s) {
 
     if (sequencer_pattern_is_empty(s, c->pattern)) {
         /* There's no point in keeping empty patterns. */
+        LOG("free empty pattern %d\n", c->pattern);
         sequencer_pattern_free(s, c->pattern);
     }
 
