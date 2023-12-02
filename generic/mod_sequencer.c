@@ -310,8 +310,11 @@ pattern_t sequencer_pattern_alloc(struct sequencer *s) {
     s->pattern_pool.pattern[index].mute = 0;
     return index;
 }
+// FIXME: Don't use both free and drop
+void sequencer_drop_pattern(struct sequencer *s, pattern_t index);
 void sequencer_pattern_free(struct sequencer *s, pattern_t index) {
-    pattern_pool_free_(&s->pattern_pool, index);
+    // pattern_pool_free_(&s->pattern_pool, index);
+    sequencer_drop_pattern(s, index);
     if (s->pattern_free_notify) {
         s->pattern_free_notify(s, index);
     }
