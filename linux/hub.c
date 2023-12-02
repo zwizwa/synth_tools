@@ -919,6 +919,8 @@ void app_pattern_state(struct sequencer *s, pattern_t pat, int state) {
     app->fire.need_update = 1;
 }
 void app_pattern_alloc_notify(struct sequencer *s, pattern_t pat) {
+    // FIXME: It's best to do this on step notify.  Lighting up an
+    // empty pattern doesn't make any sense.
     app_pattern_state(s, pat, 1);
 }
 void app_pattern_free_notify(struct sequencer *s, pattern_t pat) {

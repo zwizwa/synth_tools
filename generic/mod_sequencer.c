@@ -329,6 +329,12 @@ static inline int sequencer_recording(struct sequencer *s) {
     return s->cursor.pattern != PATTERN_NONE;
 }
 
+static inline int sequencer_pattern_is_empty(struct sequencer *s, pattern_t p) {
+    struct pattern_phase *pp = sequencer_pattern(s, p);
+    struct pattern_step *plast = sequencer_step(s, pp->last);
+    return pp->last == plast->next;
+}
+
 pattern_t sequencer_cursor_dup(struct sequencer *s);
 
 void sequencer_seq_cmd(struct sequencer *s,
@@ -345,10 +351,7 @@ void sequencer_seq_cmd(struct sequencer *s,
                until recording is turned off.  This is implemented by
                recording a new loop if the previous one had events, or
                by reusing the current empty loop. */
-            struct pattern_phase *pp = sequencer_pattern(s, s->cursor.pattern);
-            struct pattern_step *plast = sequencer_step(s, pp->last);
-
-            if (pp->last == plast->next) {
+            if (sequencer_pattern_is_empty(s, pattern_nb)) {
                 /* Using the precondition that the cursor always
                    contains a header step, we know this is otherwise
                    empty, so re-use this pattern for the next loop. */
@@ -640,6 +643,12 @@ pattern_t sequencer_cursor_open(struct sequencer *s, dtime_t duration) {
 void sequencer_cursor_close(struct sequencer *s) {
     struct sequencer_cursor *c = &s->cursor;
     ASSERT(c->pattern != PATTERN_NONE);
+
+    if (sequencer_pattern_is_empty(s, c->pattern)) {
+        /* There's no point in keeping empty patterns. */
+        sequencer_pattern_free(s, c->pattern);
+    }
+
     /* Not much to do here as this is just a weak reference. */
     c->pattern = PATTERN_NONE;
     c->duration = 0;
