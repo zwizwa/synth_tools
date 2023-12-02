@@ -310,11 +310,8 @@ pattern_t sequencer_pattern_alloc(struct sequencer *s) {
     s->pattern_pool.pattern[index].mute = 0;
     return index;
 }
-// FIXME: Don't use both free and drop
-void sequencer_drop_pattern(struct sequencer *s, pattern_t index);
 void sequencer_pattern_free(struct sequencer *s, pattern_t index) {
-    // pattern_pool_free_(&s->pattern_pool, index);
-    sequencer_drop_pattern(s, index);
+    pattern_pool_free_(&s->pattern_pool, index);
     if (s->pattern_free_notify) {
         s->pattern_free_notify(s, index);
     }
@@ -588,7 +585,7 @@ void sequencer_add_step_cv(struct sequencer *s, pattern_t pat_nb,
    We can't easily remove that so the timer event is allowed to
    expire, which will free the pattern slot at that time.  We can
    however already delete the step cycle. */
-void sequencer_drop_pattern(struct sequencer *s, pattern_t pat_nb) {
+void sequencer_clear_pattern(struct sequencer *s, pattern_t pat_nb) {
     ASSERT(pat_nb < PATTERN_POOL_SIZE);
     step_t last = s->pattern_pool.pattern[pat_nb].last;
     if (last == STEP_NONE) {
@@ -648,9 +645,10 @@ void sequencer_cursor_close(struct sequencer *s) {
     ASSERT(c->pattern != PATTERN_NONE);
 
     if (sequencer_pattern_is_empty(s, c->pattern)) {
-        /* There's no point in keeping empty patterns. */
-        LOG("free empty pattern %d\n", c->pattern);
-        sequencer_pattern_free(s, c->pattern);
+        /* Don't accumulate empty pattens.  Drops the header here.
+           Pattern will be collected once timer expires. */
+        LOG("clear pattern %d\n", c->pattern);
+        sequencer_clear_pattern(s, c->pattern);
     }
 
     /* Not much to do here as this is just a weak reference. */

@@ -75,9 +75,9 @@ void test_pool_and_play(struct sequencer *s) {
 
 
     // This will delete the step cycle, but the pattern slot is not yet freed.
-    sequencer_drop_pattern(s, pat1);
-    sequencer_drop_pattern(s, pat2);
-    sequencer_drop_pattern(s, pat3);
+    sequencer_clear_pattern(s, pat1);
+    sequencer_clear_pattern(s, pat2);
+    sequencer_clear_pattern(s, pat3);
 
     pattern_pool_info(&s->pattern_pool);
     step_pool_info(&s->step_pool);
@@ -96,9 +96,9 @@ void test_pool_and_play(struct sequencer *s) {
         sequencer_tick(s);
     }
 
-    sequencer_drop_pattern(s, npat1);
-    sequencer_drop_pattern(s, npat2);
-    sequencer_drop_pattern(s, npat3);
+    sequencer_clear_pattern(s, npat1);
+    sequencer_clear_pattern(s, npat2);
+    sequencer_clear_pattern(s, npat3);
     // Flush delete
     for(int i=0;i<100;i++) {
         sequencer_tick(s);
@@ -133,9 +133,15 @@ void test_record(struct sequencer *s) {
 
 void test_record_empty(struct sequencer *s) {
     // FIXME: step leak issue?
+    pattern_pool_info(&s->pattern_pool);
+    step_pool_info(&s->step_pool);
     for(int i=0; i<3; i++) {
         sequencer_cursor_open(s, 24 * 2);
         sequencer_cursor_close(s);
+        // Still needs to be collected
+        sequencer_ntick(s, 96);
+        // This should show full pools
+        // FIXME: Doesn't look right
         pattern_pool_info(&s->pattern_pool);
         step_pool_info(&s->step_pool);
     }
@@ -148,7 +154,7 @@ int main(int argc, char **argv) {
     sequencer_init(s, pat_dispatch);
     s->verbose = 1;
     //test_pool_and_play(s);
-    //test_record(s);
-    test_record_empty(s);
+    test_record(s);
+    //test_record_empty(s);
     return 0;
 }
