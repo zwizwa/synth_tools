@@ -919,8 +919,6 @@ void app_pattern_state(struct sequencer *s, pattern_t pat, int state) {
     app->fire.need_update = 1;
 }
 void app_pattern_alloc_notify(struct sequencer *s, pattern_t pat) {
-    // FIXME: It's best to do this on step notify.  Lighting up an
-    // empty pattern doesn't make any sense.
     app_pattern_state(s, pat, 1);
 }
 void app_pattern_free_notify(struct sequencer *s, pattern_t pat) {
@@ -938,8 +936,6 @@ void app_fire_button_notify(struct akai_fire *fire, int row, int col) {
         pp->mute ^= 1;
         app_pattern_state(&app->sequencer, pat, !pp->mute);
     }
-    //fire->pads[row][col] ^= 1;
-    //fire->need_update = 1;
 }
 
 void app_init(struct app *app) {
