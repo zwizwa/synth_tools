@@ -7,7 +7,14 @@
 *.elf
 *.so
 *.build
-cas
 *.bin
 *.tmp
+*.dasm
+cas
 target
+.envrc
+shell.nix
+cscope.files
+cscope.in.out
+cscope.out
+cscope.po.out
