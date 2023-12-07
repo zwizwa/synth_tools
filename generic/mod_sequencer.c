@@ -91,6 +91,8 @@ struct pattern_step {
     step_t next;
 };
 
+CT_ASSERT(pattern_step_size, sizeof(struct pattern_step) == 8);
+
 /* E.g. PIXI CV uses 00-0F */
 #include "uct_byteswap.h"
 /* One of 16 MIDI ports with up to 3 (self-delimiting) MIDI bytes. */
