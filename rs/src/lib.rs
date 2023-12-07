@@ -1,10 +1,12 @@
 
 #![no_std] // don't link the Rust standard library
 extern crate panic_halt;
+extern crate heapless;
 
 // In no_std setup we need to use this instead of std::slice
 // https://doc.rust-lang.org/core/slice/fn.from_raw_parts_mut.html
 use core::slice;
+use heapless::Vec;
 
 // Assume that u32 is C uint32_t etc... Is that ok?
 
@@ -40,21 +42,66 @@ pub struct pattern_abs {
 // bound to concrete representation as array slices.
 
 /// Convert relative to absolute timing and erase next.
-pub fn pattern_abs<I: Iterator<Item = pattern_step>> (psi: I)
-  -> impl Iterator<Item = pattern_abs>
-{
+// pub fn pattern_rel_to_abs<'a, I: Iterator<Item = &'a pattern_step>> (psi: &'a I)
+//   -> impl Iterator<Item = pattern_abs> + 'a
+// {
+//     let mut time: u16 = 0;
+//     psi.map(
+//         |step|
+//         {
+//             let new_step = pattern_abs {
+//                 event: step.event,
+//                 time: time
+//             };
+//             time += step.delay;
+//             new_step
+//         })
+// }
+
+// Make some examples with iteration patterns.  There are too many
+// combination of move/borrow/mut borrow to keep track of.  Find
+// something simple that just works.
+
+// Do an in-place conversion from relative to absolute.  The delay
+// field is used to represent the current time stamp instead of the
+// distance to the next step.
+
+pub fn pattern_make_abs(psi: &mut [pattern_step]) -> () {
     let mut time: u16 = 0;
-    psi.map(
-        move |step| 
-        {
-            let new_step = pattern_abs {
-                event: step.event,
-                time: time
-            };
-            time += step.delay;
-            new_step
+    for ps in psi.iter_mut() {
+        let delay = ps.delay;
+        ps.delay = time;
+        time += delay;
+    }
+}
+
+const MAX_PATTERN_SIZE: usize = 64;
+
+pub fn test_heapless_vec(ps: &[pattern_step]) -> u16 {
+    let mut time: u16 = 0;
+    let pa: Vec<pattern_abs, MAX_PATTERN_SIZE> =
+        ps.iter().map(
+            |step| {
+                let new_step = pattern_abs {
+                    event: step.event,
+                    time: time
+                };
+                time += step.delay;
+                new_step
+            }).collect();
+    pa.iter().fold(
+        0,
+        |acc, step| {
+            acc + step.time
         })
 }
+
+
+// FIXME: Use heapless Vec
+//pub fn pattern_make_abs_copy(psi: &[pattern_step]) -> () {
+//    let mut time: u16 = 0;
+//    let mut out: [pattern_abs; psi.len];
+//}
 
 
 // For test.c
@@ -73,3 +120,9 @@ pub extern "C" fn pattern_test(ps_raw: *mut pattern_step, len: usize)  {
     }
 }
 
+// #[no_mangle]
+// pub extern "C" fn pattern_abs_c(ps_raw: *mut pattern_step, len: usize)  {
+//     assert!(!ps_raw.is_null());
+//     let ps_in = unsafe { slice::from_raw_parts_mut(ps_raw, len) };
+//     let _ps_out = pattern_rel_to_abs(ps_in.iter());
+// }

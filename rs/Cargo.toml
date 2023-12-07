@@ -12,6 +12,7 @@ panic = "abort"
 
 [dependencies]
 panic-halt = "0.2.0"
+heapless = "0.8.0"
 
 [lib]
 crate-type = ["staticlib"]
