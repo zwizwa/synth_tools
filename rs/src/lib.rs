@@ -7,12 +7,25 @@ extern crate panic_halt;
 use core::slice;
 
 // Assume that u32 is C uint32_t etc... Is that ok?
+
+// The same structure is used for a linear sequence of events, and a
+// circular representation (using next).
 #[repr(C)]
 pub struct pattern_step {
     pub event: u32, // Opaque for now, not doing any MIDI data processing
     pub delay: u16, // Delay to next item
     pub next: u16, // Next step in loop
 }
+//const pattern_none: u16 = 0xFFFF;
+
+#[repr(C)]
+pub struct pattern_abs {
+    pub event: u32,
+    pub time: u16,
+}
+
+
+
 
 // FIXME: Since this will eventually run on target, it might even be
 // useful to modify in-place using the same representation as the C
@@ -23,13 +36,33 @@ pub struct pattern_step {
 // timer available as algorithm.  Maybe best to wrap the C code a bit
 // more so Rust can call into it.
 
+// It seems best to define everything as iterators instead of being
+// bound to concrete representation as array slices.
+
+/// Convert relative to absolute timing and erase next.
+pub fn pattern_abs<I: Iterator<Item = pattern_step>> (psi: I)
+  -> impl Iterator<Item = pattern_abs>
+{
+    let mut time: u16 = 0;
+    psi.map(
+        move |step| 
+        {
+            let new_step = pattern_abs {
+                event: step.event,
+                time: time
+            };
+            time += step.delay;
+            new_step
+        })
+}
+
 
 // For test.c
 // Conventions used:
 // - C size passes arrays as pointer + length
 // - Rust size converts that using from_raw_parts_mut
 #[no_mangle]
-pub extern "C" fn pattern_rotate(ps_raw: *mut pattern_step, len: usize)  {
+pub extern "C" fn pattern_test(ps_raw: *mut pattern_step, len: usize)  {
     assert!(!ps_raw.is_null());
     let ps = unsafe { slice::from_raw_parts_mut(ps_raw, len) };
     if len >= 1 {
