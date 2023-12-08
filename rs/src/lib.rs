@@ -77,31 +77,37 @@ pub fn pattern_make_abs(psi: &mut [pattern_step]) -> () {
 
 const MAX_PATTERN_SIZE: usize = 64;
 
-pub fn test_heapless_vec(ps: &[pattern_step]) -> u16 {
+type VecPatternAbs = Vec<pattern_abs, MAX_PATTERN_SIZE>;
+
+pub fn pattern_abs(ps: &[pattern_step]) -> VecPatternAbs {
     let mut time: u16 = 0;
-    let pa: Vec<pattern_abs, MAX_PATTERN_SIZE> =
-        ps.iter().map(
-            |step| {
-                let new_step = pattern_abs {
-                    event: step.event,
-                    time: time
-                };
-                time += step.delay;
-                new_step
-            }).collect();
-    pa.iter().fold(
-        0,
-        |acc, step| {
-            acc + step.time
-        })
+    ps.iter().map(
+        |step| {
+            let new_step = pattern_abs {
+                event: step.event,
+                time: time
+            };
+            time += step.delay;
+            new_step
+        }).collect()
 }
 
+pub fn time_offset(abs: u16, offset: i16, len: u16) -> u16 {
+    let iabs = abs as i16;
+    let ilen = len as i16;
+    let iadj = (((iabs + offset) % ilen) + ilen) % ilen;
+    return iadj as u16;
+}
 
-// FIXME: Use heapless Vec
-//pub fn pattern_make_abs_copy(psi: &[pattern_step]) -> () {
-//    let mut time: u16 = 0;
-//    let mut out: [pattern_abs; psi.len];
-//}
+pub fn pattern_abs_adjust(ps: &[pattern_step], offset: i16) {
+    let mut pa = pattern_abs(ps);
+    let len = pa.iter().fold(0, |acc, step| { acc + step.time });
+    for step in pa.iter_mut() {
+        step.time = time_offset(step.time, offset, len);
+    }
+}
+
+// FIXME: heapless has a priority queue
 
 
 // For test.c
