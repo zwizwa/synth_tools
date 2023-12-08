@@ -1,4 +1,3 @@
-
 #![no_std] // don't link the Rust standard library
 extern crate panic_halt;
 extern crate heapless;
@@ -7,6 +6,7 @@ extern crate heapless;
 // https://doc.rust-lang.org/core/slice/fn.from_raw_parts_mut.html
 use core::slice;
 use heapless::Vec;
+use heapless::binary_heap::{BinaryHeap, Min};
 
 // Assume that u32 is C uint32_t etc... Is that ok?
 
@@ -78,6 +78,7 @@ pub fn pattern_make_abs(psi: &mut [pattern_step]) -> () {
 const MAX_PATTERN_SIZE: usize = 64;
 
 type VecPatternAbs = Vec<pattern_abs, MAX_PATTERN_SIZE>;
+type HeapPatternAbs = BinaryHeap<pattern_abs, Min, MAX_PATTERN_SIZE>;
 
 pub fn pattern_abs(ps: &[pattern_step]) -> VecPatternAbs {
     let mut time: u16 = 0;
@@ -106,8 +107,17 @@ pub fn pattern_abs_adjust(ps: &[pattern_step], offset: i16) {
         step.time = time_offset(step.time, offset, len);
     }
 }
+// Not sure if there is a no_std quicksort.  Just use the heap.
+pub fn pattern_abs_sort(pa: &mut[pattern_abs]) {
+    let heap = HeapPatternAbs
+    for i in [0..pa.len-1] {
+        heap.push(pa[i]);
+    }
+    for i in [0..pa.len-1] {
+        pa[i] = heap.pop().unwrap();
+    }
+}
 
-// FIXME: heapless has a priority queue
 
 
 // For test.c
@@ -132,3 +142,16 @@ pub extern "C" fn pattern_test(ps_raw: *mut pattern_step, len: usize)  {
 //     let ps_in = unsafe { slice::from_raw_parts_mut(ps_raw, len) };
 //     let _ps_out = pattern_rel_to_abs(ps_in.iter());
 // }
+
+#[no_mangle]
+pub extern "C" fn test_binheap(rv_raw: *mut u16, len: usize) {
+    assert!(!rv_raw.is_null());
+    let rv = unsafe { slice::from_raw_parts_mut(rv_raw, len) };
+    let mut heap: BinaryHeap<u16, Min, 8> = BinaryHeap::new();
+    heap.push(100).unwrap();
+    heap.push(1).unwrap();
+    heap.push(10).unwrap();
+    rv[0] = heap.pop().unwrap();
+    rv[1] = heap.pop().unwrap();
+    rv[2] = heap.pop().unwrap();
+}
