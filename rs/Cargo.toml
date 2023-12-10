@@ -1,5 +1,5 @@
 [package]
-name = "synth_tools"
+name = "synth_tools_rs"
 version = "0.1.0"
 authors = ["Author Name <tom@zwizwa.be>"]
 

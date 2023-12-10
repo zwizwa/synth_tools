@@ -3,7 +3,8 @@
 all: test.elf
 	./test.elf
 
-RS_A:= ./target/release/libsynth_tools.a
+LIB:=synth_tools_rs
+RS_A:= ./target/release/lib$(LIB).a
 
 $(RS_A): src/lib.rs
 	cargo build --release
@@ -16,7 +17,7 @@ $(RS_A): src/lib.rs
 	-g -o $@ -c $<
 
 test.elf: test.o $(RS_A)
-	gcc -o test.elf test.o -L $$(dirname $(RS_A)) -lsynth_tools -Wl,--gc-sections
+	gcc -o test.elf test.o -L $$(dirname $(RS_A)) -l$(LIB) -Wl,--gc-sections
 
 clean:
 	rm -rf target

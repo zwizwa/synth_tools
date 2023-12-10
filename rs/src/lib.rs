@@ -1,3 +1,10 @@
+// Rust<->C interop playground.
+
+// FIXME: Turn this into code that runs on the F103. Currently still
+// exploring.
+
+
+
 #![no_std] // don't link the Rust standard library
 extern crate panic_halt;
 extern crate heapless;
@@ -5,6 +12,7 @@ extern crate heapless;
 // In no_std setup we need to use this instead of std::slice
 // https://doc.rust-lang.org/core/slice/fn.from_raw_parts_mut.html
 use core::slice;
+use core::cmp::{Ord,PartialEq,Ordering};
 use heapless::Vec;
 use heapless::binary_heap::{BinaryHeap, Min};
 
@@ -13,7 +21,7 @@ use heapless::binary_heap::{BinaryHeap, Min};
 // The same structure is used for a linear sequence of events, and a
 // circular representation (using next).
 #[repr(C)]
-pub struct pattern_step {
+pub struct PatternStep {
     pub event: u32, // Opaque for now, not doing any MIDI data processing
     pub delay: u16, // Delay to next item
     pub next: u16, // Next step in loop
@@ -21,9 +29,15 @@ pub struct pattern_step {
 //const pattern_none: u16 = 0xFFFF;
 
 #[repr(C)]
-pub struct pattern_abs {
+#[derive(PartialEq,PartialOrd,Eq,Clone,Copy,Debug)]
+pub struct PatternAbs {
     pub event: u32,
     pub time: u16,
+}
+impl Ord for PatternAbs {
+    fn cmp(&self, other: &Self) -> Ordering {
+        Ord::cmp(&self.time, &other.time)
+    }
 }
 
 
@@ -42,14 +56,14 @@ pub struct pattern_abs {
 // bound to concrete representation as array slices.
 
 /// Convert relative to absolute timing and erase next.
-// pub fn pattern_rel_to_abs<'a, I: Iterator<Item = &'a pattern_step>> (psi: &'a I)
-//   -> impl Iterator<Item = pattern_abs> + 'a
+// pub fn pattern_rel_to_abs<'a, I: Iterator<Item = &'a PatternStep>> (psi: &'a I)
+//   -> impl Iterator<Item = PatternAbs> + 'a
 // {
 //     let mut time: u16 = 0;
 //     psi.map(
 //         |step|
 //         {
-//             let new_step = pattern_abs {
+//             let new_step = PatternAbs {
 //                 event: step.event,
 //                 time: time
 //             };
@@ -66,7 +80,7 @@ pub struct pattern_abs {
 // field is used to represent the current time stamp instead of the
 // distance to the next step.
 
-pub fn pattern_make_abs(psi: &mut [pattern_step]) -> () {
+pub fn pattern_make_abs(psi: &mut [PatternStep]) -> () {
     let mut time: u16 = 0;
     for ps in psi.iter_mut() {
         let delay = ps.delay;
@@ -77,14 +91,14 @@ pub fn pattern_make_abs(psi: &mut [pattern_step]) -> () {
 
 const MAX_PATTERN_SIZE: usize = 64;
 
-type VecPatternAbs = Vec<pattern_abs, MAX_PATTERN_SIZE>;
-type HeapPatternAbs = BinaryHeap<pattern_abs, Min, MAX_PATTERN_SIZE>;
+type VecPatternAbs = Vec<PatternAbs, MAX_PATTERN_SIZE>;
+type HeapPatternAbs = BinaryHeap<PatternAbs, Min, MAX_PATTERN_SIZE>;
 
-pub fn pattern_abs(ps: &[pattern_step]) -> VecPatternAbs {
+pub fn pattern_abs_from_step(ps: &[PatternStep]) -> VecPatternAbs {
     let mut time: u16 = 0;
     ps.iter().map(
         |step| {
-            let new_step = pattern_abs {
+            let new_step = PatternAbs {
                 event: step.event,
                 time: time
             };
@@ -100,20 +114,21 @@ pub fn time_offset(abs: u16, offset: i16, len: u16) -> u16 {
     return iadj as u16;
 }
 
-pub fn pattern_abs_adjust(ps: &[pattern_step], offset: i16) {
-    let mut pa = pattern_abs(ps);
+pub fn pattern_abs_adjust(ps: &[PatternStep], offset: i16) {
+    let mut pa = pattern_abs_from_step(ps);
     let len = pa.iter().fold(0, |acc, step| { acc + step.time });
     for step in pa.iter_mut() {
         step.time = time_offset(step.time, offset, len);
     }
 }
 // Not sure if there is a no_std quicksort.  Just use the heap.
-pub fn pattern_abs_sort(pa: &mut[pattern_abs]) {
-    let heap = HeapPatternAbs
-    for i in [0..pa.len-1] {
-        heap.push(pa[i]);
+pub fn pattern_abs_sort(pa: &mut[PatternAbs]) {
+    let mut heap: HeapPatternAbs = BinaryHeap::new();
+    let len = pa.len();
+    for i in 0..len {
+        heap.push(pa[i]).unwrap();
     }
-    for i in [0..pa.len-1] {
+    for i in 0..len {
         pa[i] = heap.pop().unwrap();
     }
 }
@@ -125,7 +140,7 @@ pub fn pattern_abs_sort(pa: &mut[pattern_abs]) {
 // - C size passes arrays as pointer + length
 // - Rust size converts that using from_raw_parts_mut
 #[no_mangle]
-pub extern "C" fn pattern_test(ps_raw: *mut pattern_step, len: usize)  {
+pub extern "C" fn pattern_test(ps_raw: *mut PatternStep, len: usize)  {
     assert!(!ps_raw.is_null());
     let ps = unsafe { slice::from_raw_parts_mut(ps_raw, len) };
     if len >= 1 {
@@ -137,21 +152,17 @@ pub extern "C" fn pattern_test(ps_raw: *mut pattern_step, len: usize)  {
 }
 
 // #[no_mangle]
-// pub extern "C" fn pattern_abs_c(ps_raw: *mut pattern_step, len: usize)  {
+// pub extern "C" fn pattern_abs_c(ps_raw: *mut PatternStep, len: usize)  {
 //     assert!(!ps_raw.is_null());
 //     let ps_in = unsafe { slice::from_raw_parts_mut(ps_raw, len) };
 //     let _ps_out = pattern_rel_to_abs(ps_in.iter());
 // }
 
+
 #[no_mangle]
-pub extern "C" fn test_binheap(rv_raw: *mut u16, len: usize) {
-    assert!(!rv_raw.is_null());
-    let rv = unsafe { slice::from_raw_parts_mut(rv_raw, len) };
-    let mut heap: BinaryHeap<u16, Min, 8> = BinaryHeap::new();
-    heap.push(100).unwrap();
-    heap.push(1).unwrap();
-    heap.push(10).unwrap();
-    rv[0] = heap.pop().unwrap();
-    rv[1] = heap.pop().unwrap();
-    rv[2] = heap.pop().unwrap();
+pub extern "C" fn test_rotate(ps_raw: *mut PatternStep, len: usize)  {
+    assert!(!ps_raw.is_null());
+    let ps = unsafe { slice::from_raw_parts_mut(ps_raw, len) };
+    let _pa = pattern_abs_from_step(ps);
+    
 }
