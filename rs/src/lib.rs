@@ -166,3 +166,13 @@ pub extern "C" fn test_rotate(ps_raw: *mut PatternStep, len: usize)  {
     let _pa = pattern_abs_from_step(ps);
     
 }
+
+
+/// Main library initialization.
+#[no_mangle]
+pub extern "C" fn synth_tools_rs_init() {
+    // FIXME: There is no log function.  Maybe make a small system
+    // interface to provide logging?
+    // println!("synth_tookls_rs_init()");
+}
+

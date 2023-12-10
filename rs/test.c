@@ -17,7 +17,12 @@ void pattern_test(struct pattern_step *, size_t);
 void test_binheap(uint16_t *, size_t);
 void test_rotate(struct pattern_step *, size_t);
 
+void synth_tools_rs_init(void);
+
 int main(int argc, char **argv) {
+
+    synth_tools_rs_init();
+
 
     struct sequencer s;
     sequencer_init(&s, NULL);

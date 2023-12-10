@@ -16,6 +16,7 @@ $(RS_A): src/lib.rs
 	-I../generic \
 	-g -o $@ -c $<
 
+# The --gc-sections is necessary to avoid linker errors.
 test.elf: test.o $(RS_A)
 	gcc -o test.elf test.o -L $$(dirname $(RS_A)) -l$(LIB) -Wl,--gc-sections
 

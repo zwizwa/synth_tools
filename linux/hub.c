@@ -951,7 +951,14 @@ void app_init(struct app *app) {
 
 }
 
+void synth_tools_rs_init(void);
+
 int main(int argc, char **argv) {
+
+    /* Initialize Rust library.  FIXME: This doesn't do anything
+       except for making sure building and linking of Rust code works
+       properly. */
+    synth_tools_rs_init();
 
     struct app *app = &app_state;
     app_init(app);
