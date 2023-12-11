@@ -952,13 +952,15 @@ void app_init(struct app *app) {
 }
 
 void synth_tools_rs_init(void);
+void synth_tools_zig_init(void);
 
 int main(int argc, char **argv) {
 
-    /* Initialize Rust library.  FIXME: This doesn't do anything
-       except for making sure building and linking of Rust code works
-       properly. */
+    /* Initialize Rust and Zig libraries.  FIXME: This doesn't do
+       anything except for making sure building and linking of Rust
+       and Zig code works properly. */
     synth_tools_rs_init();
+    synth_tools_zig_init();
 
     struct app *app = &app_state;
     app_init(app);

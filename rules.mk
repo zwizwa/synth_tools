@@ -1,6 +1,39 @@
 UC_TOOLS ?= ../uc_tools
 GIT_VERSION ?= "unknown"
 
+# This is a mixed C/Rust project.  All rust code is collected in a
+# single static lib which is built using cargo.  This rule depends
+# only on rs/src/*.rs
+
+# The shell.nix only has rustup.  For now just use a stamp file to
+# make sure this runs.
+rustup.out:
+	./rustup.sh | tee $@
+
+RS_A_STM:=FIXME
+RS_A_HOST:=rs/target/release/libsynth_tools_rs.a
+RS_SRC := \
+	rs/src/lib.rs
+
+$(RS_A_HOST): rustup.out $(RS_SRC)
+	@echo $(RS_A_HOST)
+	cd rs ; cargo build --release	
+
+
+# Same for Zig
+ZIG_LIB=synth_tools_zig
+ZIG_A_STM:=FIXME
+ZIG_A_HOST:=zig/lib$(ZIG_LIB).a
+ZIG_SRC := \
+	zig/synth_tools_zig.zig
+
+$(ZIG_A_HOST): rustup.out $(ZIG_SRC)
+	@echo $(ZIG_A_HOST)
+	@echo "make: Entering directory '$$(pwd)/zig'"
+	cd zig ; zig build-lib $(ZIG_LIB).zig
+
+
+
 # Note that bl_midi does not use the A/B partitions with crc, just the
 # original x8 slot.
 
@@ -262,6 +295,8 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 %.dynamic.host.elf: \
 	%.host.o \
 	linux/lib.host.a \
+	$(RS_A_HOST) \
+	$(ZIG_A_HOST) \
 
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
 	export A=linux/lib.host.a ; \
@@ -271,7 +306,7 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	export LD=linux/dynamic.host.ld ; \
 	export MAP=$(patsubst %.elf,%.map,$@) ; \
 	export O=$< ; \
-	export LDLIBS="-lpthread -ljack -lasound" ; \
+	export LDLIBS="$(ZIG_A_HOST) $(RS_A_HOST) -Wl,--gc-sections -lpthread -ljack -lasound" ; \
 	export TYPE=elf ; \
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1
