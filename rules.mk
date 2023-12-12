@@ -292,11 +292,14 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1
 
+# FIXME: temporarily disabled until nix flake setup works in /etc/net
+# A_HOST := $(ZIG_A_HOST) $(RS_A_HOST)
+A_HOST :=
+
 %.dynamic.host.elf: \
 	%.host.o \
 	linux/lib.host.a \
-	$(RS_A_HOST) \
-	$(ZIG_A_HOST) \
+        $(A_HOST) \
 
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
 	export A=linux/lib.host.a ; \
@@ -306,7 +309,7 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	export LD=linux/dynamic.host.ld ; \
 	export MAP=$(patsubst %.elf,%.map,$@) ; \
 	export O=$< ; \
-	export LDLIBS="$(ZIG_A_HOST) $(RS_A_HOST) -Wl,--gc-sections -lpthread -ljack -lasound" ; \
+	export LDLIBS="$(A_HOST) -Wl,--gc-sections -lpthread -ljack -lasound" ; \
 	export TYPE=elf ; \
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1
