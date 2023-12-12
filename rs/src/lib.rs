@@ -1,3 +1,46 @@
+/* Rust studio monolith.
+
+   I am moving away from Erlang for audio work. It was a nice idea but
+   in practice it turns out to be too hard to maintain.  Erlang will
+   remain the inter-PC layer, coupling multiple instances of the Rust
+   monolith.
+
+   I also want to move away from jack as an active component of my
+   workflow.  The Erlang experiments have shown that managing multiple
+   processes, connections, restarts is a significant amount of
+   development overhead.
+
+   So I am done.  I will be writing a single Rust monolith to contain
+   all the management code.
+
+   The monolith will be hosted inside Pure Data (Pd) as an external
+   library.
+
+   The monolith will be internally multi-threaded to host background
+   processing and parallel DSP processing threads.  For this, Rust
+   primitives can be used.
+
+   The monolith will hard-code most hardware setup.  Will not use jack
+   midi.  It will handle ALSA MIDI internally, modeled after a2jmidid.
+
+   Some requirements:
+
+   - Fast restart, restore all state and connections.  This is mostly
+     handled by Pd (state of number boxes etc),
+
+
+   EDIT: That was an annoyed rant.  So now tone it down.
+
+
+   Stick to the Erlang approach, but gradually make hub.c centralize
+   functionality.  Make the Erlang part minimal.
+
+*/
+
+
+
+
+
 // Rust<->C interop playground.
 
 // FIXME: Turn this into code that runs on the F103. Currently still

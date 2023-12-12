@@ -15,6 +15,9 @@ clean:
 	cd tools ; rm -f *.o *.d *.a *.elf *.bin *.fw *.data *.build
 	rm -f $(ALL_PRODUCTS)
 	rm -rf rs/target
+	rm -f zig/*.o zig/*.a
+
+
 
 
 
