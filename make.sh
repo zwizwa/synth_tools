@@ -1,10 +1,12 @@
 #!/bin/sh
 
+# NOTE: This is a hack to make use of nix-managed dependencies on a
+# non-nix system.  It is probably better to use "nix develop" instead.
+# See exo-dev/make-synth_tools.sh
+
 NPROC=$(nproc)
 # NPROC=1
 cd $(dirname $0)
-
-echo "make.sh: Entering directory '/i/exo/synth_tools'" # FIXME
 
 # FIXME: I've recently changed this so the command 'exo-dev' prints
 # the path on stdout.  This allows the following:
