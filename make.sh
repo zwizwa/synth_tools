@@ -1,4 +1,12 @@
 #!/bin/sh
+HERE=$(dirname "$0")
+PWD=$(pwd)
+cd $HERE
+exec nix develop --command make -C ${PWD} "$@"
+
+#####################################################################
+
+# Left here for reference.  Old method is no longer used.
 
 # NOTE: This is a hack to make use of nix-managed dependencies on a
 # non-nix system.  It is probably better to use "nix develop" instead.

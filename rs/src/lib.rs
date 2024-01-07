@@ -37,27 +37,21 @@
 
 */
 
-
-
-
-
 // Rust<->C interop playground.
 
 // FIXME: Turn this into code that runs on the F103. Currently still
 // exploring.
 
-
-
 #![no_std] // don't link the Rust standard library
-extern crate panic_halt;
 extern crate heapless;
+extern crate panic_halt;
 
 // In no_std setup we need to use this instead of std::slice
 // https://doc.rust-lang.org/core/slice/fn.from_raw_parts_mut.html
+use core::cmp::{Ord, Ordering, PartialEq};
 use core::slice;
-use core::cmp::{Ord,PartialEq,Ordering};
-use heapless::Vec;
 use heapless::binary_heap::{BinaryHeap, Min};
+use heapless::Vec;
 
 // Assume that u32 is C uint32_t etc... Is that ok?
 
@@ -67,12 +61,12 @@ use heapless::binary_heap::{BinaryHeap, Min};
 pub struct PatternStep {
     pub event: u32, // Opaque for now, not doing any MIDI data processing
     pub delay: u16, // Delay to next item
-    pub next: u16, // Next step in loop
+    pub next: u16,  // Next step in loop
 }
 //const pattern_none: u16 = 0xFFFF;
 
 #[repr(C)]
-#[derive(PartialEq,PartialOrd,Eq,Clone,Copy,Debug)]
+#[derive(PartialEq, PartialOrd, Eq, Clone, Copy, Debug)]
 pub struct PatternAbs {
     pub event: u32,
     pub time: u16,
@@ -82,9 +76,6 @@ impl Ord for PatternAbs {
         Ord::cmp(&self.time, &other.time)
     }
 }
-
-
-
 
 // FIXME: Since this will eventually run on target, it might even be
 // useful to modify in-place using the same representation as the C
@@ -139,15 +130,16 @@ type HeapPatternAbs = BinaryHeap<PatternAbs, Min, MAX_PATTERN_SIZE>;
 
 pub fn pattern_abs_from_step(ps: &[PatternStep]) -> VecPatternAbs {
     let mut time: u16 = 0;
-    ps.iter().map(
-        |step| {
+    ps.iter()
+        .map(|step| {
             let new_step = PatternAbs {
                 event: step.event,
-                time: time
+                time: time,
             };
             time += step.delay;
             new_step
-        }).collect()
+        })
+        .collect()
 }
 
 pub fn time_offset(abs: u16, offset: i16, len: u16) -> u16 {
@@ -159,13 +151,13 @@ pub fn time_offset(abs: u16, offset: i16, len: u16) -> u16 {
 
 pub fn pattern_abs_adjust(ps: &[PatternStep], offset: i16) {
     let mut pa = pattern_abs_from_step(ps);
-    let len = pa.iter().fold(0, |acc, step| { acc + step.time });
+    let len = pa.iter().fold(0, |acc, step| acc + step.time);
     for step in pa.iter_mut() {
         step.time = time_offset(step.time, offset, len);
     }
 }
 // Not sure if there is a no_std quicksort.  Just use the heap.
-pub fn pattern_abs_sort(pa: &mut[PatternAbs]) {
+pub fn pattern_abs_sort(pa: &mut [PatternAbs]) {
     let mut heap: HeapPatternAbs = BinaryHeap::new();
     let len = pa.len();
     for i in 0..len {
@@ -176,14 +168,12 @@ pub fn pattern_abs_sort(pa: &mut[PatternAbs]) {
     }
 }
 
-
-
 // For test.c
 // Conventions used:
 // - C size passes arrays as pointer + length
 // - Rust size converts that using from_raw_parts_mut
 #[no_mangle]
-pub extern "C" fn pattern_test(ps_raw: *mut PatternStep, len: usize)  {
+pub extern "C" fn pattern_test(ps_raw: *mut PatternStep, len: usize) {
     assert!(!ps_raw.is_null());
     let ps = unsafe { slice::from_raw_parts_mut(ps_raw, len) };
     if len >= 1 {
@@ -201,21 +191,22 @@ pub extern "C" fn pattern_test(ps_raw: *mut PatternStep, len: usize)  {
 //     let _ps_out = pattern_rel_to_abs(ps_in.iter());
 // }
 
-
 #[no_mangle]
-pub extern "C" fn test_rotate(ps_raw: *mut PatternStep, len: usize)  {
+pub extern "C" fn test_rotate(ps_raw: *mut PatternStep, len: usize) {
     assert!(!ps_raw.is_null());
     let ps = unsafe { slice::from_raw_parts_mut(ps_raw, len) };
     let _pa = pattern_abs_from_step(ps);
-    
 }
-
 
 /// Main library initialization.
 #[no_mangle]
 pub extern "C" fn synth_tools_rs_init() {
     // FIXME: There is no log function.  Maybe make a small system
     // interface to provide logging?
-    // println!("synth_tookls_rs_init()");
+    // println!("synth_tools_rs_init()");
 }
 
+#[no_mangle]
+pub extern "C" fn test_add1(x: u32) -> u32 {
+    return x + 1;
+}

@@ -602,12 +602,11 @@ void pixi_poll(void) {
     vm_next(app);
 }
 
-void pat_dispatch(struct sequencer *seq, const struct pattern_step *step) {
-    infof("pat_dispatch %d %d\n", step->event.as.u8[0], step->delay);
+void pat_dispatch(struct sequencer *seq, const union pattern_event *ev) {
     struct app *app = sequencer_to_app(seq);
     // ASSERT(step->event[0] == 0);  // not midi but 16 bit CV/gate channel
-    uint32_t chan = step->event.as.u16[0];
-    uint16_t val  = step->event.as.u16[1];
+    uint32_t chan = ev->u16[0];
+    uint16_t val  = ev->u16[1];
     //uint32_t val  = step->event & 0xFFF;
     //uint32_t chan = (step->event >> 12) & 0xF;
     if (chan < NB_CV) {
@@ -720,4 +719,5 @@ struct gdbstub_config config CONFIG_HEADER_SECTION = {
     .io              = &midi_io,
     .cmd_3if         = cmd_3if_list,
 };
+
 

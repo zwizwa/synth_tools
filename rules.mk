@@ -5,20 +5,27 @@ GIT_VERSION ?= "unknown"
 # single static lib which is built using cargo.  This rule depends
 # only on rs/src/*.rs
 
-# The shell.nix only has rustup.  For now just use a stamp file to
-# make sure this runs.
-rustup.out:
-	./rustup.sh | tee $@
+# Rustup is no longer managed in this build file.  All build
+# dependencies are now managed by synth_tools/flake.nix
 
-RS_A_STM:=FIXME
-RS_A_HOST:=rs/target/release/libsynth_tools_rs.a
+# The Rust static libraries are built by cargo.  Build rules are set
+# up here to both work for nix build invoking cargo (see flake.nix),
+# or rules.mk build invoking cargo directly (e.g. from nix develop
+# toolchain).
+RS_A_STM ?= rs/target/thumbv6m-none-eabi/release/libsynth_tools_rs.a
+RS_A_HOST ?= rs/target/release/libsynth_tools_rs.a
 RS_SRC := \
 	rs/src/lib.rs
 
-$(RS_A_HOST): rustup.out $(RS_SRC)
+$(RS_A_HOST): $(RS_SRC)
 	@echo $(RS_A_HOST)
 	cd rs ; cargo build --release	
+	ls -l $@
 
+$(RS_A_STM): $(RS_SRC)
+	@echo $(RS_A_STM)
+	cd rs ; cargo build --release --target thumbv6m-none-eabi
+	ls -l $@
 
 # Same for Zig
 ZIG_LIB=synth_tools_zig
@@ -27,11 +34,10 @@ ZIG_A_HOST:=zig/lib$(ZIG_LIB).a
 ZIG_SRC := \
 	zig/synth_tools_zig.zig
 
-$(ZIG_A_HOST): rustup.out $(ZIG_SRC)
+$(ZIG_A_HOST): $(ZIG_SRC)
 	@echo $(ZIG_A_HOST)
 	@echo "make: Entering directory '$$(pwd)/zig'"
 	cd zig ; zig build-lib $(ZIG_LIB).zig
-
 
 
 # Note that bl_midi does not use the A/B partitions with crc, just the
@@ -50,6 +56,7 @@ STUDIO_ELF := \
 	linux/jack_midi.dynamic.host.elf \
 	linux/jack_control.dynamic.host.elf \
 	linux/a2jmidid.dynamic.host.elf \
+	linux/test_rs.dynamic.host.elf \
 
 STM_ELF := \
 	stm32f103/bl_midi_bp.core.f103.elf \
@@ -88,8 +95,6 @@ HOST_ELF := \
 HOST_ELF_DIS := \
 
 
-
-ALL_ELF := $(STM_ELF) $(HOST_ELF)
 
 LIB_F103_A_OBJECTS := \
 	$(UC_TOOLS)/gdb/bootloader.f103.o \
@@ -292,9 +297,9 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1
 
-# FIXME: temporarily disabled until nix flake setup works in /etc/net
 # A_HOST := $(ZIG_A_HOST) $(RS_A_HOST)
-A_HOST :=
+
+A_HOST := $(RS_A_HOST)
 
 %.dynamic.host.elf: \
 	%.host.o \
@@ -345,7 +350,8 @@ A_HOST :=
 ALL_PRODUCTS := \
 	$(LIB_F103_A_OBJECTS) \
 	$(LIB_HOST_A_OBJECTS) \
-	$(ALL_ELF) \
+	$(STM_ELF) \
+	$(HOST_ELF) \
 	stm32f103/x8.f103.ld \
 	stm32f103/lib.f103.a \
 	linux/lib.host.a \
