@@ -624,6 +624,8 @@ void pattern_start(struct sequencer *s) {
     sequencer_restart(s);
 }
 
+void synth_tools_rs_init(void);
+uint32_t test_synth_tools_rs_add1(uint32_t);
 
 void start(void) {
     hw_app_init();
@@ -637,6 +639,13 @@ void start(void) {
     CBUF_INIT(app_.out);
     pattern_init(&app_.sequencer);
     app_.started = 1;
+
+#if 1
+    /* Rust library init. */
+    synth_tools_rs_init();
+    uint32_t x = 1;
+    LOG("add1: %d %d\n", x, test_synth_tools_rs_add1(x));
+#endif
 
     /* Turn on the LED to indicate we have started. */
     hw_gpio_config(LED,HW_GPIO_CONFIG_OUTPUT);

@@ -13,13 +13,13 @@ GIT_VERSION ?= "unknown"
 # or rules.mk build invoking cargo directly (e.g. from nix develop
 # toolchain).
 RS_A_STM ?= rs/target/thumbv6m-none-eabi/release/libsynth_tools_rs.a
-RS_A_HOST ?= rs/target/release/libsynth_tools_rs.a
+RS_A_HOST ?= rs/target/x86_64-unknown-linux-gnu/release/libsynth_tools_rs.a
 RS_SRC := \
 	rs/src/lib.rs
 
 $(RS_A_HOST): $(RS_SRC)
 	@echo $(RS_A_HOST)
-	cd rs ; cargo build --release	
+	cd rs ; cargo build --release --target x86_64-unknown-linux-gnu
 	ls -l $@
 
 $(RS_A_STM): $(RS_SRC)
@@ -56,7 +56,6 @@ STUDIO_ELF := \
 	linux/jack_midi.dynamic.host.elf \
 	linux/jack_control.dynamic.host.elf \
 	linux/a2jmidid.dynamic.host.elf \
-	linux/test_rs.dynamic.host.elf \
 
 STM_ELF := \
 	stm32f103/bl_midi_bp.core.f103.elf \
@@ -76,6 +75,7 @@ HOST_ELF := \
 	linux/test_pdm.dynamic.host.elf \
 	linux/test_bl_midi.dynamic.host.elf \
 	linux/test_cproc.dynamic.host.elf \
+	linux/test_rs.dynamic.host.elf \
 	linux/jack_netsend.dynamic.host.elf \
 	linux/jack_info.dynamic.host.elf \
 	linux/jack_midi.dynamic.host.elf \
@@ -144,9 +144,14 @@ GEN := $(GEN_DEPS_COMMON)
 
 
 
-
+# FIXME: This is slow on NFS.  Maybe cache this into a file.
 # Use a script to list the .d files to make this easier to debug.
-DEPS := $(shell find -name '*.d') $(shell find $(UC_TOOLS) -name '*.d')
+DEPS := \
+	$(shell echo "DEPS start" >&2) \
+	$(shell find -name '*.d') \
+	$(shell find $(UC_TOOLS) -name '*.d') \
+	$(shell echo "DEPS end" >&2)
+
 -include $(DEPS)
 
 
@@ -205,15 +210,16 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1
 
-# Application, linked to addresses for partition A and spillover into B.  Only for debugging.
+A_STM := stm32f103/lib.f103.a $(RS_A_STM)
+
 %.x8.f103.elf: \
 	%.f103.o \
-	stm32f103/lib.f103.a \
+	$(A_STM) \
 	stm32f103/x8.f103.ld \
 	$(UC_TOOLS)/gdb/registers_stm32f103.f103.o \
 
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
-	export A=stm32f103/lib.f103.a ; \
+	export A="$(A_STM)" ; \
 	export ARCH=f103 ; \
 	export BUILD=stm32f103/build.sh ; \
 	export ELF=$@ ; \

@@ -206,7 +206,8 @@ pub extern "C" fn synth_tools_rs_init() {
     // println!("synth_tools_rs_init()");
 }
 
+/// Test. Something that can't be optimized away.
 #[no_mangle]
-pub extern "C" fn test_add1(x: u32) -> u32 {
-    return x + 1;
+pub extern "C" fn test_synth_tools_rs_add1(x: u32) -> u32 {
+    x + 1
 }

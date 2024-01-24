@@ -63,7 +63,7 @@
             rustToolchain
           ];
 
-        rs_crate = build_flags: # See also rs_tools/flake.nix
+        rs_crate = target: # See also rs_tools/flake.nix
           let src = ./rs;
               pname = "synth_tools_rs";
           in rustPlatform.buildRustPackage {
@@ -75,15 +75,16 @@
             };
             buildInputs = with pkgs; [ ];
             buildPhase = ''
-              cargo build --release ${build_flags}
+              cargo build --release --target ${target}
             '';
             doCheck = false;
             installPhase = ''
               mkdir -p $out
+              find -name '*.a'
               cp `find -name lib${pname}.a` $out/
             '';
           };
-        rs_lib = build_flags: "${rs_crate build_flags}/libsynth_tools_rs.a";
+        rs_lib = target: "${rs_crate target}/libsynth_tools_rs.a";
 
       in
         {
@@ -91,8 +92,8 @@
             pkgs.stdenv.mkDerivation {
               name = "synth_tools";
               inherit buildInputs;
-              RS_A_HOST = rs_lib "";
-              RS_A_STM  = rs_lib "--target thumbv6m-none-eabi";
+              RS_A_HOST = rs_lib "x86_64-unknown-linux-gnu";
+              RS_A_STM  = rs_lib "thumbv6m-none-eabi";
               src = self;
               inherit uc_tools; # Source
               TPF = "arm-none-eabi-";
