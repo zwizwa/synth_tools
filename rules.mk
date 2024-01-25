@@ -75,7 +75,6 @@ HOST_ELF := \
 	linux/test_pdm.dynamic.host.elf \
 	linux/test_bl_midi.dynamic.host.elf \
 	linux/test_cproc.dynamic.host.elf \
-	linux/test_rs.dynamic.host.elf \
 	linux/jack_netsend.dynamic.host.elf \
 	linux/jack_info.dynamic.host.elf \
 	linux/jack_midi.dynamic.host.elf \
@@ -91,6 +90,10 @@ HOST_ELF := \
 	linux/gen_max11300.dynamic.host.elf \
 	linux/tether_bl_midi.dynamic.host.elf \
 	linux/synth_tools.dynamic.host.so \
+
+HOST_CRUST_ELF := \
+	linux/test_rs.crust.host.elf \
+
 
 HOST_ELF_DIS := \
 
@@ -303,9 +306,12 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1
 
-# A_HOST := $(ZIG_A_HOST) $(RS_A_HOST)
+## FIXME: The .dynamic.host.elf files are still part of /etc/net pkgs
+## synth_tools which does not support Rust build yet.  Binaries that
+## need the Rust lib use the %.crust.host.elf pattern.
 
-A_HOST := $(RS_A_HOST)
+# A_HOST := $(ZIG_A_HOST) $(RS_A_HOST)
+# A_HOST := $(RS_A_HOST)
 
 %.dynamic.host.elf: \
 	%.host.o \
@@ -321,6 +327,25 @@ A_HOST := $(RS_A_HOST)
 	export MAP=$(patsubst %.elf,%.map,$@) ; \
 	export O=$< ; \
 	export LDLIBS="$(A_HOST) -Wl,--gc-sections -lpthread -ljack -lasound" ; \
+	export TYPE=elf ; \
+	export UC_TOOLS=$(UC_TOOLS)/ ; \
+	$$BUILD 2>&1
+
+# (synth_tools) tom@tp:/i/exo/synth_tools$ make linux/test_rs.crust.host.elf
+%.crust.host.elf: \
+	%.host.o \
+	linux/lib.host.a \
+        $(RS_A_HOST) \
+
+	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
+	export A=linux/lib.host.a ; \
+	export ARCH=host ; \
+	export BUILD=linux/build.sh ; \
+	export ELF=$@ ; \
+	export LD=linux/dynamic.host.ld ; \
+	export MAP=$(patsubst %.elf,%.map,$@) ; \
+	export O=$< ; \
+	export LDLIBS="$(RS_A_HOST) -Wl,--gc-sections -lpthread -ljack -lasound" ; \
 	export TYPE=elf ; \
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1
@@ -358,6 +383,7 @@ ALL_PRODUCTS := \
 	$(LIB_HOST_A_OBJECTS) \
 	$(STM_ELF) \
 	$(HOST_ELF) \
+	$(HOST_CRUST_ELF) \
 	stm32f103/x8.f103.ld \
 	stm32f103/lib.f103.a \
 	linux/lib.host.a \

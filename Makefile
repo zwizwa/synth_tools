@@ -12,6 +12,8 @@ clean:
 	rm -rf rs/target
 	rm -f zig/*.o zig/*.a
 
+# Keep this /etc/net build.  Does not depend on ARM tools.
+host_elf: $(HOST_ELF)
 
 
 

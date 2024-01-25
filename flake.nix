@@ -107,7 +107,9 @@
               packages = buildInputs;
               TPF = "${pkgs.gcc-arm-embedded}/bin/arm-none-eabi-";
               LIBOPENCM3 = libopencm3.packages.${system}.default;
-              shellHook = "";
+              shellHook = ''
+                PS1="(synth_tools) \u@\h:\w\$ "
+              '';
             };
         }
     );
