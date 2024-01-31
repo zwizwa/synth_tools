@@ -89,15 +89,15 @@ HOST_ELF := \
 	linux/test_sequencer.dynamic.host.elf \
 	linux/gen_max11300.dynamic.host.elf \
 	linux/tether_bl_midi.dynamic.host.elf \
+	linux/a2jmidid.dynamic.host.elf \
 	linux/synth_tools.dynamic.host.so \
-	linux/a2jmidid.dynamic.host.so \
 
 # Subset used by exo studio.
 STUDIO_ELF := \
 	linux/hub.dynamic.host.elf \
 	linux/clock.dynamic.host.elf \
 	linux/pd.dynamic.host.elf \
-	linux/a2jmidid.dynamic.host.so \
+	linux/a2jmidid.dynamic.host.elf \
 	linux/akai_fire.dynamic.host.elf \
 
 HOST_CRUST_ELF := \
