@@ -45,7 +45,7 @@ $(ZIG_A_HOST): $(ZIG_SRC)
 
 # See synth_tools/builder.sh in /etc/net
 # This is moved here as a target simplify updating.
-STUDIO_ELF := \
+STUDIO_ELF_OLD := \
 	linux/clock.dynamic.host.elf \
 	linux/hub.dynamic.host.elf \
 	linux/pd.dynamic.host.elf \
@@ -56,6 +56,16 @@ STUDIO_ELF := \
 	linux/jack_midi.dynamic.host.elf \
 	linux/jack_control.dynamic.host.elf \
 	linux/a2jmidid.dynamic.host.elf \
+
+# Subset used by exo studio.
+STUDIO_ELF := \
+	linux/hub.dynamic.host.elf \
+	linux/clock.dynamic.host.elf \
+	linux/pd.dynamic.host.elf \
+	linux/a2jmidid.dynamic.host.elf \
+	linux/akai_fire.dynamic.host.elf \
+	linux/envy24.dynamic.host.elf \
+	linux/jack_snapshot.dynamic.host.elf \
 
 STM_ELF := \
 	stm32f103/bl_midi_bp.core.f103.elf \
@@ -92,14 +102,6 @@ HOST_ELF := \
 	linux/a2jmidid.dynamic.host.elf \
 	linux/synth_tools.dynamic.host.so \
 
-# Subset used by exo studio.
-STUDIO_ELF := \
-	linux/hub.dynamic.host.elf \
-	linux/clock.dynamic.host.elf \
-	linux/pd.dynamic.host.elf \
-	linux/a2jmidid.dynamic.host.elf \
-	linux/akai_fire.dynamic.host.elf \
-	linux/envy24.dynamic.host.elf \
 
 HOST_CRUST_ELF := \
 	linux/test_rs.crust.host.elf \
