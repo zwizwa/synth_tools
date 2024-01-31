@@ -13,7 +13,7 @@ clean:
 	rm -f zig/*.o zig/*.a
 
 # Keep this /etc/net build.  Does not depend on ARM tools.
-host_elf: $(HOST_ELF)
+exo_elf: $(EXO_ELF)
 
 
 
