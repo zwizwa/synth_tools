@@ -116,7 +116,7 @@ static inline void send_stop(void *out_buf)  { send_control_byte(out_buf, 0xFC);
 
 
 /* Erlang */
-#define TO_ERL_SIZE_LOG 12
+#define TO_ERL_SIZE_LOG 16
 #define TO_ERL_SIZE (1 << TO_ERL_SIZE_LOG)
 static uint8_t to_erl_buf[TO_ERL_SIZE];
 static size_t to_erl_buf_bytes = 0;
