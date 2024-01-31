@@ -2,7 +2,10 @@
 HERE=$(dirname "$0")
 PWD=$(pwd)
 cd $HERE
-exec nix develop --command make -C ${PWD} "$@"
+## FIXME: exo_vm doesn't see nix command in PATH?
+# NIX=nix
+NIX=/run/current-system/sw/bin/nix
+exec $NIX develop --command make -C ${PWD} "$@"
 
 #####################################################################
 

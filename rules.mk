@@ -99,6 +99,7 @@ STUDIO_ELF := \
 	linux/pd.dynamic.host.elf \
 	linux/a2jmidid.dynamic.host.elf \
 	linux/akai_fire.dynamic.host.elf \
+	linux/envy24.dynamic.host.elf \
 
 HOST_CRUST_ELF := \
 	linux/test_rs.crust.host.elf \
