@@ -93,7 +93,7 @@ HOST_ELF := \
 	linux/a2jmidid.dynamic.host.so \
 
 # Subset used by exo studio.
-EXO_ELF := \
+STUDIO_ELF := \
 	linux/hub.dynamic.host.elf \
 	linux/clock.dynamic.host.elf \
 	linux/pd.dynamic.host.elf \
