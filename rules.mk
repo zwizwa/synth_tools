@@ -98,6 +98,7 @@ STUDIO_ELF := \
 	linux/clock.dynamic.host.elf \
 	linux/pd.dynamic.host.elf \
 	linux/a2jmidid.dynamic.host.so \
+	linux/akai_fire.dynamic.host.elf \
 
 HOST_CRUST_ELF := \
 	linux/test_rs.crust.host.elf \
