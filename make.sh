@@ -5,7 +5,7 @@ cd $HERE
 ## FIXME: exo_vm doesn't see nix command in PATH?
 # NIX=nix
 NIX=/run/current-system/sw/bin/nix
-exec $NIX develop --command make -C ${PWD} "$@"
+exec $NIX develop --print-build-logs --command make -C ${PWD} "$@"
 
 #####################################################################
 

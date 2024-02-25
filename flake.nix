@@ -61,6 +61,7 @@
             gcc jack2 a2jmidid alsa-lib puredata sqlite
             gcc-arm-embedded 
             rustToolchain
+            pkg-config
           ];
 
         rs_crate = target: # See also rs_tools/flake.nix

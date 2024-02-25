@@ -26,6 +26,7 @@
 
 #include "mod_sequencer.c"
 #include "mod_akai_fire.c"
+#include "mod_novation_remote.c"
 
 void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
     uint8_t len_buf[4];
@@ -64,11 +65,6 @@ FOR_MIDI_IN(DEF_JACK_PORT)
 FOR_MIDI_OUT(DEF_JACK_PORT)
 
 static jack_client_t *client = NULL;
-
-struct remote {
-    uint8_t sel;
-    uint8_t record;
-};
 
 struct app {
     struct sequencer sequencer;
@@ -380,6 +376,8 @@ void pd_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
     }
 
 }
+
+/* TODO: Wrap this in an abstract MIDI api. */
 
 static inline void process_remote_in(struct app *app) {
     struct remote *r = &app->remote;
