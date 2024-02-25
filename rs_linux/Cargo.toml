@@ -1,0 +1,13 @@
+[package]
+name = "synth_tools_rs_linux"
+version = "0.1.0"
+authors = ["Author Name <tom@zwizwa.be>"]
+
+[dependencies]
+alsa = "0.9.0"
+
+[[bin]]
+name = "hub2"
+path = "src/hub2.rs"
+
+
