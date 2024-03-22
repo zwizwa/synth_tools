@@ -64,57 +64,66 @@
             pkg-config
           ];
 
-        # There are currently two rust targets:
-        # - heapless .a lib used for stm and linux C code
-        # - Linux executable (hub2.rs)
+          # There are currently two rust targets:
+          # - heapless .a lib used for stm and linux C code
+          # - Linux executables
 
-        rs_linux = let
-          pname = "synth_tools_rs_linux";
-          src = ./rs_linux;
-          target = "x86_64-unknown-linux-gnu";
-        in
-          rustPlatform.buildRustPackage {
+          rs_linux = let
             pname = "synth_tools_rs_linux";
-            auditable = false;
-            cargoLock = {
-              lockFile = src + "/Cargo.lock";
+            target = "x86_64-unknown-linux-gnu";
+            src = ./rs_linux;
+          in
+            rustPlatform.buildRustPackage {
+              name = "synth_tools_rs_linux";
+              inherit src;
+              pname = "synth_tools_rs_linux";
+              auditable = false;
+              cargoLock = {
+                lockFile = src + "/Cargo.lock";
+              };
+              # FIXME: pkgs-config in buildInputs didn't work. Why
+              # does this have to be nativeBuildInputs?
+              buildInputs = with pkgs; [
+                alsa-lib
+              ];
+              nativeBuildInputs = with pkgs; [
+                pkg-config
+              ];
+              buildPhase = ''
+                cargo build --release --target ${target}
+              '';          
+              doCheck = false;
+              installPhase = ''
+                mkdir -p $out/bin/
+                find -name '*.a'  
+                cp -a target/release/* $out/bin/
+                find $out           
+              '';    
             };
-            buildInputs = with pkgs; [ ];
-            buildPhase = ''
-              cargo build --release --target ${target}
-            '';
-            doCheck = false;
-            installPhase = ''
-              mkdir -p $out/bin/
-              find -name '*.a'
-              cp `find -name ${pname}` $out/bin/
-            '';
-            
-          };
 
-        rs_crate = target: # See also rs_tools/flake.nix
-          let pname = "synth_tools_rs";
-              src = ./rs;
-          in rustPlatform.buildRustPackage {
-            inherit src pname;
-            version = "rs_tools";
-            auditable = false;
-            cargoLock = {
-              lockFile = src + "/Cargo.lock";
+          rs_crate = target: # See also rs_tools/flake.nix
+            let pname = "synth_tools_rs";
+                src = ./rs;
+            in rustPlatform.buildRustPackage {
+              inherit src pname;
+              version = "rs_tools";
+              auditable = false;
+              cargoLock = {
+                lockFile = src + "/Cargo.lock";
+              };
+              buildInputs = with pkgs; [ ];
+              buildPhase = ''
+                cargo build --release --target ${target}
+              '';          
+              doCheck = false;
+              installPhase = ''
+                mkdir -p $out  
+                find -name '*.a '
+                cp `find -name lib${pname}.a` $out/
+              '';  
             };
-            buildInputs = with pkgs; [ ];
-            buildPhase = ''
-              cargo build --release --target ${target}
-            '';
-            doCheck = false;
-            installPhase = ''
-              mkdir -p $out
-              find -name '*.a'
-              cp `find -name lib${pname}.a` $out/
-            '';
-          };
-        rs_a = target: "${rs_crate target}/libsynth_tools_rs.a";
-
+          rs_a = target: "${rs_crate target}/libsynth_tools_rs.a";
+          
       in
         {
           defaultPackage =
@@ -123,6 +132,7 @@
               inherit buildInputs;
               RS_A_HOST = rs_a "x86_64-unknown-linux-gnu";
               RS_A_STM  = rs_a "thumbv6m-none-eabi";
+              RS_LINUX = rs_linux;
               src = self;
               inherit uc_tools; # Source
               TPF = "arm-none-eabi-";
