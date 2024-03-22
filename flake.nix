@@ -64,9 +64,37 @@
             pkg-config
           ];
 
+        # There are currently two rust targets:
+        # - heapless .a lib used for stm and linux C code
+        # - Linux executable (hub2.rs)
+
+        rs_linux = let
+          pname = "synth_tools_rs_linux";
+          src = ./rs_linux;
+          target = "x86_64-unknown-linux-gnu";
+        in
+          rustPlatform.buildRustPackage {
+            pname = "synth_tools_rs_linux";
+            auditable = false;
+            cargoLock = {
+              lockFile = src + "/Cargo.lock";
+            };
+            buildInputs = with pkgs; [ ];
+            buildPhase = ''
+              cargo build --release --target ${target}
+            '';
+            doCheck = false;
+            installPhase = ''
+              mkdir -p $out/bin/
+              find -name '*.a'
+              cp `find -name ${pname}` $out/bin/
+            '';
+            
+          };
+
         rs_crate = target: # See also rs_tools/flake.nix
-          let src = ./rs;
-              pname = "synth_tools_rs";
+          let pname = "synth_tools_rs";
+              src = ./rs;
           in rustPlatform.buildRustPackage {
             inherit src pname;
             version = "rs_tools";
@@ -85,7 +113,7 @@
               cp `find -name lib${pname}.a` $out/
             '';
           };
-        rs_lib = target: "${rs_crate target}/libsynth_tools_rs.a";
+        rs_a = target: "${rs_crate target}/libsynth_tools_rs.a";
 
       in
         {
@@ -93,8 +121,8 @@
             pkgs.stdenv.mkDerivation {
               name = "synth_tools";
               inherit buildInputs;
-              RS_A_HOST = rs_lib "x86_64-unknown-linux-gnu";
-              RS_A_STM  = rs_lib "thumbv6m-none-eabi";
+              RS_A_HOST = rs_a "x86_64-unknown-linux-gnu";
+              RS_A_STM  = rs_a "thumbv6m-none-eabi";
               src = self;
               inherit uc_tools; # Source
               TPF = "arm-none-eabi-";

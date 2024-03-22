@@ -18,8 +18,10 @@ heapless = "0.8.0"
 crate-type = ["staticlib"]
 path = "src/lib.rs"
 
-[[bin]]
-name = "hub2"
-path = "src/hub2.rs"
+## This is now a separate crate, see synth_tools/rs_linux
+
+#[[bin]]
+#name = "hub2"
+#path = "src/hub2.rs"
 
 

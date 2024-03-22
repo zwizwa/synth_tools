@@ -20,4 +20,5 @@ clean:
 # Keep this /etc/net build.  Does not depend on ARM tools.
 studio_elf: $(STUDIO_ELF)
 
+rs_a: $(RS_A_HOST)
 

@@ -47,8 +47,6 @@ fn main() {
     codec.reset_decode();
     codec.enable_running_status(true);
 
-    // FIXME: protocol isn't very clear. find example, e.g. a2jmidid
-
     match s.get_any_port_info(addr) {
         Ok(pi) => {
             println!("port: {:?}", pi);
