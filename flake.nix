@@ -7,7 +7,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/85f1ba3e51676fa8cc604a3d863d729026a6b8eb";
     # nixpkgs.url = github:zwizwa/nixpkgs;
     flake-utils.url = "github:numtide/flake-utils";
-    flake-utils.inputs.nixpkgs.follows = "nixpkgs";
+    # flake-utils.inputs.nixpkgs.follows = "nixpkgs";
     libopencm3.url = github:zwizwa/libopencm3-flake;
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
@@ -123,6 +123,7 @@
               '';  
             };
           rs_a = target: "${rs_crate target}/libsynth_tools_rs.a";
+          pd = pkgs.callPackage ./pkgs/pd {};
           
       in
         {
@@ -133,6 +134,7 @@
               RS_A_HOST = rs_a "x86_64-unknown-linux-gnu";
               RS_A_STM  = rs_a "thumbv6m-none-eabi";
               RS_LINUX = rs_linux;
+              PD = pd;
               src = self;
               inherit uc_tools; # Source
               TPF = "arm-none-eabi-";

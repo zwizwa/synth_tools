@@ -17,6 +17,8 @@ cp -a stm32f103/*.elf $out/stm32f103/
 
 # Rust binaries are built in a separate derivation.  Just link it here.
 (cd $out
- ln -s ${RS_LINUX} rs_linux)
+ ln -s ${RS_LINUX} rs_linux
+ ln -s ${PD} pd
+)
 
  

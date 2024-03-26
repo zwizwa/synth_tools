@@ -1,6 +1,13 @@
 #include "m_pd.h"
 #include <math.h>
 
+/* Next:
+
+   Add a loader for "double buffered" dynamic objects.
+
+*/
+
+
 /* SHARED */
 #define DEF_TILDE_CLASS(cname, ...) do {                                \
         cname##_class = class_new(                                      \
