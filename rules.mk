@@ -386,6 +386,30 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	$< > $@
 
 
+ebin/%.beam: erl/%.erl
+	@echo $@ ; mkdir -p ebin; erlc -o ebin $<
+
+# Erlang modules
+BEAM := \
+	ebin/jack_audio.beam \
+	ebin/jack_client.beam \
+	ebin/jack_control.beam \
+	ebin/jack_daemon.beam \
+	ebin/jack_erl.beam \
+	ebin/jack_midi.beam \
+	ebin/jack_record.beam \
+	ebin/midi.beam \
+	ebin/port_midi.beam \
+	ebin/rai.beam \
+	ebin/studio_cfg.beam \
+	ebin/studio_config.beam \
+	ebin/studio_db.beam \
+	ebin/studio_rs.beam \
+	ebin/studio_seq.beam \
+
+# FIXME: export_all warning
+BEAM_TEST: \
+	ebin/test_studio_seq.beam \
 
 
 # E.g. for clean target
@@ -399,3 +423,5 @@ ALL_PRODUCTS := \
 	stm32f103/x8.f103.ld \
 	stm32f103/lib.f103.a \
 	linux/lib.host.a \
+	$(BEAM) \
+

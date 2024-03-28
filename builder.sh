@@ -10,10 +10,12 @@ make -j${NIX_BUILD_CORES}
 
 mkdir -p $out/linux
 mkdir -p $out/stm32f103
+mkdir -p $out/ebin
 
 # Copy build products.
 cp -a linux/*.elf     $out/linux/
 cp -a stm32f103/*.elf $out/stm32f103/
+cp -a ebin/*.beam     $out/ebin/
 
 # Rust binaries are built in a separate derivation.  Just link it here.
 (cd $out
@@ -21,4 +23,3 @@ cp -a stm32f103/*.elf $out/stm32f103/
  ln -s ${PD} pd
 )
 
- 

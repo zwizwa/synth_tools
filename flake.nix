@@ -62,6 +62,7 @@
             gcc-arm-embedded 
             rustToolchain
             pkg-config
+            erlang
           ];
 
           # There are currently two rust targets:
