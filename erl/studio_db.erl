@@ -19,18 +19,26 @@ tables() ->
 %% Set up schema.  It would be simpler to do this with a command file
 %% but it doesn't seem that the C api supports that.
 db_init() ->
-    [[],[],[]] = sql(
-      [{<<"create table if not exists midiport ("
+    [[],[],[],[],[]] = sql(
+      [{<<"CREATE TABLE IF NOT EXISTS midiport ("
           "  port_id   INTEGER PRIMARY KEY NOT NULL,"
           "  port_name TEXT    NOT NULL"
           ");">>,[]},
-       {<<"create table if not exists midiclock ("
+       {<<"CREATE TABLE IF NOT EXISTS midiclock ("
           "  port_name  TEXT    PRIMARY KEY NOT NULL,",
           "  ts         INTEGER,"
           "  enable     TEXT",
           ");">>,[]},
-       {<<"create view if not exists midiclock_mask as"
-          "  select sum(1<<port_id) from midiclock left join midiport on midiclock.port_name = midiport.port_name;">>,[]}
+       {<<"CREATE TABLE IF NOT EXISTS jack ("
+          "  src_client  TEXT NOT NULL,"
+          "  src_port    TEXT NOT NULL,"
+          "  dst_client  TEXT NOT NULL,"
+          "  dst_port    TEXT NOT NULL"
+          ");">>,[]},
+       {<<"CREATE VIEW IF NOT EXISTS jack_connect AS"
+          "  SELECT src_client||':'||src_port AS src, dst_client||':'||dst_port AS dst FROM jack;">>,[]},
+       {<<"CREATE VIEW IF NOT EXISTS midiclock_mask AS"
+          "  SELECT sum(1<<port_id) FROM midiclock LEFT JOIN midiport ON midiclock.port_name = midiport.port_name;">>,[]}
       ]),
     ok.
 

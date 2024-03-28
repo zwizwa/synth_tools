@@ -24,7 +24,8 @@
 do_start(State) ->
     %% Precondition: not started
     error = maps:find(port, State),
-    SH = code:priv_dir(studio) ++ "/start_jackd.sh",
+    %% SH = code:priv_dir(studio) ++ "/start_jackd.sh",
+    SH = "/etc/net/bin/i.jack",
     tools:info("jackd_open: ~s~n",[SH]),
     Opts = [{line,1024}, binary, use_stdio, exit_status],
     Port = open_port({spawn, SH}, Opts),
