@@ -20,6 +20,8 @@ cp -a creb.pd_linux $out/bin
 cp -a abs $out/
 cp -a doc $out/
 
+ldd creb.pd_linux >$out/ldd.txt
+
 # For now just make a dedicated wrapper for creb.
 # Later, gather all externs in a wrapper.
 cat <<EOF >$out/bin/pd-creb
