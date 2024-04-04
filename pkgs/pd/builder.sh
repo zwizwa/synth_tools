@@ -23,3 +23,7 @@ $pd/bin/pd \
 "\$@"
 EOF
 chmod +x $out/bin/pd
+
+(cd $out
+ # Leave a version without libraries loaded for testing.
+ ln -s $pd pd-plain)

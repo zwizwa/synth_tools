@@ -1,0 +1,6 @@
+#N canvas 982 265 446 296 12;
+#X obj 57 82 exo;
+#X obj 53 36 netreceive 3000;
+#X obj 116 76 print;
+#X connect 1 0 2 0;
+#X connect 1 0 0 0;
