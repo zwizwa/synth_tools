@@ -133,6 +133,12 @@ hub_client(State) ->
 %% - a2jmidid is an external application that we just reuse
 %% - clock is kept seperate to ensure we design things to work as slave as well
 %% - hub contains all routing code, and hosts some state machines (sequencer, stateful routing)
+%%
+%% Note that hub needs to start first so it can handle jack events to
+%% connect the other clients.  There is probably a race condition
+%% here.  FIXME: Add an RPC that gives a sync point ensuring the event
+%% handler is installed.
+
 need_clients(State = #{ clients := _ }) ->
     State;
 need_clients(State) ->
@@ -141,9 +147,9 @@ need_clients(State) ->
       clients,
       maps:from_list(
         [{Name,start_client(Name, State)}
-         || Name <- [clock     %% synth_tools clock.c
-                    ,hub       %% synth_tools hub.c (MIDI / Erlang hub)
+         || Name <- [hub       %% synth_tools hub.c (MIDI / Erlang hub)
                     ,a2jmidid  %% upstream alsa to jack midi bridge
+                    ,clock     %% synth_tools clock.c
                     ]]),
       State).
 

@@ -1,4 +1,8 @@
 #!/bin/sh
+
+[ -f ~/.pdsettings ] && echo "WARNING: ~/.pdsettings found"
+
+
 # Run a headless Pd
 cd $(dirname "$0")
 
@@ -15,7 +19,6 @@ PD_PLAIN=$SYNTH_TOOLS/pd/pd-plain/bin/pd
 # cat $PD ; exec $PD -nogui
 echo "PD_PLAIN $(readlink -f $PD_PLAIN)"
 
-[ -f "~/.pdsettings" ] && echo "WARNING: ~/.pdsettings found"
 
 PD_ARGS="-nogui" # -verbose
 PD_LIBS="-lib synth_tools"

@@ -9,6 +9,10 @@
 //
 // - To debug events:
 
+// Next:
+//
+// - MIDI in
+
 extern crate alsa;
 use alsa::seq::{Addr, ClientIter, MidiEvent, PortCap, PortIter, PortType, Seq};
 // use alsa::Direction;
