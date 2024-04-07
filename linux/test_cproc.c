@@ -26,6 +26,21 @@ void cproc_update(w *input, w g) {
     cproc_output(2, a1.out);
 }
 
+#if 0
+// Note that PROC() uses static variables for state, so it won't work
+// for creating nested with parameterized state.  To re-use the code
+// to create the state struct, it needs to be expressed as a macro so
+// that it can be instantiated as a function and a state constructor.
+// This does run into issues with introduced names that should be
+// replaced at the reference end as well.  Maybe this whole idea of
+// embedding it in C is not great...
+#define myproc(proc, w *input, w g)         \
+    m(e1, edge, NULL, NULL, .in = input[0]) \
+    m(a1, acc,  NULL, NULL, .in = e1.out)   \
+
+#endif
+
+
 
 // TODO: combinators
 

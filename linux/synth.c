@@ -12,8 +12,9 @@
 #include <stdint.h>
 
 #include "macros.h"
-
 #include "sysex.h"
+
+
 #include <unistd.h>
 #include <sys/mman.h>
 #include <pthread.h>
@@ -29,6 +30,20 @@
 #define SYNTH_NB_VARS 3
 
 typedef uint32_t phasor_t;
+
+
+#if 0
+// Don't use this.  It's not composable and I do want that.
+#include "cproc.h"
+#define for_osc_state(m) m(phasor_t,note_state) m(phasor_t,note_inc)
+#define for_osc_input(m) 
+#define for_osc_config(m)
+#define for_osc_param(m)
+DEF_PROC(osc, s, c, p, i) {
+    s->note_state += s->note_inc;
+}
+#endif
+
 
 struct voice {
     phasor_t note_inc;  /* 0 == off */
@@ -164,9 +179,11 @@ void synth_note_off(struct synth *x, int note) {
     x->voice[v].note_inc = 0;
 }
 
+
 /* MIDI note state */
 // FIXME: no float!
-float sum_tick_saw(struct synth *x) {
+// FIXME: replace voice with cproc
+float sum_tick_osc(struct synth *x) {
     unsigned int v;
     int sum = 0;
     FOR_IN(v, x->voice) {
@@ -179,6 +196,7 @@ float sum_tick_saw(struct synth *x) {
     }
     return (1.0 / PHASOR_PERIOD) * ((float)sum);
 }
+#if 0
 float sum_tick_square(struct synth *x) {
     unsigned int v;
     unsigned int accu = 0;
@@ -193,11 +211,13 @@ float sum_tick_square(struct synth *x) {
     }
     return (1.0 / PHASOR_PERIOD) * ((float)accu);
 }
+#endif
+
 void synth_run(struct synth *x, float *vec, int n) {
     // FIXME: update parameters
     int i;
     for (i=0; i<n; i++) {
-        vec[i] = sum_tick_saw(x);
+        vec[i] = sum_tick_osc(x);
     }
 }
 

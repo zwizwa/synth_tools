@@ -12,6 +12,6 @@ inotifywait linux/$BN.c;
 
 make $ELF || exit 1
 
-./$ELF  # Run the bianary
-fi
+# ./$ELF  # Run the bianary
+
 exec $0
