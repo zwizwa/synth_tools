@@ -162,10 +162,8 @@ GEN := $(GEN_DEPS_COMMON)
 # FIXME: This is slow on NFS.  Maybe cache this into a file.
 # Use a script to list the .d files to make this easier to debug.
 DEPS := \
-	$(shell echo "DEPS start" >&2) \
 	$(shell find -name '*.d') \
 	$(shell find $(UC_TOOLS) -name '*.d') \
-	$(shell echo "DEPS end" >&2)
 
 -include $(DEPS)
 

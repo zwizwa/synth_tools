@@ -1,5 +1,6 @@
 #!/bin/sh
 HERE=$(dirname "$0")
+echo "HERE=$HERE"
 PWD=$(pwd)
 cd $HERE
 ## FIXME: exo_vm doesn't see nix command in PATH?
@@ -9,7 +10,7 @@ exec $NIX develop --print-build-logs --command make -C ${PWD} "$@"
 
 #####################################################################
 
-# Left here for reference.  Old method is no longer used.
+# OLD: Left here for reference.  Old method is no longer used.
 
 # NOTE: This is a hack to make use of nix-managed dependencies on a
 # non-nix system.  It is probably better to use "nix develop" instead.
@@ -53,7 +54,7 @@ exec make -j${NPROC}
 
 
 
-# OLD: Use a full description of the build tools and use
+# OLDER: Use a full description of the build tools and use
 # (cached-)nix-shell to build it.
 
 # This is untenable.  Instead, use the 'exo-dev' approach above, which

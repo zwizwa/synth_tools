@@ -67,8 +67,10 @@
 
 */
 
-/* This is essentially "let", which applies a parameterized (curried)
-   processor to a set of dataflow input signals. */
+/* PROC is essentially "let", which applies a parameterized (curried)
+   processor to a set of dataflow input signals.  This is then
+   generalized with conditional execution making PROC_COND the base
+   macro. */
 #define PROC_COND(_subgraph_cond,_instance_name,_type_name,_config_ptr,_param_ptr,...) \
     static _type_name##_state _instance_name = {};                      \
     if (_subgraph_cond) {                                               \

@@ -23,3 +23,6 @@ cp -a ebin/*.beam     $out/ebin/
  ln -s ${PD} pd
 )
 
+# Also create the old style 'env' file.  The exo_vm redo build still uses this.
+
+
