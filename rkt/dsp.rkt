@@ -49,21 +49,21 @@
 ;; when introduced
 ;;
 
-(define-syntax-parameter dsp-eval #'#f)
+(define-syntax-parameter dsp-state #'#f)
 
 ;; Functions are represented as functions so we can just apply the
 ;; context parameter.
 
 (define-syntax dsp-app
   (syntax-rules ()
-    ((_ f . args) (f "eval" . args))))
+    ((_ f . args) (f "state" . args))))
 
 (define-syntax dsp-lambda
   (syntax-rules ()
     ((_ args body)
-     (lambda (eval . args)
+     (lambda (state . args)
        (syntax-parameterize
-        ((dsp-eval #'eval))
+        ((dsp-state #'state))
         body)))))
 
 
