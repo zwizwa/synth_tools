@@ -7,6 +7,7 @@ inotifywait \
     field-sig.rkt \
     test-field.rkt \
     dsp.rkt \
+    dspu.rkt \
     lib.rkt \
     test_prog.rkt \
     test.rkt \
