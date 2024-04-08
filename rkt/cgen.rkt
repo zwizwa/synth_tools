@@ -9,6 +9,7 @@
 (struct binding (reg op args) #:transparent)
 (struct const (value) #:transparent)
 (struct arg (nb) #:transparent)
+(struct function (args bindings result) #:transparent)
 
 (define (init-cgen) (cgen 0 '()))
 
@@ -30,14 +31,21 @@
 
 (define pp pretty-print)
 
+(define (pp-function f)
+  (display "args:\n")
+  (pp (function-args f))
+  (display "bindings:\n")
+  (for ((binding (reverse (function-bindings f)))) (pp binding))
+  (display "result:\n")
+  (pp (function-result f)))
+
 (define (compile-function main)
   (let* ((state (init-cgen))
          (nb-args (sub1 (procedure-arity main)))
          (args (for/list ((i (in-range nb-args))) (arg i)))
          (result (apply main state args))
-         (bindings (cgen-bindings state)))
-    (pp args)
-    (for ((binding (reverse bindings))) (pp binding))
-    (pp result)))
+         (bindings (cgen-bindings state))
+         (f (function args bindings result)))
+    (pp-function f)))
 
-
+;; Next step is to implement feedback.
