@@ -2,11 +2,14 @@
 (require (prefix-in base: racket/base))
 (require
  "cgen.rkt"
- "field-sig.rkt")
+ "field-sig.rkt"
+ "close-sig.rkt"
+ )
 ;; Evaluator semantics field^ primitives.
 (import)
-(export field^)
+(export field^ close^)
 (define + (op2 "+"))
 (define - (op2 "-"))
 (define * (op2 "*"))
 (define / (op2 "/"))
+(define close void)
