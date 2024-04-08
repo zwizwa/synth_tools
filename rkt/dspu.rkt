@@ -11,12 +11,9 @@
  define-unit
  require
  provide
- dsp-app
- dsp-lambda
- dsp-begin
  (rename-out
-  (dsp-app          #%app)
-  (dsp-lambda       lambda)
+  (dsp-app    #%app)
+  (dsp-lambda lambda)
   )
  ;; Primitive functions
  +
@@ -25,23 +22,22 @@
 ;; APP / LAM
 ;;
 ;; - Compiler state will need to be threaded, so make that the first
-;; argument.
+;;   argument.
 ;;
 ;; - Sytax parameters can be used to add a variable to the context
-;; when introduced
+;;   when introduced
 ;;
 
-(define-syntax-parameter dsp-state      #'#f)
-(define-syntax-parameter dsp-primitives #'#f)
+(define-syntax-parameter dsp-state #'#f)
 
 ;; Functions are represented as functions so we can just apply the
 ;; context parameter.
 
 (define-syntax dsp-app
-  (lambda (stx)
-    (syntax-case stx ()
-      ((_ f . args)
-       #`(f #,(syntax-parameter-value #'dsp-state) . args)))))
+ (lambda (stx)
+   (syntax-case stx ()
+     ((_ f . args)
+      #`(f #,(syntax-parameter-value #'dsp-state) . args)))))
 
 (define-syntax dsp-lambda
   (syntax-rules ()
@@ -51,10 +47,3 @@
         ((dsp-state #'state))
         body)))))
 
-(define-syntax dsp-begin
-  (syntax-rules ()
-    ((_ expr ...)
-     (let-syntax
-         ((#%app  #'dsp-app)
-          (lambda #'dsp-lambda))
-       expr ...))))
