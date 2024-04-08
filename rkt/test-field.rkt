@@ -1,5 +1,6 @@
 #lang s-exp (file "stripped-base.rkt")
 (require
+ racket/pretty
  racket/unit
  "field-sig.rkt"
  "field-eval-unit.rkt"
@@ -8,5 +9,9 @@
 (define-values/invoke-unit/infer field-eval@)
 (define-values/invoke-unit/infer field-lib@)
 
-add3
-(add3 #f 1 2 3)
+; add3
+(define state (box 0))
+(pretty-print
+ `((result ,(add3 state 1 2 3))
+   (end-state ,(unbox state))))
+ 

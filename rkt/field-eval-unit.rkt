@@ -4,7 +4,8 @@
 ;; Evaluator semantics field^ primitives.
 (import)
 (export field^)
-(define (+ s a b) (base:+ a b))
-(define (- s a b) (base:- a b))
-(define (* s a b) (base:* a b))
-(define (/ s a b) (base:/ a b))
+(define (tick s) (set-box! s (add1 (unbox s))))
+(define (+ s a b) (tick s) (base:+ a b))
+(define (- s a b) (tick s) (base:- a b))
+(define (* s a b) (tick s) (base:* a b))
+(define (/ s a b) (tick s) (base:/ a b))

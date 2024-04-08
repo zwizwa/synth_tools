@@ -7,16 +7,14 @@
 (provide
  #%top ;; FIXME: raise-syntax-error. No toplevel allowed.
  #%module-begin
- define
  define-unit
  require
  provide
  (rename-out
   (dsp-app    #%app)
   (dsp-lambda lambda)
+  (dsp-define define)
   )
- ;; Primitive functions
- +
  )
 
 ;; APP / LAM
@@ -46,4 +44,9 @@
        (syntax-parameterize
         ((dsp-state #'state))
         body)))))
+
+(define-syntax dsp-define
+  (syntax-rules ()
+    ((_ (name arg ...) body)
+     (define name (dsp-lambda (arg ...) body)))))
 
