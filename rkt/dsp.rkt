@@ -4,10 +4,10 @@
  (for-syntax racket/base)
  )
 (provide
- #%top ;; FIXME: This should raise an error. No toplevel allowed.
+ #%top ;; FIXME: raise-syntax-error. No toplevel allowed.
+ define
  (rename-out
   (dsp-app          #%app)
-  (dsp-define       define)
   (dsp-lambda       lambda)
   (dsp-module-begin #%module-begin)
   )
@@ -25,18 +25,33 @@
 ;; function provides the primitive functions.  Each module then has
 ;; its own API to inject primitives.
 
-;; TOP
+
+
+;; MODULE
 
 ;; Since we introduce primitives using an outer lambda expression, the
-;; toplevel is best used as expecting that one lambda expression and
-;; binding it.
+;; module expression will wrap each module level definition with a
+;; lambda binding the identifiers.
 
 (define-syntax dsp-module-begin
-  (syntax-rules ()
-    ((_ expr)
-     (#%plain-module-begin
-      (provide dsp-module)
-      (define dsp-module expr)))))
+  (syntax-rules (primitives require)
+    ((_ (primitives . prims)
+        ;(require lib ...)
+        (define name expr) ...)
+      (#%plain-module-begin
+       ;(require lib ...)
+       (provide name ...)
+       (define name
+         (lambda
+             ;; Module-level definitions are parameterized by
+             ;; primitives.
+             prims
+           (syntax-parameterize
+            ;; The list will be necessary to instantiate other
+            ;; modules when that gets imple
+            ((dsp-primitives #'prims))
+            expr)))
+       ...))))
 
 
 
@@ -49,14 +64,17 @@
 ;; when introduced
 ;;
 
-(define-syntax-parameter dsp-state #'#f)
+(define-syntax-parameter dsp-state      #'none)
+(define-syntax-parameter dsp-primitives #'none)
 
 ;; Functions are represented as functions so we can just apply the
 ;; context parameter.
 
 (define-syntax dsp-app
-  (syntax-rules ()
-    ((_ f . args) (f "state" . args))))
+  (lambda (stx)
+    (syntax-case stx ()
+      ((_ f . args)
+       #`(f #,(syntax-parameter-value #'dsp-state) . args)))))
 
 (define-syntax dsp-lambda
   (syntax-rules ()
@@ -67,11 +85,6 @@
         body)))))
 
 
-(define-syntax dsp-define
-  (syntax-rules ()
-    ((_ (name args . body))
-     (define args (dsp-lambda args . body)))
-    ))
 
 (define + "add")
   
