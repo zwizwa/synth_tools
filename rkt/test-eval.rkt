@@ -1,11 +1,14 @@
-#lang s-exp (file "stripped-base.rkt")
+#lang s-exp "racket-base.rkt"
 (require
  racket/pretty
  racket/unit
  "field-sig.rkt"
  "field-eval-unit.rkt"
  "field-lib-unit.rkt")
-;; Can be invoked becuase it does not have any imports.
+
+;; Let Racket infer the imports and put the export identifiers in the
+;; module namespace.
+
 (define-values/invoke-unit/infer field-eval@)
 (define-values/invoke-unit/infer field-lib@)
 

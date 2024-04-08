@@ -3,29 +3,17 @@
 inotifywait \
     edit_compile_run.sh \
     field-eval-unit.rkt \
+    field-cgen-unit.rkt \
     field-lib-unit.rkt \
+    test-main-unit.rkt \
     field-sig.rkt \
-    test-field.rkt \
+    test-eval.rkt \
+    test-cgen.rkt \
+    cgen.rkt \
     dsp.rkt \
-    dspu.rkt \
-    lib.rkt \
-    test_prog.rkt \
-    test.rkt \
 
-racket test-field.rkt
+racket test-eval.rkt
+racket test-cgen.rkt
 
 exec $0
 
-
-# OLD
-
-inotifywait \
-    edit_compile_run.sh \
-    dsp.rkt \
-    lib.rkt \
-    test_prog.rkt \
-    test.rkt \
-
-racket test.rkt
-
-exec $0
