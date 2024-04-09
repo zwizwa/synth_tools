@@ -23,7 +23,7 @@
   (define (main i)
     (let* ((update (lambda (s i) (values (+ s i) s)))
            (proc (close 1 update)))
-      (proc i)))
+      (proc (proc i))))
 
 )
 (provide main@)

@@ -27,21 +27,21 @@
     (set-cgen-state! s (cons reg (cgen-state s)))
     reg))
 
-(define (code! s binding)
+(define (compile-code! s binding)
   (set-cgen-code! s (cons binding (cgen-code s))))
 
-(define (bind s op . args)
+(define (compile-bind! s op . args)
   (let* ((r (make-reg! s)))
-    (code! s (binding r op args))
+    (compile-code! s (binding r op args))
     r))
 
-(define (assign s dst src)
-  (code! s (assignment dst src)))
+(define (compile-assign! s dst src)
+  (compile-code! s (assignment dst src)))
 
 (define (op2 op)
   ;; (pp op)
   (lambda (s a b)
-    (bind s op a b)))
+    (compile-bind! s op a b)))
 
 (define pp pretty-print)
 
@@ -63,9 +63,14 @@
          (state (cgen-state s)))
     (function state args code result)))
 
-;; Feed back nb-state in/out values via register.
-(define (close-impl s nb-state update)
+;; Add nb-state registers to the enclosing target function's state
+;; input, and wrap the update function in a new function that reads
+;; from the state variables, performs the computation, saves the new
+;; state variables and passes on the rest of the outputs.
+(define (close-state s nb-state update)
   (let*
+      ;; sub1/add1 account for the extra state parameter that is
+      ;; added to dsp functions
       ((nb-in (- (sub1 (procedure-arity update)) nb-state))
        (states (for/list ((i (in-range nb-state))) (make-state! s)))
        (closed-update
@@ -79,23 +84,27 @@
                     (split-at nstates-outs nb-state)))
                 ;(printf "; nstates=~a\n; outs=~a\n" nstates outs)
                 (for ((state states) (nstate nstates))
-                   (assign s state nstate))
+                   (compile-assign! s state nstate))
                 (apply values outs)))))))
     ;(printf "; nb-in=~a nb-state=~a\n" nb-in nb-state)
-    ;; (procedure-reduce-arity closed-update (add1 nb-in))
-    closed-update))
+    (procedure-reduce-arity closed-update (add1 nb-in))
+    ))
 
 
 ;; Evaluator semantics field^ primitives.
+
+;; Note that the C gen doesn't generate infix operations to keep
+;; things simple.  The C primitives are defined as C macros or
+;; functions.
 (define-unit cgen@
   (import)
   (export field^ close^)
-  (define + (op2 "+"))
-  (define - (op2 "-"))
-  (define * (op2 "*"))
-  (define / (op2 "/"))
+  (define + (op2 "add"))
+  (define - (op2 "sub"))
+  (define * (op2 "mul"))
+  (define / (op2 "div"))
 
-  (define close close-impl)
+  (define close close-state)
            
     
   
