@@ -14,10 +14,6 @@
   (import field^ field-lib^ close^)
   (export main^)
 
-  ;; Note that top level definitions need to be lambda forms,
-  ;; e.g. (define main (close 1 ...)) will not work.  The #%app form
-  ;; only works inside of dsp lang lambda form, which provides the
-  ;; compiler state syntax parameter.
   
   ;; (define (main a b c) (+ a (+ b c)))
   (define (main i)
@@ -26,6 +22,8 @@
       ;; Invoke it twice to check that each instantiation has its own
       ;; state registers.
       (proc (proc i))))
+
+  (define main0 (close 1 (lambda (s i) (values (+ s i) s))))
 
 )
 (provide main@)

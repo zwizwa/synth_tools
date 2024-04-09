@@ -22,5 +22,7 @@
 (define-values/invoke-unit/infer main@)
 
 ;; Run the compiler.
-(pp-function (compile-function main))
+(define f (compile-function main))
+(pp-function f)
 
+(fwrite-c-code (current-output-port)  f)

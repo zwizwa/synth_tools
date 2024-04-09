@@ -23,12 +23,11 @@
 ;; Target language funcions are represented as functions that take an
 ;; extra state argument that is threaded through applications.
 
-;; The lexical variable binding the extra state variable.
-(define-syntax-parameter dsp-state #'(dsp-state-not-bound))
-(define-syntax dsp-state-not-bound
-  (lambda (stx)
-    (raise-syntax-error
-     #f "dsp-state not bound, not inside a dsp-lambda")))
+;; The lexical variable binding the extra state variable.  Note that
+;; if we are not inside a dsp-lambda, this will not have a reference
+;; to the compiler/evaluator.  Operators that do not rely on it will
+;; still work, e.g. 'close'.
+(define-syntax-parameter dsp-state #'#f)
 
 (define-syntax dsp-lambda
   (syntax-rules ()
