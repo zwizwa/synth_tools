@@ -4,7 +4,6 @@
  (for-syntax racket/base)
  )
 (provide
- #%top ;; FIXME: raise-syntax-error. No toplevel allowed.
  #%module-begin
  #%datum
  require
@@ -15,6 +14,7 @@
   (dsp-lambda lambda)
   (dsp-define define)
   (dsp-values values)
+  (dsp-top    #%top)
   )
  )
 
@@ -24,7 +24,11 @@
 ;; extra state argument that is threaded through applications.
 
 ;; The lexical variable binding the extra state variable.
-(define-syntax-parameter dsp-state #'#f)
+(define-syntax-parameter dsp-state #'(dsp-state-not-bound))
+(define-syntax dsp-state-not-bound
+  (lambda (stx)
+    (raise-syntax-error
+     #f "dsp-state not bound, not inside a dsp-lambda")))
 
 (define-syntax dsp-lambda
   (syntax-rules ()
@@ -51,3 +55,7 @@
 ;; ignore that.
 (define (dsp-values s . vs)
   (apply values vs))
+
+(define-syntax dsp-top
+  (lambda (stx)
+    (raise-syntax-error #f "#%top not valid")))

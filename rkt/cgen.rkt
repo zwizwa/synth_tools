@@ -52,15 +52,16 @@
                             (pp code))
   (display "out:\n")   (pp (function-out f)))
 
+;; The result of compiling a collection of nested stream processing
+;; functions is one C function parameterized with a state vector.
 (define (compile-function main)
   (let* ((s (init-cgen))
          (nb-args (sub1 (procedure-arity main)))
          (args (for/list ((i (in-range nb-args))) (make-reg! s)))
          (result (apply main s args))
          (code (cgen-code s))
-         (state (cgen-state s))
-         (f (function state args code result)))
-    (pp-function f)))
+         (state (cgen-state s)))
+    (function state args code result)))
 
 ;; Feed back nb-state in/out values via register.
 (define (close-impl s nb-state update)
@@ -69,18 +70,18 @@
        (states (for/list ((i (in-range nb-state))) (make-state! s)))
        (closed-update
         (lambda (s . ins)
-          (printf "; ins=~a\n" ins)
+          ;(printf "; ins=~a\n" ins)
           (call-with-values
               (lambda () (apply update s (append states ins)))
             (lambda nstates-outs
               (let-values
                   (((nstates outs)
                     (split-at nstates-outs nb-state)))
-                (printf "; nstates=~a\n; outs=~a\n" nstates outs)
+                ;(printf "; nstates=~a\n; outs=~a\n" nstates outs)
                 (for ((state states) (nstate nstates))
                    (assign s state nstate))
                 (apply values outs)))))))
-    (printf "; nb-in=~a nb-state=~a\n" nb-in nb-state)
+    ;(printf "; nb-in=~a nb-state=~a\n" nb-in nb-state)
     ;; (procedure-reduce-arity closed-update (add1 nb-in))
     closed-update))
 

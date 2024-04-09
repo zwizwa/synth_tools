@@ -14,6 +14,11 @@
   (import field^ field-lib^ close^)
   (export main^)
 
+  ;; Note that top level definitions need to be lambda forms,
+  ;; e.g. (define main (close 1 ...)) will not work.  The #%app form
+  ;; only works inside of dsp lang lambda form, which provides the
+  ;; compiler state syntax parameter.
+  
   ;; (define (main a b c) (+ a (+ b c)))
   (define (main i)
     (let* ((update (lambda (s i) (values (+ s i) s)))

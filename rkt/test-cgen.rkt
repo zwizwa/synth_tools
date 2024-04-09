@@ -22,5 +22,5 @@
 (define-values/invoke-unit/infer main@)
 
 ;; Run the compiler.
-(compile-function main)
+(pp-function (compile-function main))
 
