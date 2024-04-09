@@ -6,12 +6,15 @@
 (provide
  #%top ;; FIXME: raise-syntax-error. No toplevel allowed.
  #%module-begin
+ #%datum
  require
  provide
+ let let*
  (rename-out
   (dsp-app    #%app)
   (dsp-lambda lambda)
   (dsp-define define)
+  (dsp-values values)
   )
  )
 
@@ -40,5 +43,11 @@
 (define-syntax dsp-define
   (syntax-rules ()
     ((_ (name arg ...) body)
-     (define name (dsp-lambda (arg ...) body)))))
+     (define name (dsp-lambda (arg ...) body)))
+    ((_ name expr)
+     (define name expr))))
 
+;; This will be called with an extra state argument by dsp-app, so we
+;; ignore that.
+(define (dsp-values s . vs)
+  (apply values vs))
