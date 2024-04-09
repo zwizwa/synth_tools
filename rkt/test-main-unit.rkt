@@ -23,6 +23,8 @@
   (define (main i)
     (let* ((update (lambda (s i) (values (+ s i) s)))
            (proc (close 1 update)))
+      ;; Invoke it twice to check that each instantiation has its own
+      ;; state registers.
       (proc (proc i))))
 
 )

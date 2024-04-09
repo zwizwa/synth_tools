@@ -67,26 +67,40 @@
 ;; input, and wrap the update function in a new function that reads
 ;; from the state variables, performs the computation, saves the new
 ;; state variables and passes on the rest of the outputs.
+;;
+
+(define logf printf)
+(define (log/pp tag item)
+  (display tag)
+  (pretty-print item))
+
 (define (close-state s nb-state update)
   (let*
       ;; sub1/add1 account for the extra state parameter that is
       ;; added to dsp functions
       ((nb-in (- (sub1 (procedure-arity update)) nb-state))
-       (states (for/list ((i (in-range nb-state))) (make-state! s)))
        (closed-update
-        (lambda (s . ins)
-          ;(printf "; ins=~a\n" ins)
-          (call-with-values
-              (lambda () (apply update s (append states ins)))
-            (lambda nstates-outs
-              (let-values
-                  (((nstates outs)
-                    (split-at nstates-outs nb-state)))
-                ;(printf "; nstates=~a\n; outs=~a\n" nstates outs)
-                (for ((state states) (nstate nstates))
-                   (compile-assign! s state nstate))
-                (apply values outs)))))))
-    ;(printf "; nb-in=~a nb-state=~a\n" nb-in nb-state)
+        (lambda (s . in)
+          (log/pp "instance "  update)
+          (let*
+              ;; Note that there is a subtlety here: the state
+              ;; variables need to be created when the processor is
+              ;; _applied_.  I.e. the stream processor instance
+              ;; corresponds to the _application_ of the function that
+              ;; represents the stream processor, not the function
+              ;; abstraction itself.
+              ((state (for/list ((i (in-range nb-state))) (make-state! s))))
+            (log/pp "  state: " state)
+            (log/pp "  in:    " in)
+            (call-with-values
+                (lambda () (apply update s (append state in)))
+              (lambda retvals
+                (let-values
+                    (((next out) (split-at retvals nb-state)))
+                  (log/pp "  next:  " next)
+                  (log/pp "  out:   " out)
+                  (for ((dst state) (src next)) (compile-assign! s dst src))
+                  (apply values out))))))))
     (procedure-reduce-arity closed-update (add1 nb-in))
     ))
 
