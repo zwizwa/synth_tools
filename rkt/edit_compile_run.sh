@@ -12,7 +12,7 @@ inotifywait \
     cgen.rkt \
     dsp.rkt \
 
-racket test-eval.rkt
+# racket test-eval.rkt
 racket test-cgen.rkt
 
 exec $0

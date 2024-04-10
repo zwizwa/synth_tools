@@ -82,6 +82,7 @@ STM_ELF_DIS := \
 	$(UC_TOOLS)/gdb/test_3if.x8ram.f103.bin \
 
 HOST_ELF := \
+	linux/test_synth_cgen.dynamic.host.elf \
 	linux/test_pdm.dynamic.host.elf \
 	linux/test_bl_midi.dynamic.host.elf \
 	linux/test_cproc.dynamic.host.elf \

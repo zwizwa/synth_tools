@@ -33,12 +33,17 @@
      3 (lambda (i s)
          (+ s i))))
 
-  (define (main in)
+  (define (main3 in)
     ;; Create ramp generators
     (let ((ramp (close 1 (lambda (s) (values (+ s in) s)))))
       (iterate
        3 (lambda (i s)
            ;; Sum the output of a couple of ramp generators.
            (+ s (ramp))))))
+
+  (define (main osc_inc)
+    (let ((osc (close 1 (lambda (s) (values (frac (+ s osc_inc)) s)))))
+      (osc)))
+    
 )
 (provide main@)

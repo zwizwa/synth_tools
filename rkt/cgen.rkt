@@ -109,10 +109,8 @@
 
 
 
-(define (op2 op)
-  ;; (pp op)
-  (lambda (s a b)
-    (bind2! s 'l op a b)))
+(define (op1 op) (lambda (s a)   (bind1! s 'l op a)))
+(define (op2 op) (lambda (s a b) (bind2! s 'l op a b)))
 
 (define pp pretty-print)
 
@@ -385,6 +383,7 @@
   (define - (op2 "sub"))
   (define * (op2 "mul"))
   (define / (op2 "div"))
+  (define frac (op1 "frac"))
 
   (define close   cgen-close)
   (define iterate cgen-iterate)
