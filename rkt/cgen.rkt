@@ -17,22 +17,31 @@
 
 
 
-(struct cgen (next-reg code state stack) #:mutable #:transparent)
-(define (init-cgen) (cgen 0 '() '() '()))
+(struct cgen (next-reg code state stack indices) #:mutable #:transparent)
+(define (init-cgen) (cgen 0 '() '() '() '()))
 
-(struct reg (type  tag nb) #:transparent)
-(struct const (value) #:transparent)
+(struct reg (type size tag nb)       #:transparent)
+(struct const (value)                #:transparent)
 (struct function (state in code out) #:transparent)
 
-(struct bind (reg op args) #:transparent)
-(struct assign (dst src) #:transparent)
-(struct loop (iter code) #:transparent)
+(struct bind (reg op args)           #:transparent)
+(struct array (reg)                  #:transparent)
+(struct assign (dst src)             #:transparent)
+(struct array-assign (dst index src) #:transparent)
+(struct loop (iter stop code)        #:transparent)
+(struct comment (msg)                #:transparent)
 
 
-(define (make-reg! s tag)
+(define (make-array-reg! s size tag)
   (let ((nb (cgen-next-reg s)))
     (set-cgen-next-reg! s (add1 nb))
-    (reg "T" tag nb)))
+    (reg "T" size tag nb)))
+
+;; Scalar register.
+(define (make-reg! s tag)
+  (make-array-reg! s '() tag))
+
+
 (define (make-state! s)
   (let ((r (make-reg! s 's)))
     (set-cgen-state! s (cons r (cgen-state s)))
@@ -41,34 +50,56 @@
 (define (compile! s binding)
   (set-cgen-code! s (cons binding (cgen-code s))))
 
-(define (compile-bind! s op . args)
+(define (bind! s op . args)
   (let* ((r (make-reg! s 'r)))
     (compile! s (bind r op args))
     r))
 
-(define (compile-loop! s iter code)
-  (compile! s (loop iter code)))
+(define (array! s size)
+  (let* ((r (make-array-reg! s size 'r)))
+    (compile! s (array r))
+    r))
 
-(define (compile-assign! s dst src)
+(define (loop! s iter stop code)
+  (compile! s (loop iter stop code)))
+
+(define (assign! s dst src)
   (compile! s (assign dst src)))
 
-(define (push-code! s)
+(define (array-assign! s dst index src)
+  (compile! s (array-assign dst index src)))
+
+(define (comment! s msg)
+  (compile! s (comment msg)))
+
+(define (indices s)
+  (reverse (cgen-indices s)))
+
+;; Blocks are always loops.  (FIXME: Later, figure out how to
+;; implement "if").  Entering a block introduces a new index.  Each
+;; point inside a nested series of loops is always associated with a
+;; coordinate which is used to collect a block's output.  The language
+;; is fundamentally "grid oriented".
+
+(define (enter-block! s index)
+  (set-cgen-indices! s (cons index (cgen-indices s)))
   (set-cgen-stack! s (cons (cgen-code s) (cgen-stack s)))
   (set-cgen-code! s '()))
 
-(define (pop-code! s)
+(define (leave-block! s)
   (let* ((code (cgen-code s))
          (stack (cgen-stack s)))
+    (set-cgen-indices! s (cdr (cgen-indices s)))
     (set-cgen-stack! s (cdr stack))
     (set-cgen-code! s (car stack))
-    code))
+    (reverse code)))
 
 
 
 (define (op2 op)
   ;; (pp op)
   (lambda (s a b)
-    (compile-bind! s op a b)))
+    (bind! s op a b)))
 
 (define pp pretty-print)
 
@@ -83,12 +114,14 @@
        (in (for/list ((i (in-range nb-in))) (make-reg! s 'i)))
 
        ;; Apply the function, collecting the output expressions.
+       (_ (comment! s "function body"))
        (out (call-with-values (lambda () (apply main s in)) list))
 
        ;; Buffer the outputs to make sure they are all registers, and
        ;; perform the assgment.
        (outreg (for/list ((o out)) (make-reg! s 'o)))
-       (_ (for ((ro outreg) (o out)) (compile-assign! s ro o))))
+       (_ (comment! s "function outputs"))
+       (_ (for ((ro outreg) (o out)) (assign! s ro o))))
        
        
     ;; Reverse state and code stacks. The in and out lists are already
@@ -104,7 +137,9 @@
   (display "out:\n")   (pp (function-out f)))
 
 (define (intersperse between elems)
-  (cdr (apply append (for/list ((elem elems)) (list between elem)))))
+  (if (pair? elems)
+      (cdr (apply append (for/list ((elem elems)) (list between elem))))
+      '()))
 
 
 (define (fwrite-c-code output-stream f)
@@ -119,6 +154,10 @@
           (fmt-reg r)
           ;; All the rest lives in a struct.
           (format "~a->~a~a" tag tag (reg-nb r)))))
+  ;; Array reference
+  (define (fmt-index rs)
+    (apply string-append (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
+  
   (define (fmt-args args)
     (apply string-append (intersperse ", " (map fmt-ref args))))
 
@@ -134,7 +173,8 @@
   (define (w-struct name field)
     (w "struct ~a {\n" name)
     (for ((r (field f)))
-         (w "  ~a ~a;\n" (reg-type r) (fmt-reg r)))
+         (w "  ~a ~a;\n"
+            (reg-type r) (fmt-reg r)))
     (w "};\n"))
   (w-struct "state" function-state)
   (w-struct "in"    function-in)
@@ -146,18 +186,36 @@
     (for ((stmt code))
          ;; (w "  // ~a\n" stmt)
          (match stmt
+           ((comment msg)
+            (w "~a// ~a\n"
+               (indent) msg))
            ((bind r op args)
-            (w "~a~a ~a = ~a(~a);\n" (indent) (reg-type r) (fmt-reg r) op (fmt-args args)))
+            (w "~a~a ~a = ~a(~a);\n"
+               (indent) (reg-type r) (fmt-reg r) op (fmt-args args)))
+           ((array r)
+            (w "~a~a ~a[~a];\n"
+               (indent) (reg-type r) (fmt-reg r) (reg-size r)))
            ((assign dst src)
-            (w "~a~a = ~a;\n" (indent) (fmt-ref dst) (fmt-ref src)))
-           ((loop iter code)
+            (w
+             ;; assume dst is the same
+             ;; see Footnote (2)
+             (if (eq? (reg-size src) '())
+                 "~a~a = ~a;\n"
+                 "~acopy_array(~a, ~a);\n")
+             (indent) (fmt-ref dst) (fmt-ref src)))
+            
+           ((array-assign dst index src)
+            (w "~a~a~a = ~a;\n"
+               (indent) (fmt-ref dst) (fmt-index index) (fmt-ref src)))
+           ((loop iter stop code)
             (begin
-              (w "~aloop(~a) {\n" (indent) (fmt-reg iter))
+              (w "~aloop(~a, ~a) {\n"
+                 (indent) (fmt-reg iter) stop)
               (enter!)
-              (w "~a// loop body\n" (indent))
               (w-code code)
               (leave!)
-              (w "~a}\n" (indent)))
+              (w "~a}\n"
+                 (indent)))
             ))))
   (w-code (function-code f))
   (w "}\n")
@@ -169,33 +227,49 @@
 ;; initial state vector which can be omitted for zero init.  The f is
 ;; the iterated procedure, n is the number of iterations.
 (define (cgen-iterate s n f) ;; . s0
+  (comment! s "loop state init")
   (let* ((nb-state (- (procedure-arity f) 2)) ;; (s i . state)
-         (index (make-reg! s 'r)) ;; FIXME int type
-         (out   (make-reg! s 'r)) ;; FIXME int type
-         (state (for/list ((i nb-state)) (make-reg! s 'r))))
-    (log/pp "nb-state: " nb-state)
+         ;; Before entering the loop, create initialized loop
+         ;; variables.  FIXME: Later separate const and non-const.
+         (index (bind! s "zero"))
+         (state (for/list ((i nb-state)) (bind! s "zero")))
+         (out (array! s n)))
+         
+    ;; Enter a new code block.
+    (enter-block! s index)
+    (comment! s (map reg-nb (indices s)))
+    (comment! s "loop state snapshot")
 
-    (push-code! s)
-    ;; FIXME: Compile loop body.  Push current statements to stack.
-    ;; (compile-assign state-reg 0) ;; FIXME init
-    (call-with-values (lambda () (apply f s index state))
-      (lambda retvals
-        (let*-values
-            (((state-val out-val) (split-at retvals nb-state)))
-          ;; Assign state and output registers.
-          ;; FIXME: Think about thow to support more than one out.
-          ;; FIXME: These need to use index.
-          (for ((dst state)
-                (src state-val))
-             (compile-assign! s dst src))
-          (compile-assign! s out (car out-val))
+    ;; Buffer the state, see footnote (1).
+    (let ((state-in (for/list ((si state)) (bind! s "copy" si))))
 
-          ;; Gather code and insert loop body.
-          (let ((code (pop-code! s)))
-            (compile-loop! s index code))
-          
-          out
-         )))))
+    
+      ;; FIXME: Compile loop body.  Push current statements to stack.
+      ;; (compile-assign state-reg 0) ;; FIXME init
+      (comment! s "loop body")
+      (call-with-values (lambda () (apply f s index state-in))
+        (lambda retvals
+          (let*-values
+              (((state-val out-val) (split-at retvals nb-state)))
+            ;; Assign state registers.  Note that these are always scalar
+            (comment! s "loop state update")
+            (for ((dst state)
+                  (src state-val))
+                 (assign! s dst src))
+
+            ;; Assigne output registers/cells.
+            ;; FIXME: These need to use index.
+            ;; FIXME: Think about thow to support more than one out.
+            (comment! s "loop output")
+            (array-assign! s out (indices s) (car out-val))
+            
+            ;; Finalize basic block and insert the block into the parent
+            ;; context.
+            (let ((code (leave-block! s)))
+              (loop! s index n code))
+            
+            out
+            ))))))
 
 
 (define (cgen-close _ nb-state update)
@@ -216,11 +290,8 @@
               ;; need to be added to the top level C function's state
               ;; when processor representing function is _applied_.
               ((state (for/list ((i (in-range nb-state))) (make-state! s)))
-               ;; Buffer the state input expressions in registers so
-               ;; the code can't pass state references around which
-               ;; can lead to incorrect code if a state reference is
-               ;; used after it is updated.
-               (state-in (for/list ((si state)) (compile-bind! s "copy" si)))
+               ;; Buffer the state, see footnote (1).
+               (state-in (for/list ((si state)) (bind! s "copy" si)))
                )
             
             (log/pp "  state:     " state)
@@ -236,7 +307,7 @@
                   (log/pp "  out:       " out)
                   ;; main reason is that these can contain references
                   ;; to state variables
-                  (for ((dst state) (src state-out)) (compile-assign! s dst src))
+                  (for ((dst state) (src state-out)) (assign! s dst src))
                   (apply values out))))))))
     (procedure-reduce-arity closed-update (add1 nb-in))
     ))
@@ -261,3 +332,18 @@
   
 
   )
+
+
+
+;; Footnotes
+
+;; (1) State input expressions are buffered before injecting them into
+;;     lambda expressions to avoid them getting passed around, which
+;;     could mean they get compiled after their next-state assigment
+;;     statements.  It is assumed that the C compiler can easily get
+;;     rid of additional assignments.
+;;
+;; (2) Try to eliminate copy_array() by reference propagation.  This
+;;     would only happen for the output so is not that important atm.
+
+
