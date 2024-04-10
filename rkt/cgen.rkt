@@ -55,11 +55,6 @@
     (compile! s (bind r op args))
     r))
 
-(define (array! s size)
-  (let* ((r (make-array-reg! s size 'r)))
-    (compile! s (array r))
-    r))
-
 (define (loop! s iter stop code)
   (compile! s (loop iter stop code)))
 
@@ -221,19 +216,19 @@
   (w "}\n")
   )  
 
+
 ;; For now there is only one datatype: the array.  There is one
 ;; iteration: the iteration of a state machine.  State output acts as
 ;; fold, other outputs are accumulated in arrays.  Here s0 is the
 ;; initial state vector which can be omitted for zero init.  The f is
 ;; the iterated procedure, n is the number of iterations.
-(define (cgen-iterate s n f) ;; . s0
+(define (cgen-iterate s n loop-body) ;; . s0
   (comment! s "loop state init")
-  (let* ((nb-state (- (procedure-arity f) 2)) ;; (s i . state)
+  (let* ((nb-state (- (procedure-arity loop-body) 2)) ;; (s i . state)
          ;; Before entering the loop, create initialized loop
          ;; variables.  FIXME: Later separate const and non-const.
          (index (bind! s "zero"))
-         (state (for/list ((i nb-state)) (bind! s "zero")))
-         (out (array! s n)))
+         (state (for/list ((i nb-state)) (bind! s "zero"))))
          
     ;; Enter a new code block.
     (enter-block! s index)
@@ -242,33 +237,45 @@
 
     ;; Buffer the state, see footnote (1).
     (let ((state-in (for/list ((si state)) (bind! s "copy" si))))
-
     
       ;; FIXME: Compile loop body.  Push current statements to stack.
       ;; (compile-assign state-reg 0) ;; FIXME init
       (comment! s "loop body")
-      (call-with-values (lambda () (apply f s index state-in))
+      (call-with-values (lambda () (apply loop-body s index state-in))
         (lambda retvals
           (let*-values
-              (((state-val out-val) (split-at retvals nb-state)))
+              ;; Where to put the output?
+              
+              (((state-val out-val) (split-at retvals nb-state))
+               ((out) (for/list ((ov out-val)) (make-array-reg! s n 'r))))
             ;; Assign state registers.  Note that these are always scalar
             (comment! s "loop state update")
             (for ((dst state)
                   (src state-val))
                  (assign! s dst src))
 
-            ;; Assigne output registers/cells.
-            ;; FIXME: These need to use index.
-            ;; FIXME: Think about thow to support more than one out.
+            ;; FIXME: The output code is not working properly yet.
+            ;; For now focus on making folds work, combined with state
+            ;; arrays.
+
+            ;; Assign output registers/cells.  The block output is
+            ;; placed in the current hole, which is an abstraction
+            ;; that behaves as a struct.  It needs to be a struct
+            ;; because multiple return values need to go in multiple
+            ;; registers.
             (comment! s "loop output")
-            (array-assign! s out (indices s) (car out-val))
+
+            (for ((o out) (ov out-val))
+                 (array-assign! s o (indices s) ov))
             
             ;; Finalize basic block and insert the block into the parent
             ;; context.
             (let ((code (leave-block! s)))
+              ;; Compile output array declarations before the loop body.
+              (for ((o out)) (compile! s (array o)))
               (loop! s index n code))
             
-            out
+            (apply values (append state out))
             ))))))
 
 
@@ -328,6 +335,7 @@
 
   (define close   cgen-close)
   (define iterate cgen-iterate)
+  ;(define iterate #f)
     
   
 

@@ -31,7 +31,7 @@
   (define (main)
     (iterate
      3 (lambda (i s)
-         (values (+ s i) s))))
+         (+ s i))))
   ;  (reduce + in))
 )
 (provide main@)
