@@ -20,7 +20,7 @@
 (struct cgen (next-reg code state stack indices) #:mutable #:transparent)
 (define (init-cgen) (cgen 0 '() '() '() '()))
 
-(struct reg (type size tag nb)       #:transparent)
+(struct reg (type dims tag nb)       #:transparent)
 (struct const (value)                #:transparent)
 (struct dim (reg size)               #:transparent)
 (struct function (state in code out) #:transparent)
@@ -33,10 +33,13 @@
 (struct comment (msg)                #:transparent)
 
 
-(define (make-array-reg! s size tag)
+(define (make-generic-reg! s type dims tag)
   (let ((nb (cgen-next-reg s)))
     (set-cgen-next-reg! s (add1 nb))
-    (reg "T" size tag nb)))
+    (reg type dims tag nb)))
+
+(define (make-array-reg! s dims tag)
+  (make-generic-reg! s "T" dims tag))
 
 ;; Scalar register.
 (define (make-reg! s tag)
@@ -62,6 +65,13 @@
 (define bind0! (_nbind! 0))
 (define bind1! (_nbind! 1))
 (define bind2! (_nbind! 2))
+
+;; Create a zero-initialized index variable.
+(define (index! s)
+  (let ((r (make-generic-reg! s "I" '() 'n)))
+    (compile! s (bind r "zero" '()))
+    r))
+  
 
 (define (loop! s iter stop code)
   (compile! s (loop iter stop code)))
@@ -144,14 +154,17 @@
       (cdr (apply append (for/list ((elem elems)) (list between elem))))
       '()))
 
+(define tab "    ")
 
 (define (fwrite-c-code output-stream f)
   (define (w . args) (apply fprintf output-stream args))
   ;; Register
   (define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
-  ;; Array index
-  (define (fmt-index rs)
+  ;; Array index, size
+  (define (fmt-array-index rs)
     (apply string-append (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
+  (define (fmt-array-size sizes)
+    (apply string-append (for/list ((size sizes)) (format "[~a]" size))))
   ;; Register reference.
   (define (fmt-ref r)
     (let ((tag (reg-tag r)))
@@ -164,14 +177,14 @@
          ;;
          ;; State registers can be multi-dimensional, and are always
          ;; associated to specific registers indexing the grid.
-         (let* ((size (reg-size r)))
+         (let* ((dims (reg-dims r)))
            (if (and (eq? tag 's)
-                    (not (eq? '() size)))
+                    (not (eq? '() dims)))
                ;; Indexed
                (begin
-                 ; (log/pp "size:" size)
-                 (let ((rs (map dim-reg size)))
-                   (format "~a->~a~a~a" tag tag (reg-nb r) (fmt-index rs))))
+                 ; (log/pp "dims:" dims)
+                 (let ((rs (map dim-reg dims)))
+                   (format "~a->~a~a~a" tag tag (reg-nb r) (fmt-array-index rs))))
                ;; All the rest lives in a struct.
                (format "~a->~a~a" tag tag (reg-nb r))))))))
   
@@ -183,22 +196,27 @@
   (define (enter!) (set! level (add1 level)))
   (define (leave!) (set! level (sub1 level)))
   (define (indent)
-    (apply string-append (make-list (add1 level) "  ")))
-  
+    (apply string-append (make-list (add1 level) tab)))
+
+  (w "#ifndef CGEN_OUT_H\n")
+  (w "#define CGEN_OUT_H\n")
+  (w "#include \"cgen_lib.h\"\n")
   
   ;; Structs
   (define (w-struct name field)
     (w "struct ~a {\n" name)
     (for ((r (field f)))
-         (w "  ~a ~a;\n"
-            (reg-type r) (fmt-reg r)))
+         (let ((dims (reg-dims r)))
+           (if (eq? dims '())
+               (w "~a~a ~a;\n"   tab (reg-type r) (fmt-reg r))
+               (w "~a~a ~a~a;\n" tab (reg-type r) (fmt-reg r) (fmt-array-size (map dim-size dims))))))
     (w "};\n"))
-  (w-struct "state" function-state)
-  (w-struct "in"    function-in)
-  (w-struct "out"   function-out)
+  (w-struct "cgen_state" function-state)
+  (w-struct "cgen_in"    function-in)
+  (w-struct "cgen_out"   function-out)
     
   ;; Function
-  (w "void update(struct state *s, const struct in *i, struct out *o) {\n")
+  (w "static inline void cgen_update(struct cgen_state *s, const struct cgen_in *i, struct cgen_out *o) {\n")
   (define (w-code code)
     (for ((stmt code))
          ;; (w "  // ~a\n" stmt)
@@ -211,23 +229,24 @@
                (indent) (reg-type r) (fmt-reg r) op (fmt-args args)))
            ((array r)
             (w "~a~a ~a[~a];\n"
-               (indent) (reg-type r) (fmt-reg r) (reg-size r)))
+               (indent) (reg-type r) (fmt-reg r) (reg-dims r)))
            ((assign dst src)
             (w
              ;; assume dst is the same
              ;; see Footnote (2)
-             (if (eq? (reg-size src) '())
+             (if (eq? (reg-dims src) '())
                  "~a~a = ~a;\n"
                  "~acopy_array(~a, ~a);\n")
              (indent) (fmt-ref dst) (fmt-ref src)))
             
            ((array-assign dst index src)
             (w "~a~a~a = ~a;\n"
-               (indent) (fmt-ref dst) (fmt-index index) (fmt-ref src)))
+               (indent) (fmt-ref dst) (fmt-array-index index) (fmt-ref src)))
            ((loop iter stop code)
             (begin
-              (w "~aloop(~a, ~a) {\n"
-                 (indent) (fmt-reg iter) stop)
+              (let ((fr (fmt-reg iter)))
+                (w "~afor(; ~a < ~a; ~a++) {\n"
+                   (indent) fr stop fr))
               (enter!)
               (w-code code)
               (leave!)
@@ -236,6 +255,9 @@
             ))))
   (w-code (function-code f))
   (w "}\n")
+
+  (w "#endif\n")
+
   )  
 
 
@@ -245,11 +267,12 @@
 ;; initial state vector which can be omitted for zero init.  The f is
 ;; the iterated procedure, n is the number of iterations.
 (define (cgen-iterate s nb-iter loop-body) ;; . s0
-  (comment! s "loop state init")
   (let* ((nb-state (- (procedure-arity loop-body) 2)) ;; (s i . state)
          ;; Before entering the loop, create initialized loop
          ;; variables.  FIXME: Later separate const and non-const.
-         (index (bind0! s 'n "zero"))
+         (_ (comment! s "loop index init"))
+         (index (index! s))
+         (_ (comment! s "loop state init"))
          (state (for/list ((i nb-state)) (bind0! s 'l "zero"))))
          
     ;; Enter a new code block.
@@ -321,7 +344,7 @@
               ((state
                 (for/list ((i (in-range nb-state)))
                           (make-state! s (indices s))))
-               (_ (comment! s state))
+               ;; (_ (comment! s state))
                ;; Buffer the state, see footnote (1).
                (_ (comment! s "feedback state snapshot"))
                (state-in

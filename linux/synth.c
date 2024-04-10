@@ -24,6 +24,8 @@
 
 #include "jack_tools.h"
 
+// The rkt/cgen.rkt test case is a synth engine.
+#include "cgen_out.h"
 
 /* SYNTH */
 

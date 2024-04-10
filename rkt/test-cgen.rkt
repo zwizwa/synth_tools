@@ -25,4 +25,7 @@
 (define f (compile-function main))
 (pp-function f)
 
-(fwrite-c-code (current-output-port)  f)
+(define port (open-output-file "../generic/cgen_out.h"  #:exists 'replace))
+
+;; (fwrite-c-code (current-output-port)  f)
+(fwrite-c-code port f)
