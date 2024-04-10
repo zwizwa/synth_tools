@@ -40,12 +40,14 @@
             (lambda (i s)
               ;; Sum the output of a couple of ramp generators.
               (+ s (ramp))))))
+  (define (mix-proc n osc osc_inc)
+    (loop n
+          (lambda (i mix)
+            (+ mix (osc (ref osc_inc i))))))
 
   (define (main osc_inc)
     (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
-      (loop 64
-            (lambda (i mix)
-              (+ mix (osc (ref osc_inc i)))))))
+      (mix-proc 64 osc osc_inc)))
     
 )
 (provide main@)
