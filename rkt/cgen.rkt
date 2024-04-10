@@ -22,6 +22,7 @@
 
 (struct reg (type size tag nb)       #:transparent)
 (struct const (value)                #:transparent)
+(struct dim (reg size)               #:transparent)
 (struct function (state in code out) #:transparent)
 
 (struct bind (reg op args)           #:transparent)
@@ -42,18 +43,25 @@
   (make-array-reg! s '() tag))
 
 ;; FIXME: This needs to create an array if it is referenced in a loop context.
-(define (make-state! s)
-  (let ((r (make-reg! s 's)))
+(define (make-state! s dims)
+  (let ((r (make-array-reg! s dims 's)))
     (set-cgen-state! s (cons r (cgen-state s)))
     r))
 
 (define (compile! s binding)
   (set-cgen-code! s (cons binding (cgen-code s))))
 
-(define (bind! s op . args)
-  (let* ((r (make-reg! s 'r)))
+
+;; Don't use this one directly
+(define (_bind! s tag op . args)
+  (let* ((r (make-reg! s tag)))
     (compile! s (bind r op args))
     r))
+(define (_nbind! n) (procedure-reduce-arity _bind! (+ 3 n)))
+
+(define bind0! (_nbind! 0))
+(define bind1! (_nbind! 1))
+(define bind2! (_nbind! 2))
 
 (define (loop! s iter stop code)
   (compile! s (loop iter stop code)))
@@ -76,8 +84,8 @@
 ;; coordinate which is used to collect a block's output.  The language
 ;; is fundamentally "grid oriented".
 
-(define (enter-block! s index)
-  (set-cgen-indices! s (cons index (cgen-indices s)))
+(define (enter-block! s index size)
+  (set-cgen-indices! s (cons (dim index size) (cgen-indices s)))
   (set-cgen-stack! s (cons (cgen-code s) (cgen-stack s)))
   (set-cgen-code! s '()))
 
@@ -94,7 +102,7 @@
 (define (op2 op)
   ;; (pp op)
   (lambda (s a b)
-    (bind! s op a b)))
+    (bind2! s 'l op a b)))
 
 (define pp pretty-print)
 
@@ -141,17 +149,31 @@
   (define (w . args) (apply fprintf output-stream args))
   ;; Register
   (define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
+  ;; Array index
+  (define (fmt-index rs)
+    (apply string-append (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
   ;; Register reference.
   (define (fmt-ref r)
     (let ((tag (reg-tag r)))
-      (if (eq? 'r tag)
-          ;; Local variables.
-          (fmt-reg r)
-          ;; All the rest lives in a struct.
-          (format "~a->~a~a" tag tag (reg-nb r)))))
-  ;; Array reference
-  (define (fmt-index rs)
-    (apply string-append (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
+      (case tag
+        ((l n)
+         ;; Local variables: temporary or index
+         (fmt-reg r))
+        (else
+         ;; All the rest lives in a struct.
+         ;;
+         ;; State registers can be multi-dimensional, and are always
+         ;; associated to specific registers indexing the grid.
+         (let* ((size (reg-size r)))
+           (if (and (eq? tag 's)
+                    (not (eq? '() size)))
+               ;; Indexed
+               (begin
+                 ; (log/pp "size:" size)
+                 (let ((rs (map dim-reg size)))
+                   (format "~a->~a~a~a" tag tag (reg-nb r) (fmt-index rs))))
+               ;; All the rest lives in a struct.
+               (format "~a->~a~a" tag tag (reg-nb r))))))))
   
   (define (fmt-args args)
     (apply string-append (intersperse ", " (map fmt-ref args))))
@@ -222,21 +244,21 @@
 ;; fold, other outputs are accumulated in arrays.  Here s0 is the
 ;; initial state vector which can be omitted for zero init.  The f is
 ;; the iterated procedure, n is the number of iterations.
-(define (cgen-iterate s n loop-body) ;; . s0
+(define (cgen-iterate s nb-iter loop-body) ;; . s0
   (comment! s "loop state init")
   (let* ((nb-state (- (procedure-arity loop-body) 2)) ;; (s i . state)
          ;; Before entering the loop, create initialized loop
          ;; variables.  FIXME: Later separate const and non-const.
-         (index (bind! s "zero"))
-         (state (for/list ((i nb-state)) (bind! s "zero"))))
+         (index (bind0! s 'n "zero"))
+         (state (for/list ((i nb-state)) (bind0! s 'l "zero"))))
          
     ;; Enter a new code block.
-    (enter-block! s index)
-    (comment! s (map reg-nb (indices s)))
+    (enter-block! s index nb-iter)
+    (comment! s (indices s))
     (comment! s "loop state snapshot")
 
     ;; Buffer the state, see footnote (1).
-    (let ((state-in (for/list ((si state)) (bind! s "copy" si))))
+    (let ((state-in (for/list ((si state)) (bind1! s 'l "copy" si))))
     
       ;; FIXME: Compile loop body.  Push current statements to stack.
       ;; (compile-assign state-reg 0) ;; FIXME init
@@ -247,7 +269,7 @@
               ;; Where to put the output?
               
               (((state-val out-val) (split-at retvals nb-state))
-               ((out) (for/list ((ov out-val)) (make-array-reg! s n 'r))))
+               ((out) (for/list ((ov out-val)) (make-array-reg! s nb-iter 'l))))
             ;; Assign state registers.  Note that these are always scalar
             (comment! s "loop state update")
             (for ((dst state)
@@ -273,7 +295,7 @@
             (let ((code (leave-block! s)))
               ;; Compile output array declarations before the loop body.
               (for ((o out)) (compile! s (array o)))
-              (loop! s index n code))
+              (loop! s index nb-iter code))
             
             (apply values (append state out))
             ))))))
@@ -296,10 +318,15 @@
               ;; new state variables corresponding to this instance
               ;; need to be added to the top level C function's state
               ;; when processor representing function is _applied_.
-              ((state (for/list ((i (in-range nb-state))) (make-state! s)))
+              ((state
+                (for/list ((i (in-range nb-state)))
+                          (make-state! s (indices s))))
+               (_ (comment! s state))
                ;; Buffer the state, see footnote (1).
                (_ (comment! s "feedback state snapshot"))
-               (state-in (for/list ((si state)) (bind! s "copy" si)))
+               (state-in
+                (for/list ((si state))
+                          (bind1! s 'l "copy" si)))
                )
             
             (log/pp "  state:     " state)
