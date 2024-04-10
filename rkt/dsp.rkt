@@ -37,11 +37,19 @@
         ((dsp-state #'state))
         body)))))
 
+(define (dsp-as-function f)
+  (cond
+   ((procedure? f) f)
+   (else (error 'dsp-as-function))))
+
 (define-syntax dsp-app
  (lambda (stx)
    (syntax-case stx ()
      ((_ f . args)
-      #`(#%app f #,(syntax-parameter-value #'dsp-state) . args)))))
+      #`(#%app
+         f ;; (dsp-as-function f)
+         #,(syntax-parameter-value #'dsp-state)
+         . args)))))
 
 (define-syntax dsp-define
   (syntax-rules ()

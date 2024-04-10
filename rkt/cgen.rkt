@@ -17,7 +17,7 @@
 
 
 
-(struct cgen (next-reg code state stack indices) #:mutable #:transparent)
+(struct cgen (next-reg code state stack dims) #:mutable #:transparent)
 (define (init-cgen) (cgen 0 '() '() '() '()))
 
 (struct reg (type dims tag nb)       #:transparent)
@@ -28,7 +28,8 @@
 (struct bind (reg op args)           #:transparent)
 (struct array (reg)                  #:transparent)
 (struct assign (dst src)             #:transparent)
-(struct array-assign (dst index src) #:transparent)
+(struct array-assign (reg index src) #:transparent)
+(struct array-ref (reg index)        #:transparent)
 (struct loop (iter stop code)        #:transparent)
 (struct comment (msg)                #:transparent)
 
@@ -85,8 +86,15 @@
 (define (comment! s msg)
   (compile! s (comment msg)))
 
-(define (indices s)
-  (reverse (cgen-indices s)))
+(define (dims s)
+  (reverse (cgen-dims s)))
+
+(define (cgen-ref _ array . index)
+  ;; Note that if the array is an input we can use this access to
+  ;; infer the size if the indices are loop variables.  It could also
+  ;; be left to the user to specify the input type.  Maybe do that
+  ;; first.
+  (array-ref array index))
 
 ;; Blocks are always loops.  (FIXME: Later, figure out how to
 ;; implement "if").  Entering a block introduces a new index.  Each
@@ -95,14 +103,14 @@
 ;; is fundamentally "grid oriented".
 
 (define (enter-block! s index size)
-  (set-cgen-indices! s (cons (dim index size) (cgen-indices s)))
+  (set-cgen-dims! s (cons (dim index size) (cgen-dims s)))
   (set-cgen-stack! s (cons (cgen-code s) (cgen-stack s)))
   (set-cgen-code! s '()))
 
 (define (leave-block! s)
   (let* ((code (cgen-code s))
          (stack (cgen-stack s)))
-    (set-cgen-indices! s (cdr (cgen-indices s)))
+    (set-cgen-dims! s (cdr (cgen-dims s)))
     (set-cgen-stack! s (cdr stack))
     (set-cgen-code! s (car stack))
     (reverse code)))
@@ -116,13 +124,13 @@
 
 ;; The result of compiling a collection of nested stream processing
 ;; functions is one C function parameterized with a state vector.
-(define (compile-function main)
+(define (compile-function s main in)
   (let*
       ((s (init-cgen))
 
        ;; Generate registers to serve as function inputs
-       (nb-in (sub1 (procedure-arity main)))
-       (in (for/list ((i (in-range nb-in))) (make-reg! s 'i)))
+       ;(nb-in (sub1 (procedure-arity main)))
+       ;(in (for/list ((i (in-range nb-in))) (make-reg! s 'i)))
 
        ;; Apply the function, collecting the output expressions.
        (_ (comment! s "function body"))
@@ -163,28 +171,36 @@
     (apply string-append (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
   (define (fmt-array-size sizes)
     (apply string-append (for/list ((size sizes)) (format "[~a]" size))))
-  ;; Register reference.
-  (define (fmt-ref r)
-    (let ((tag (reg-tag r)))
+
+  ;; reg or s->mem
+  (define (fmt-reg-or-structmem r)
+    (let ((tag  (reg-tag r))
+          (nb   (reg-nb r))
+          (dims (reg-dims r)))
       (case tag
         ((l n)
          ;; Local variables: temporary or index
          (fmt-reg r))
         (else
          ;; All the rest lives in a struct.
-         ;;
+          ;;
          ;; State registers can be multi-dimensional, and are always
          ;; associated to specific registers indexing the grid.
-         (let* ((dims (reg-dims r)))
-           (if (and (eq? tag 's)
-                    (not (eq? '() dims)))
-               ;; Indexed
-               (begin
-                 ; (log/pp "dims:" dims)
-                 (let ((rs (map dim-reg dims)))
-                   (format "~a->~a~a~a" tag tag (reg-nb r) (fmt-array-index rs))))
-               ;; All the rest lives in a struct.
-               (format "~a->~a~a" tag tag (reg-nb r))))))))
+         (if (and (eq? tag 's)
+                  (not (eq? '() dims)))
+             ;; Indexed
+             (format "~a->~a~a~a" tag tag nb (fmt-array-index (map dim-reg dims)))
+             ;; All the rest lives in a struct.
+             (format "~a->~a~a" tag tag nb))))))
+
+  ;; Register reference.
+  (define (fmt-ref r)
+    (match r
+      ((array-ref reg index)
+       (format "~a~a" (fmt-reg-or-structmem reg) (fmt-array-index index)))
+      ((reg type dims tag nb)
+       (fmt-reg-or-structmem r))
+      ))
   
   (define (fmt-args args)
     (apply string-append (intersperse ", " (map fmt-ref args))))
@@ -264,7 +280,7 @@
 ;; fold, other outputs are accumulated in arrays.  Here s0 is the
 ;; initial state vector which can be omitted for zero init.  The f is
 ;; the iterated procedure, n is the number of iterations.
-(define (cgen-iterate s nb-iter loop-body) ;; . s0
+(define (cgen-loop s nb-iter loop-body) ;; . s0
   (let* ((nb-state (- (procedure-arity loop-body) 2)) ;; (s i . state)
          ;; Before entering the loop, create initialized loop
          ;; variables.  FIXME: Later separate const and non-const.
@@ -275,7 +291,7 @@
          
     ;; Enter a new code block.
     (enter-block! s index nb-iter)
-    (comment! s (indices s))
+    (comment! s (dims s))
     (comment! s "loop state snapshot")
 
     ;; Buffer the state, see footnote (1).
@@ -309,7 +325,7 @@
             (comment! s "loop output")
 
             (for ((o out) (ov out-val))
-                 (array-assign! s o (indices s) ov))
+                 (array-assign! s o (dims s) ov))
             
             ;; Finalize basic block and insert the block into the parent
             ;; context.
@@ -341,7 +357,8 @@
               ;; when processor representing function is _applied_.
               ((state
                 (for/list ((i (in-range nb-state)))
-                          (make-state! s (indices s))))
+                          (make-state! s (dims
+                                          s))))
                ;; (_ (comment! s state))
                ;; Buffer the state, see footnote (1).
                (_ (comment! s "feedback state snapshot"))
@@ -385,8 +402,9 @@
   (define / (op2 "div"))
   (define frac (op1 "frac"))
 
-  (define close   cgen-close)
-  (define iterate cgen-iterate)
+  (define close cgen-close)
+  (define loop  cgen-loop)
+  (define ref   cgen-ref)
   ;(define iterate #f)
     
   

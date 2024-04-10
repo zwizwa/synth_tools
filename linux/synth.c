@@ -51,9 +51,10 @@ struct voice {
     phasor_t note_inc;  /* 0 == off */
     phasor_t note_state;
 };
+#define NB_VOICES 64
 struct synth {
     int note2voice[128];
-    struct voice voice[64];
+    struct voice voice[NB_VOICES];
     struct cgen_state state;
 };
 
@@ -188,22 +189,26 @@ void synth_note_off(struct synth *x, int note) {
 // FIXME: replace voice with cproc
 float sum_tick_osc(struct synth *x) {
     unsigned int v;
+#if 0
     int sum = 0;
     FOR_IN(v, x->voice) {
         if (x->voice[v].note_inc) {
-#if 0
             /* Shift is arbitrary, but we interpret phasor as signed. */
             int p = x->voice[v].note_state;
             sum += (p >> 4);
             x->voice[v].note_state += x->voice[v].note_inc;
-#else
-            struct cgen_in in = { x->voice[0].note_inc /* FIXME */ };
-            struct cgen_out out;
-            cgen_update(&x->state, &in, &out);
-#endif
         }
     }
     return (1.0 / PHASOR_PERIOD) * ((float)sum);
+#else
+    struct cgen_in in = {};
+    T *inf = (void*)&in;
+    FOR_IN(v, x->voice) { inf[v] = ((T)(x->voice[v].note_inc)) / 0xFFFFFFFF; };
+    struct cgen_out out;
+    cgen_update(&x->state, &in, &out);
+    T *outf = (void*)&out;
+    return (1.0 / PHASOR_PERIOD) * (outf[0]);
+#endif
 }
 #if 0
 float sum_tick_square(struct synth *x) {

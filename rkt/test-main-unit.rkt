@@ -29,21 +29,23 @@
   ;; i.e. constructs that cannot be compiled.
 
   (define (main2)
-    (iterate
+    (loop
      3 (lambda (i s)
          (+ s i))))
 
   (define (main3 in)
     ;; Create ramp generators
     (let ((ramp (close 1 (lambda (s) (values (+ s in) s)))))
-      (iterate
-       3 (lambda (i s)
-           ;; Sum the output of a couple of ramp generators.
-           (+ s (ramp))))))
+      (loop 3
+            (lambda (i s)
+              ;; Sum the output of a couple of ramp generators.
+              (+ s (ramp))))))
 
   (define (main osc_inc)
-    (let ((osc (close 1 (lambda (s) (values (frac (+ s osc_inc)) s)))))
-      (osc)))
+    (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
+      (loop 64
+            (lambda (i mix)
+              (+ mix (osc (ref osc_inc i)))))))
     
 )
 (provide main@)

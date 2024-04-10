@@ -22,7 +22,10 @@
 (define-values/invoke-unit/infer main@)
 
 ;; Run the compiler.
-(define f (compile-function main))
+(define s (init-cgen))
+;; FIXME: This should be inferred.  For now just hand it in.
+(define ins (list (make-array-reg! s (list (dim #f 64)) 'i)))
+(define f (compile-function s main ins))
 (pp-function f)
 
 (define port (open-output-file "../generic/cgen_out.h"  #:exists 'replace))
