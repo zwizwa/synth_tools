@@ -28,10 +28,17 @@
   ;; TODO: Add a test to see if lambdas can create illegal forms,
   ;; i.e. constructs that cannot be compiled.
 
-  (define (main)
+  (define (main2)
     (iterate
      3 (lambda (i s)
          (+ s i))))
-  ;  (reduce + in))
+
+  (define (main in)
+    ;; Create ramp generators
+    (let ((ramp (close 1 (lambda (s) (values (+ s in) s)))))
+      (iterate
+       3 (lambda (i s)
+           ;; Sum the output of a couple of ramp generators.
+           (+ s (ramp))))))
 )
 (provide main@)

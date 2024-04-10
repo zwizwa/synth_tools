@@ -41,7 +41,7 @@
 (define (make-reg! s tag)
   (make-array-reg! s '() tag))
 
-
+;; FIXME: This needs to create an array if it is referenced in a loop context.
 (define (make-state! s)
   (let ((r (make-reg! s 's)))
     (set-cgen-state! s (cons r (cgen-state s)))
@@ -298,12 +298,16 @@
               ;; when processor representing function is _applied_.
               ((state (for/list ((i (in-range nb-state))) (make-state! s)))
                ;; Buffer the state, see footnote (1).
+               (_ (comment! s "feedback state snapshot"))
                (state-in (for/list ((si state)) (bind! s "copy" si)))
                )
             
             (log/pp "  state:     " state)
             (log/pp "  state-in:  " state-in)
             (log/pp "  in:        " in)
+
+            (comment! s "feedback body")
+           
             (call-with-values
                 (lambda () (apply update s (append state-in in)))
               (lambda retvals
@@ -312,8 +316,7 @@
                      
                   (log/pp "  state-out: " state-out)
                   (log/pp "  out:       " out)
-                  ;; main reason is that these can contain references
-                  ;; to state variables
+                  (comment! s "feedback state update")
                   (for ((dst state) (src state-out)) (assign! s dst src))
                   (apply values out))))))))
     (procedure-reduce-arity closed-update (add1 nb-in))
