@@ -1,7 +1,7 @@
 #lang racket/base
 (require
  "field-sig.rkt"
- "close-sig.rkt"
+ "stream-sig.rkt"
  racket/unit
  racket/list
  racket/match
@@ -17,35 +17,53 @@
 
 
 
-(struct cgen (next-reg code state) #:mutable #:transparent)
-(define (init-cgen) (cgen 0 '() '()))
+(struct cgen (next-reg code state stack) #:mutable #:transparent)
+(define (init-cgen) (cgen 0 '() '() '()))
 
-(struct reg (tag nb) #:transparent)
-(struct bind (reg op args) #:transparent)
-(struct assign (dst src) #:transparent)
+(struct reg (type  tag nb) #:transparent)
 (struct const (value) #:transparent)
 (struct function (state in code out) #:transparent)
+
+(struct bind (reg op args) #:transparent)
+(struct assign (dst src) #:transparent)
+(struct loop (iter code) #:transparent)
 
 
 (define (make-reg! s tag)
   (let ((nb (cgen-next-reg s)))
     (set-cgen-next-reg! s (add1 nb))
-    (reg tag nb)))
+    (reg "T" tag nb)))
 (define (make-state! s)
   (let ((r (make-reg! s 's)))
     (set-cgen-state! s (cons r (cgen-state s)))
     r))
 
-(define (compile-code! s binding)
+(define (compile! s binding)
   (set-cgen-code! s (cons binding (cgen-code s))))
 
 (define (compile-bind! s op . args)
   (let* ((r (make-reg! s 'r)))
-    (compile-code! s (bind r op args))
+    (compile! s (bind r op args))
     r))
 
+(define (compile-loop! s iter code)
+  (compile! s (loop iter code)))
+
 (define (compile-assign! s dst src)
-  (compile-code! s (assign dst src)))
+  (compile! s (assign dst src)))
+
+(define (push-code! s)
+  (set-cgen-stack! s (cons (cgen-code s) (cgen-stack s)))
+  (set-cgen-code! s '()))
+
+(define (pop-code! s)
+  (let* ((code (cgen-code s))
+         (stack (cgen-stack s)))
+    (set-cgen-stack! s (cdr stack))
+    (set-cgen-code! s (car stack))
+    code))
+
+
 
 (define (op2 op)
   ;; (pp op)
@@ -93,44 +111,94 @@
   (define (w . args) (apply fprintf output-stream args))
   ;; Register
   (define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
-  ;; Register reference.  For local variables (the 'r tag) there are
-  ;; no pointer dereferences.  All the rest is in a struct.
+  ;; Register reference.
   (define (fmt-ref r)
-    (if (eq? 'r (reg-tag r))
-        (fmt-reg r)
-        (format "~a->~a~a" (reg-tag r) (reg-tag r) (reg-nb r))))
+    (let ((tag (reg-tag r)))
+      (if (eq? 'r tag)
+          ;; Local variables.
+          (fmt-reg r)
+          ;; All the rest lives in a struct.
+          (format "~a->~a~a" tag tag (reg-nb r)))))
   (define (fmt-args args)
     (apply string-append (intersperse ", " (map fmt-ref args))))
+
+
+  (define level 0)
+  (define (enter!) (set! level (add1 level)))
+  (define (leave!) (set! level (sub1 level)))
+  (define (indent)
+    (apply string-append (make-list (add1 level) "  ")))
   
-  ;; Types
-  (w "struct state {\n")
-    (for ((r (function-state f)))
-       (w "  T ~a;\n" (fmt-reg r)))
-    (w "};\n")
-  (w "struct in {\n")
-    (for ((r (function-in f)))
-       (w "  T ~a;\n" (fmt-reg r)))
-    (w "};\n")
-  (w "struct out {\n")
-    (for ((r (function-out f)))
-       (w "  T ~a;\n" (fmt-reg r)))
-    (w "};\n")
+  
+  ;; Structs
+  (define (w-struct name field)
+    (w "struct ~a {\n" name)
+    (for ((r (field f)))
+         (w "  ~a ~a;\n" (reg-type r) (fmt-reg r)))
+    (w "};\n"))
+  (w-struct "state" function-state)
+  (w-struct "in"    function-in)
+  (w-struct "out"   function-out)
+    
   ;; Function
   (w "void update(struct state *s, const struct in *i, struct out *o) {\n")
-  (for ((stmt (function-code f)))
-       ;; (w "  // ~a\n" stmt)
-       (match stmt
-         ((bind r op args)
-          (w "  T ~a = ~a(~a);\n" (fmt-reg r) op (fmt-args args))
-          #f)
-         ((assign dst src)
-          (w "  ~a = ~a;\n" (fmt-ref dst) (fmt-ref src))
-          #f)))
+  (define (w-code code)
+    (for ((stmt code))
+         ;; (w "  // ~a\n" stmt)
+         (match stmt
+           ((bind r op args)
+            (w "~a~a ~a = ~a(~a);\n" (indent) (reg-type r) (fmt-reg r) op (fmt-args args)))
+           ((assign dst src)
+            (w "~a~a = ~a;\n" (indent) (fmt-ref dst) (fmt-ref src)))
+           ((loop iter code)
+            (begin
+              (w "~aloop(~a) {\n" (indent) (fmt-reg iter))
+              (enter!)
+              (w "~a// loop body\n" (indent))
+              (w-code code)
+              (leave!)
+              (w "~a}\n" (indent)))
+            ))))
+  (w-code (function-code f))
   (w "}\n")
   )  
 
+;; For now there is only one datatype: the array.  There is one
+;; iteration: the iteration of a state machine.  State output acts as
+;; fold, other outputs are accumulated in arrays.  Here s0 is the
+;; initial state vector which can be omitted for zero init.  The f is
+;; the iterated procedure, n is the number of iterations.
+(define (cgen-iterate s n f) ;; . s0
+  (let* ((nb-state (- (procedure-arity f) 2)) ;; (s i . state)
+         (index (make-reg! s 'r)) ;; FIXME int type
+         (out   (make-reg! s 'r)) ;; FIXME int type
+         (state (for/list ((i nb-state)) (make-reg! s 'r))))
+    (log/pp "nb-state: " nb-state)
 
-(define (close-state _ nb-state update)
+    (push-code! s)
+    ;; FIXME: Compile loop body.  Push current statements to stack.
+    ;; (compile-assign state-reg 0) ;; FIXME init
+    (call-with-values (lambda () (apply f s index state))
+      (lambda retvals
+        (let*-values
+            (((state-val out-val) (split-at retvals nb-state)))
+          ;; Assign state and output registers.
+          ;; FIXME: Think about thow to support more than one out.
+          ;; FIXME: These need to use index.
+          (for ((dst state)
+                (src state-val))
+             (compile-assign! s dst src))
+          (compile-assign! s out (car out-val))
+
+          ;; Gather code and insert loop body.
+          (let ((code (pop-code! s)))
+            (compile-loop! s index code))
+          
+          out
+         )))))
+
+
+(define (cgen-close _ nb-state update)
   (let*
       ;; sub1/add1 account for the extra state parameter that is
       ;; added to dsp functions
@@ -181,14 +249,14 @@
 ;; functions.
 (define-unit cgen@
   (import)
-  (export field^ close^)
+  (export field^ stream^)
   (define + (op2 "add"))
   (define - (op2 "sub"))
   (define * (op2 "mul"))
   (define / (op2 "div"))
 
-  (define close close-state)
-           
+  (define close   cgen-close)
+  (define iterate cgen-iterate)
     
   
 

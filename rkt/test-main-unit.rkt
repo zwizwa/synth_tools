@@ -5,18 +5,18 @@
  racket/unit
  "field-sig.rkt"
  "field-lib-sig.rkt"
- "close-sig.rkt"
+ "stream-sig.rkt"
  "main-sig.rkt"
 )
 
 (define-unit main@
 
-  (import field^ field-lib^ close^)
+  (import field^ field-lib^ stream^)
   (export main^)
 
   
   ;; (define (main a b c) (+ a (+ b c)))
-  (define (main i)
+  (define (main1 i)
     (let* ((update (lambda (s i) (values (+ s i) s)))
            (proc (close 1 update)))
       ;; Invoke it twice to check that each instantiation has its own
@@ -25,5 +25,13 @@
 
   (define main0 (close 1 (lambda (s i) (values (+ s i) s))))
 
+  ;; TODO: Add a test to see if lambdas can create illegal forms,
+  ;; i.e. constructs that cannot be compiled.
+
+  (define (main)
+    (iterate
+     3 (lambda (i s)
+         (values (+ s i) s))))
+  ;  (reduce + in))
 )
 (provide main@)

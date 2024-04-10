@@ -3,7 +3,7 @@
 (require
  "cgen.rkt"
  "field-sig.rkt"
- "close-sig.rkt"
+ "stream-sig.rkt"
  )
 ;; Evaluator semantics field^ primitives.
 (import)

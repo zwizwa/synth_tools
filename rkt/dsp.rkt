@@ -57,4 +57,4 @@
 
 (define-syntax dsp-top
   (lambda (stx)
-    (raise-syntax-error #f "#%top not valid")))
+    (raise-syntax-error #f "no toplevel defined" stx)))
