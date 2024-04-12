@@ -18,8 +18,18 @@
 
 ;; The dims list uses the same order as C.  Leftmost is outer.
 
-(struct cgen (next-reg code state stack dims) #:mutable #:transparent)
-(define (init-cgen) (cgen 0 '() '() '() '()))
+(struct cgen (next-reg code state stack dims slice) #:mutable #:transparent)
+
+(define (init-cgen)
+  (cgen
+   0 ;; next-reg
+   '() ;; code
+   '() ;; state
+   '() ;; stack
+   '() ;; dims
+   (make-hash) ;; slice
+   ))
+
 
 (struct reg (type dims tag nb)       #:transparent)
 (struct const (value)                #:transparent)
@@ -116,6 +126,14 @@
     (set-cgen-code! s (car stack))
     (reverse code)))
 
+;; Add a slice reference.  Arrays that are returned as values are
+;; implemented as slices into parent loop result arrays.
+(define (def-slice! s reg parent index)
+  (let ((h (cgen-slice s))
+        (k (reg-nb reg))
+        (v (list parent index)))
+    (log/pp "def-slice!" (list h k v))
+    (hash-set! h k v)))
 
 
 (define (op1 op) (lambda (s a)   (bind1! s 'l op a)))
@@ -127,9 +145,7 @@
 ;; functions is one C function parameterized with a state vector.
 (define (compile s main . in)
   (let*
-      ((s (init-cgen))
-
-       ;; Generate registers to serve as function inputs
+      (;; Generate registers to serve as function inputs
        ;(nb-in (sub1 (procedure-arity main)))
        ;(in (for/list ((i (in-range nb-in))) (make-reg! s 'i)))
 
@@ -340,8 +356,10 @@
                     ;; - The 'o' array we created is actually a slice
                     ;;   of a parent array.
                     (begin
-                      (comment! s "FIXME: array assignment")
-                      (array-assign! s o (list index) ov)))
+                      (comment! s "FIXME: removed array assignment, defining slice")
+                      ;; (array-assign! s o (list index) ov))
+                      (def-slice! s ov o index)))
+                    
                    ))
             
             ;; Finalize basic block and insert the block into the parent

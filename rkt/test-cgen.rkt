@@ -28,8 +28,15 @@
 ;; Loop sizes are derived from input size.
 (define f (compile s main (in-array! s 64)))
 (pp-function f)
+(display "slices:\n")
+;(pp (hash-map (cgen-slice s) cons))
+(pp (cgen-slice s))
 
 (define port (open-output-file "../generic/cgen_out.h"  #:exists 'replace))
 
 ;; (fwrite-c-code (current-output-port)  f)
 (fwrite-c-code port f)
+
+;(define h (make-hash))
+;(hash-set! h 'abc 123)
+;(pp h)
