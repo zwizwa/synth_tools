@@ -35,7 +35,7 @@
 (define port (open-output-file "../generic/cgen_out.h"  #:exists 'replace))
 
 ;; (fwrite-c-code (current-output-port)  f)
-(fwrite-c-code port f)
+(fwrite-c-code s f port)
 
 ;(define h (make-hash))
 ;(hash-set! h 'abc 123)

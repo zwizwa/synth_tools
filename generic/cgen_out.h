@@ -22,7 +22,7 @@ static inline void cgen_update(struct cgen_state *s, const struct cgen_in *i, st
         // loop index init
         I n2 = zero();
         // loop state init
-        T l4[4];
+        // omit slice definition
         for(; n2 < 4; n2++) {
             // (#(struct:dim #(struct:reg I () n 1) 3) #(struct:dim #(struct:reg I () n 2) 4))
             // loop state snapshot
@@ -30,11 +30,11 @@ static inline void cgen_update(struct cgen_state *s, const struct cgen_in *i, st
             T l3 = mul(n1, n2);
             // loop state update
             // loop output
-            l4[n2] = l3;
+            l5[n1][n2] = l3;
         }
         // loop state update
         // loop output
-        // FIXME: removed array assignment, defining slice
+        // omit slice assignment
     }
     // function outputs
     copy_array(o->o6, l5);

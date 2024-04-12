@@ -135,6 +135,8 @@
     (log/pp "def-slice!" (list h k v))
     (hash-set! h k v)))
 
+(define (maybe-slice s reg)
+  (hash-ref (cgen-slice s) (reg-nb reg) #f))
 
 (define (op1 op) (lambda (s a)   (bind1! s 'l op a)))
 (define (op2 op) (lambda (s a b) (bind2! s 'l op a b)))
@@ -179,7 +181,7 @@
 
 (define tab "    ")
 
-(define (fwrite-c-code output-stream f)
+(define (fwrite-c-code s f output-stream)
   (define (w . args) (apply fprintf output-stream args))
   ;; Register
   (define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
@@ -252,15 +254,21 @@
     (for ((stmt code))
          ;; (w "  // ~a\n" stmt)
          (match stmt
+
            ((comment msg)
             (w "~a// ~a\n"
                (indent) msg))
+
            ((bind r op args)
             (w "~a~a ~a = ~a(~a);\n"
                (indent) (reg-type r) (fmt-reg r) op (fmt-args args)))
+
            ((array r)
-            (w "~a~a ~a~a;\n"
-               (indent) (reg-type r) (fmt-reg r) (fmt-array-size (map dim-size (reg-dims r)))))
+            (if (maybe-slice s r)
+                (w "~a// omit slice definition\n" (indent))
+                (w "~a~a ~a~a;\n"
+                   (indent) (reg-type r) (fmt-reg r) (fmt-array-size (map dim-size (reg-dims r))))))
+
            ((assign dst src)
             (w
              ;; assume dst is the same
@@ -271,8 +279,24 @@
              (indent) (fmt-ref dst) (fmt-ref src)))
             
            ((array-assign dst index src)
-            (w "~a~a~a = ~a;\n"
-               (indent) (fmt-ref dst) (fmt-array-index index) (fmt-ref src)))
+            (let ((slice (maybe-slice s dst)))
+              (if slice
+                  (let-values (((parent-dst parent-index) (apply values slice)))
+                    (begin
+                      (log/pp "asdf" `((parent-index . ,parent-index)))
+                      (w "~a~a~a = ~a;\n"
+                         (indent)
+                         (fmt-ref parent-dst)
+                         ;; FIXME: I REALLY NEED STATIC TYPES
+                         ;; (fmt-array-index index) ;;k(append (list parent-index) (list index)))
+                         (fmt-array-index (append (list parent-index) index))
+                         (fmt-ref src))))
+
+                  (w "~a~a~a = ~a;\n"
+                     (indent)
+                     (fmt-ref dst)
+                     (fmt-array-index index)
+                     (fmt-ref src)))))
            ((loop iter stop code)
             (begin
               (let ((fr (fmt-reg iter)))
@@ -356,10 +380,8 @@
                     ;; - The 'o' array we created is actually a slice
                     ;;   of a parent array.
                     (begin
-                      (comment! s "FIXME: removed array assignment, defining slice")
-                      ;; (array-assign! s o (list index) ov))
-                      (def-slice! s ov o index)))
-                    
+                      (def-slice! s ov o index)
+                      (comment! s "omit slice assignment")))
                    ))
             
             ;; Finalize basic block and insert the block into the parent
