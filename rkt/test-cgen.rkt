@@ -24,8 +24,9 @@
 ;; Run the compiler.
 (define s (init-cgen))
 ;; FIXME: This should be inferred.  For now just hand it in.
-(define ins (list (make-array-reg! s (list (dim #f 64)) 'i)))
-(define f (compile-function s main ins))
+
+;; Loop sizes are derived from input size.
+(define f (compile s main (in-array! s 64)))
 (pp-function f)
 
 (define port (open-output-file "../generic/cgen_out.h"  #:exists 'replace))

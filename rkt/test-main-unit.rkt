@@ -40,14 +40,23 @@
             (lambda (i s)
               ;; Sum the output of a couple of ramp generators.
               (+ s (ramp))))))
-  (define (mix-proc n osc osc_inc)
-    (loop n
-          (lambda (i mix)
-            (+ mix (osc (ref osc_inc i))))))
 
-  (define (main osc_inc)
+  ;; Abstract combinator in terms of array operations.
+  (define (map/sum osc inc)
+    (loop (sizeof inc)
+          (lambda (i acc)
+            (+ acc (osc (ref inc i))))))
+
+  (define (main4 osc_inc)
     (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
-      (mix-proc 64 osc osc_inc)))
+      (map/sum osc osc_inc)))
+
+  (define (main dummy)
+    (loop 3 (lambda (i) (loop 4 (lambda (j) (values (* i j)))))))
+
+  ;; TODO features:
+  ;; - sizeof, so that mix-proc doesn't need size
+  ;; - rename for input and output field to make structs usable
     
 )
 (provide main@)

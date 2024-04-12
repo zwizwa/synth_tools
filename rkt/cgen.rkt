@@ -16,6 +16,7 @@
   (pretty-print item))
 
 
+;; The dims list uses the same order as C.  Leftmost is outer.
 
 (struct cgen (next-reg code state stack dims) #:mutable #:transparent)
 (define (init-cgen) (cgen 0 '() '() '() '()))
@@ -124,7 +125,7 @@
 
 ;; The result of compiling a collection of nested stream processing
 ;; functions is one C function parameterized with a state vector.
-(define (compile-function s main in)
+(define (compile s main . in)
   (let*
       ((s (init-cgen))
 
@@ -242,8 +243,8 @@
             (w "~a~a ~a = ~a(~a);\n"
                (indent) (reg-type r) (fmt-reg r) op (fmt-args args)))
            ((array r)
-            (w "~a~a ~a[~a];\n"
-               (indent) (reg-type r) (fmt-reg r) (reg-dims r)))
+            (w "~a~a ~a~a;\n"
+               (indent) (reg-type r) (fmt-reg r) (fmt-array-size (map dim-size (reg-dims r)))))
            ((assign dst src)
             (w
              ;; assume dst is the same
@@ -294,38 +295,54 @@
     (comment! s (dims s))
     (comment! s "loop state snapshot")
 
+    ;; Output arrays are constructed as an extra dimension added to
+    ;; the type of a return value.
+    (define (make-out-array-reg! s dim tag out-val)
+      (let ((dims (reg-dims out-val))) ;; FIXME: This might not be a register
+        (make-array-reg! s (cons dim dims) tag)))
+    
     ;; Buffer the state, see footnote (1).
     (let ((state-in (for/list ((si state)) (bind1! s 'l "copy" si))))
     
-      ;; FIXME: Compile loop body.  Push current statements to stack.
-      ;; (compile-assign state-reg 0) ;; FIXME init
       (comment! s "loop body")
       (call-with-values (lambda () (apply loop-body s index state-in))
         (lambda retvals
           (let*-values
-              ;; Where to put the output?
-              
               (((state-val out-val) (split-at retvals nb-state))
-               ((out) (for/list ((ov out-val)) (make-array-reg! s nb-iter 'l))))
-            ;; Assign state registers.  Note that these are always scalar
+               ((out) (for/list ((ov out-val)) (make-out-array-reg! s (dim index nb-iter) 'l ov))))
+            ;; Assign state registers.  These are always scalar
             (comment! s "loop state update")
             (for ((dst state)
                   (src state-val))
                  (assign! s dst src))
 
-            ;; FIXME: The output code is not working properly yet.
-            ;; For now focus on making folds work, combined with state
-            ;; arrays.
-
-            ;; Assign output registers/cells.  The block output is
-            ;; placed in the current hole, which is an abstraction
-            ;; that behaves as a struct.  It needs to be a struct
-            ;; because multiple return values need to go in multiple
-            ;; registers.
+            ;; Output assignment is solved in two steps.  The code
+            ;; constructs local 1-dim arrays and uses the current loop
+            ;; index to fill them.  This works as long as the
+            ;; references are not returned to the enclosing scope.  If
+            ;; that is the case, the code needs to be patched in a
+            ;; second step to move the array elsewhere.
+            
             (comment! s "loop output")
 
             (for ((o out) (ov out-val))
-                 (array-assign! s o (dims s) ov))
+                 ;; FIXME: Also handle literals.
+                 (match ov
+                   ((reg type '() tag nb)
+                    ;; If out-val is a scalar register reference then
+                    ;; we can just copy it.
+                    (array-assign! s o (list index) ov))
+                   ((reg type dims tag nb)
+                    ;; If it is an array, some more work is needed to
+                    ;; make sure we write into the correct location.
+                    ;; At this point we know that:
+                    ;;
+                    ;; - The 'o' array we created is actually a slice
+                    ;;   of a parent array.
+                    (begin
+                      (comment! s "FIXME: array assignment")
+                      (array-assign! s o (list index) ov)))
+                   ))
             
             ;; Finalize basic block and insert the block into the parent
             ;; context.
@@ -388,11 +405,17 @@
     ))
 
 
+(define (cgen-sizeof _ array)
+  (apply values (map dim-size (reg-dims array))))
+
+(define (in-array! s . dims)
+  (make-array-reg! s (for/list ((d dims)) (dim #f d)) 'i))
+
+
 ;; Evaluator semantics field^ primitives.
 
 ;; Note that the C gen doesn't generate infix operations to keep
-;; things simple.  The C primitives are defined as C macros or
-;; functions.
+;; things simple.  The C primitives are defined in cgen_lib.h
 (define-unit cgen@
   (import)
   (export field^ stream^)
@@ -402,11 +425,10 @@
   (define / (op2 "div"))
   (define frac (op1 "frac"))
 
-  (define close cgen-close)
-  (define loop  cgen-loop)
-  (define ref   cgen-ref)
-  ;(define iterate #f)
-    
+  (define close  cgen-close)
+  (define loop   cgen-loop)
+  (define ref    cgen-ref)
+  (define sizeof cgen-sizeof)
   
 
   )
