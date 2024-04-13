@@ -62,12 +62,12 @@
        ;; wrap a sample-based synth engine in a block-processing
        ;; function, providing interpolation for block-rate parameters
        (lambda (in)
-         (time 64
+         (time (sizeof in)
            (lambda (i)
              (let* ((x (integrate (ref in i)))
                     (y (integrate x)))
                (values
-                ;; y  ;; This breaks cgen
+                y  ;; This breaks cgen
                  ))))))
 
       ((synth)  synth)

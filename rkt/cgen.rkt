@@ -220,8 +220,12 @@
 (define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
 ;; Array index, size
 (define (fmt-array-index rs)
-  (log/pp "rs: " rs)
-  (apply string-append (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
+  (log/pp "fmt-array-index rs: " rs)
+  (apply string-append
+         (for/list ((r rs))
+                   (if (eq? r '())
+                       "/*FIXME*/"
+                       (format "[~a]" (fmt-reg r))))))
 (define (fmt-array-size sizes)
   (apply string-append (for/list ((size sizes)) (format "[~a]" size))))
 
@@ -333,7 +337,8 @@
              (indent) (fmt-ref dst) (fmt-ref src)))
             
            ((array-assign dst index src)
-            (let ((slice (maybe-slice s dst))
+            (let ((_ (log/pp "array-assign" (list dst index src)))
+                  (slice (maybe-slice s dst))
                   (assignment (format "~a~a = ~a"
                                       (fmt-ref dst)
                               (fmt-array-index index)

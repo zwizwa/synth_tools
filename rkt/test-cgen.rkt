@@ -49,7 +49,7 @@
        (procproc   ,S)
        (sumramp    ,S)
        ;; (synth  ,V)
-       (timeloop   ,S)
+       (timeloop   ,V)
        )))
    (pp (car example-spec))
    (apply compile-example port example-spec)))

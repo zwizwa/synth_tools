@@ -124,15 +124,17 @@ struct timeloop_state {
     T s1;
 };
 struct timeloop_in {
-    T i0;
+    T i0[64];
 };
 struct timeloop_out {
+    T o0[64];
 };
 static inline void timeloop_update(struct timeloop_state *s, const struct timeloop_in *i, struct timeloop_out *o) {
     // function body
     // loop index init
     I n0 = zero();
     // loop state init
+    // omit slice definition: T l4[64]
     for(; n0 < 64; n0++) {
         // loop state snapshot
         // loop body
@@ -150,6 +152,9 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
         s->s1 = l3;
         // loop state update
         // loop output
+        o->o0/*FIXME*/[n0] = l3; // expanded from: l4[n0] = l3
     }
     // function outputs
+    // treat assignment as equivalence: o->o0 == l4;
+
 }
