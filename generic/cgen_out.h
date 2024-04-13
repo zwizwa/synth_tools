@@ -7,36 +7,34 @@ struct cgen_in {
     T i0[64];
 };
 struct cgen_out {
-    T o6;
+    T o0;
 };
 static inline void cgen_update(struct cgen_state *s, const struct cgen_in *i, struct cgen_out *o) {
     // function body
     // loop index init
-    I n1 = zero();
+    I n0 = zero();
     // loop state init
-    T l5[3][4];
-    for(; n1 < 3; n1++) {
-        // (#(struct:dim #(struct:reg I () n 1) 3))
+    T l2[3][4];
+    for(; n0 < 3; n0++) {
         // loop state snapshot
         // loop body
         // loop index init
-        I n2 = zero();
+        I n1 = zero();
         // loop state init
-        // omit slice definition
-        for(; n2 < 4; n2++) {
-            // (#(struct:dim #(struct:reg I () n 1) 3) #(struct:dim #(struct:reg I () n 2) 4))
+        // omit slice definition: T l1[4]
+        for(; n1 < 4; n1++) {
             // loop state snapshot
             // loop body
-            T l3 = mul(n1, n2);
+            T l0 = mul(n0, n1);
             // loop state update
             // loop output
-            l5[n1][n2] = l3;
+            l2[n0][n1] = l0; // expanded from: l1[n1] = l0
         }
         // loop state update
         // loop output
-        // omit slice assignment
+        // treat assignment as equivalence: l2[n0] = l1
     }
     // function outputs
-    copy_array(o->o6, l5);
+    copy_array(o->o0, l2);
 }
 #endif

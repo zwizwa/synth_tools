@@ -22,7 +22,7 @@
 
 (define (init-cgen)
   (cgen
-   0 ;; next-reg
+   (make-hash) ;; next-reg
    '() ;; code
    '() ;; state
    '() ;; stack
@@ -45,9 +45,13 @@
 (struct comment (msg)                #:transparent)
 
 
+;; FIXME: Use a next-reg for each variable type.  This makes it easier
+;; to give predictable names to in/out/state structs, and makes code
+;; easier to read.
 (define (make-generic-reg! s type dims tag)
-  (let ((nb (cgen-next-reg s)))
-    (set-cgen-next-reg! s (add1 nb))
+  (let* ((h (cgen-next-reg s))
+         (nb (hash-ref h tag 0)))
+    (hash-set! h tag (add1 nb))
     (reg type dims tag nb)))
 
 (define (make-array-reg! s dims tag)
@@ -181,48 +185,52 @@
 
 (define tab "    ")
 
+;; Formatters shared by C code emission and comment formatting.
+(define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
+;; Array index, size
+(define (fmt-array-index rs)
+  (apply string-append (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
+(define (fmt-array-size sizes)
+  (apply string-append (for/list ((size sizes)) (format "[~a]" size))))
+
+;; reg or s->mem
+(define (fmt-reg-or-structmem r)
+  (let ((tag  (reg-tag r))
+        (nb   (reg-nb r))
+        (dims (reg-dims r)))
+    (case tag
+      ((l n)
+       ;; Local variables: temporary or index
+       (fmt-reg r))
+      (else
+       ;; All the rest lives in a struct.
+       ;;
+       ;; State registers can be multi-dimensional, and are always
+       ;; associated to specific registers indexing the grid.
+       (if (and (eq? tag 's)
+                (not (eq? '() dims)))
+           ;; Indexed
+           (format "~a->~a~a~a" tag tag nb (fmt-array-index (map dim-reg dims)))
+           ;; All the rest lives in a struct.
+           (format "~a->~a~a" tag tag nb))))))
+
+;; Register reference.
+(define (fmt-ref r)
+  (match r
+    ((array-ref reg index)
+     (format "~a~a" (fmt-reg-or-structmem reg) (fmt-array-index index)))
+    ((reg type dims tag nb)
+     (fmt-reg-or-structmem r))
+    ))
+  
+(define (fmt-args args)
+  (apply string-append (intersperse ", " (map fmt-ref args))))
+
+
 (define (fwrite-c-code s f output-stream)
   (define (w . args) (apply fprintf output-stream args))
   ;; Register
-  (define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
-  ;; Array index, size
-  (define (fmt-array-index rs)
-    (apply string-append (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
-  (define (fmt-array-size sizes)
-    (apply string-append (for/list ((size sizes)) (format "[~a]" size))))
 
-  ;; reg or s->mem
-  (define (fmt-reg-or-structmem r)
-    (let ((tag  (reg-tag r))
-          (nb   (reg-nb r))
-          (dims (reg-dims r)))
-      (case tag
-        ((l n)
-         ;; Local variables: temporary or index
-         (fmt-reg r))
-        (else
-         ;; All the rest lives in a struct.
-          ;;
-         ;; State registers can be multi-dimensional, and are always
-         ;; associated to specific registers indexing the grid.
-         (if (and (eq? tag 's)
-                  (not (eq? '() dims)))
-             ;; Indexed
-             (format "~a->~a~a~a" tag tag nb (fmt-array-index (map dim-reg dims)))
-             ;; All the rest lives in a struct.
-             (format "~a->~a~a" tag tag nb))))))
-
-  ;; Register reference.
-  (define (fmt-ref r)
-    (match r
-      ((array-ref reg index)
-       (format "~a~a" (fmt-reg-or-structmem reg) (fmt-array-index index)))
-      ((reg type dims tag nb)
-       (fmt-reg-or-structmem r))
-      ))
-  
-  (define (fmt-args args)
-    (apply string-append (intersperse ", " (map fmt-ref args))))
 
 
   (define level 0)
@@ -264,10 +272,15 @@
                (indent) (reg-type r) (fmt-reg r) op (fmt-args args)))
 
            ((array r)
-            (if (maybe-slice s r)
-                (w "~a// omit slice definition\n" (indent))
-                (w "~a~a ~a~a;\n"
-                   (indent) (reg-type r) (fmt-reg r) (fmt-array-size (map dim-size (reg-dims r))))))
+            (let ((slicedef
+                   (format "~a ~a~a"
+                           (reg-type r)
+                           (fmt-reg r)
+                           (fmt-array-size (map dim-size (reg-dims r))))))
+              (if (maybe-slice s r)
+                  (w "~a// omit slice definition: ~a\n" (indent) slicedef)
+                  (w "~a~a;\n"
+                     (indent) slicedef))))
 
            ((assign dst src)
             (w
@@ -279,24 +292,24 @@
              (indent) (fmt-ref dst) (fmt-ref src)))
             
            ((array-assign dst index src)
-            (let ((slice (maybe-slice s dst)))
+            (let ((slice (maybe-slice s dst))
+                  (assignment (format "~a~a = ~a"
+                                      (fmt-ref dst)
+                              (fmt-array-index index)
+                              (fmt-ref src))))
               (if slice
                   (let-values (((parent-dst parent-index) (apply values slice)))
-                    (begin
-                      (log/pp "asdf" `((parent-index . ,parent-index)))
-                      (w "~a~a~a = ~a;\n"
-                         (indent)
-                         (fmt-ref parent-dst)
-                         ;; FIXME: I REALLY NEED STATIC TYPES
-                         ;; (fmt-array-index index) ;;k(append (list parent-index) (list index)))
-                         (fmt-array-index (append (list parent-index) index))
-                         (fmt-ref src))))
+                    
+                    (w "~a~a~a = ~a; // expanded from: ~a\n"
+                       (indent)
+                       (fmt-ref parent-dst)
+                       ;; FIXME: This needs to recurse
+                       (fmt-array-index (append (list parent-index) index))
+                       (fmt-ref src)
+                       assignment
+                       ))
 
-                  (w "~a~a~a = ~a;\n"
-                     (indent)
-                     (fmt-ref dst)
-                     (fmt-array-index index)
-                     (fmt-ref src)))))
+                  (w "~a~a\n" assignment))))
            ((loop iter stop code)
             (begin
               (let ((fr (fmt-reg iter)))
@@ -332,7 +345,6 @@
          
     ;; Enter a new code block.
     (enter-block! s index nb-iter)
-    (comment! s (dims s))
     (comment! s "loop state snapshot")
 
     ;; Output arrays are constructed as an extra dimension added to
@@ -379,9 +391,13 @@
                     ;;
                     ;; - The 'o' array we created is actually a slice
                     ;;   of a parent array.
-                    (begin
+                    (let*
+                      ((assignment (format "~a~a = ~a"
+                                           (fmt-ref o)
+                                           (fmt-array-index (list index))
+                                           (fmt-ref ov))))
                       (def-slice! s ov o index)
-                      (comment! s "omit slice assignment")))
+                      (comment! s (format "treat assignment as equivalence: ~a" assignment))))
                    ))
             
             ;; Finalize basic block and insert the block into the parent
@@ -483,7 +499,12 @@
 ;;     statements.  It is assumed that the C compiler can easily get
 ;;     rid of additional assignments.
 ;;
-;; (2) Try to eliminate copy_array() by reference propagation.  This
-;;     would only happen for the output so is not that important atm.
+;; (2) The first pass defines arrays to collect loop outputs.  This
+;;     leads to whole array assigments that get optimized away by
+;;     keeping track of which variables are slices, omitting
+;;     declarations and assigments, and substituting the refence with
+;;     the "C slice" at the point of alement assigment.  This works
+;;     beacuse the slice is ferentially transparent, i.e. the slice is
+;;     just a name.
 
 
