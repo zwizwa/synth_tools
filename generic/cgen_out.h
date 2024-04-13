@@ -14,7 +14,7 @@ static inline void cgen_update(struct cgen_state *s, const struct cgen_in *i, st
     // loop index init
     I n0 = zero();
     // loop state init
-    T l2[3][4];
+    // omit slice definition: T l2[3][4]
     for(; n0 < 3; n0++) {
         // loop state snapshot
         // loop body
@@ -28,13 +28,14 @@ static inline void cgen_update(struct cgen_state *s, const struct cgen_in *i, st
             T l0 = mul(n0, n1);
             // loop state update
             // loop output
-            l2[n0][n1] = l0; // expanded from: l1[n1] = l0
+            o->o0[n0][n1] = l0; // expanded from: l1[n1] = l0
         }
         // loop state update
         // loop output
-        // treat assignment as equivalence: l2[n0] = l1
+        // treat assignment as equivalence: l2[n0] == l1
     }
     // function outputs
-    copy_array(o->o0, l2);
+    // treat assignment as equivalence: o->o0 == l2;
+
 }
 #endif

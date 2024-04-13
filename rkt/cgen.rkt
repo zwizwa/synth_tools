@@ -35,6 +35,7 @@
 (struct const (value)                #:transparent)
 (struct dim (reg size)               #:transparent)
 (struct function (state in code out) #:transparent)
+(struct slice (parent index)         #:transparent)
 
 (struct bind (reg op args)           #:transparent)
 (struct array (reg)                  #:transparent)
@@ -67,14 +68,14 @@
     (set-cgen-state! s (cons r (cgen-state s)))
     r))
 
-(define (compile! s binding)
+(define (code! s binding)
   (set-cgen-code! s (cons binding (cgen-code s))))
 
 
 ;; Don't use this one directly
 (define (_bind! s tag op . args)
   (let* ((r (make-reg! s tag)))
-    (compile! s (bind r op args))
+    (code! s (bind r op args))
     r))
 (define (_nbind! n) (procedure-reduce-arity _bind! (+ 3 n)))
 
@@ -85,21 +86,21 @@
 ;; Create a zero-initialized index variable.
 (define (index! s)
   (let ((r (make-generic-reg! s "I" '() 'n)))
-    (compile! s (bind r "zero" '()))
+    (code! s (bind r "zero" '()))
     r))
   
 
 (define (loop! s iter stop code)
-  (compile! s (loop iter stop code)))
+  (code! s (loop iter stop code)))
 
 (define (assign! s dst src)
-  (compile! s (assign dst src)))
+  (code! s (assign dst src)))
 
 (define (array-assign! s dst index src)
-  (compile! s (array-assign dst index src)))
+  (code! s (array-assign dst index src)))
 
 (define (comment! s msg)
-  (compile! s (comment msg)))
+  (code! s (comment msg)))
 
 (define (dims s)
   (reverse (cgen-dims s)))
@@ -134,13 +135,13 @@
 ;; implemented as slices into parent loop result arrays.
 (define (def-slice! s reg parent index)
   (let ((h (cgen-slice s))
-        (k (reg-nb reg))
-        (v (list parent index)))
-    (log/pp "def-slice!" (list h k v))
-    (hash-set! h k v)))
+        (v (slice parent index)))
+    (hash-set! h reg v)))
 
+;; FIXME: Don't use reg-nb to index because counting starts from 0 for
+;; each storage class.
 (define (maybe-slice s reg)
-  (hash-ref (cgen-slice s) (reg-nb reg) #f))
+  (hash-ref (cgen-slice s) reg #f))
 
 (define (op1 op) (lambda (s a)   (bind1! s 'l op a)))
 (define (op2 op) (lambda (s a b) (bind2! s 'l op a b)))
@@ -150,22 +151,39 @@
 ;; The result of compiling a collection of nested stream processing
 ;; functions is one C function parameterized with a state vector.
 (define (compile s main . in)
+  (comment! s "function body")
   (let*
       (;; Generate registers to serve as function inputs
        ;(nb-in (sub1 (procedure-arity main)))
        ;(in (for/list ((i (in-range nb-in))) (make-reg! s 'i)))
 
        ;; Apply the function, collecting the output expressions.
-       (_ (comment! s "function body"))
        (out (call-with-values (lambda () (apply main s in)) list))
 
+       ;; FIXME: outreg should be more like this
+       ;; ((outreg (for/list ((ov out-val)) (make-out-array-reg! s (dim index nb-iter) 'l ov))))
+
+       
        ;; Buffer the outputs to make sure they are all registers, and
        ;; perform the assgment.
-       (outreg (for/list ((o out)) (make-reg! s 'o)))
-       (_ (comment! s "function outputs"))
-       (_ (for ((ro outreg) (o out)) (assign! s ro o))))
-       
-       
+       (outreg (for/list ((o out)) (make-reg! s 'o))))
+
+    (comment! s "function outputs")
+    (for ((ro outreg) (o out))
+         (match o
+           ((reg type '() tag nb)
+            ;; Scalar output value
+            (assign! s ro o))
+           ((reg type dims tag nb)
+            ;; Similar to loop outputs
+            (let*
+                ((equivalence
+                  (format "~a == ~a;\n"
+                          (fmt-ref ro) (fmt-ref o))))
+              (def-slice! s o ro '())  ;; FIXME: index
+              (comment! s (format "treat assignment as equivalence: ~a" equivalence))))))
+
+    
     ;; Reverse state and code stacks. The in and out lists are already
     ;; in the correct order.
     (function (reverse (cgen-state s)) in (reverse (cgen-code s)) outreg)))
@@ -226,6 +244,14 @@
 (define (fmt-args args)
   (apply string-append (intersperse ", " (map fmt-ref args))))
 
+(define (expand-slice s slc)
+  (match slc
+    ((slice parent index)
+     (let ((parent2 (maybe-slice s parent)))
+       (if parent2
+           (let-values (((r i) (expand-slice s parent2)))
+             (values r (append i index)))
+           (values parent index))))))
 
 (define (fwrite-c-code s f output-stream)
   (define (w . args) (apply fprintf output-stream args))
@@ -298,12 +324,11 @@
                               (fmt-array-index index)
                               (fmt-ref src))))
               (if slice
-                  (let-values (((parent-dst parent-index) (apply values slice)))
+                  (let-values (((parent-dst parent-index) (expand-slice s slice)))
                     
                     (w "~a~a~a = ~a; // expanded from: ~a\n"
                        (indent)
                        (fmt-ref parent-dst)
-                       ;; FIXME: This needs to recurse
                        (fmt-array-index (append (list parent-index) index))
                        (fmt-ref src)
                        assignment
@@ -392,19 +417,20 @@
                     ;; - The 'o' array we created is actually a slice
                     ;;   of a parent array.
                     (let*
-                      ((assignment (format "~a~a = ~a"
-                                           (fmt-ref o)
-                                           (fmt-array-index (list index))
-                                           (fmt-ref ov))))
+                      ((equivalence
+                        (format "~a~a == ~a"
+                                (fmt-ref o)
+                                (fmt-array-index (list index))
+                                (fmt-ref ov))))
                       (def-slice! s ov o index)
-                      (comment! s (format "treat assignment as equivalence: ~a" assignment))))
+                      (comment! s (format "treat assignment as equivalence: ~a" equivalence))))
                    ))
             
             ;; Finalize basic block and insert the block into the parent
             ;; context.
             (let ((code (leave-block! s)))
               ;; Compile output array declarations before the loop body.
-              (for ((o out)) (compile! s (array o)))
+              (for ((o out)) (code! s (array o)))
               (loop! s index nb-iter code))
             
             (apply values (append state out))
