@@ -7,7 +7,7 @@ struct cgen_in {
     T i0[64];
 };
 struct cgen_out {
-    T o0;
+    T o0[3][4];
 };
 static inline void cgen_update(struct cgen_state *s, const struct cgen_in *i, struct cgen_out *o) {
     // function body

@@ -166,7 +166,9 @@
        
        ;; Buffer the outputs to make sure they are all registers, and
        ;; perform the assgment.
-       (outreg (for/list ((o out)) (make-reg! s 'o))))
+       ;; (outreg (for/list ((o out)) (make-reg! s 'o)))
+       (outreg (for/list ((o out)) (make-array-reg! s (reg-dims o) 'o)))
+       )
 
     (comment! s "function outputs")
     (for ((ro outreg) (o out))
