@@ -56,7 +56,7 @@ struct voice {
 struct synth {
     int note2voice[128];
     struct voice voice[NB_VOICES];
-    struct cgen_state state;
+    struct synth_state state;
 };
 
 void synth_note_on(struct synth *, int note);
@@ -202,13 +202,11 @@ float sum_tick_osc(struct synth *x) {
     }
     return (1.0 / PHASOR_PERIOD) * ((float)sum);
 #else
-    struct cgen_in in = {};
-    T *inf = (void*)&in;
-    FOR_IN(v, x->voice) { inf[v] = ((T)(x->voice[v].note_inc)) / 0xFFFFFFFF; };
-    struct cgen_out out;
-    cgen_update(&x->state, &in, &out);
-    T *outf = (void*)&out;
-    return (1.0 / PHASOR_PERIOD) * (outf[0]);
+    struct synth_in in = {};
+    FOR_IN(v, x->voice) { in.i0[v] = ((T)(x->voice[v].note_inc)) / 0xFFFFFFFF; };
+    struct synth_out out;
+    synth_update(&x->state, &in, &out);
+    return (1.0 / PHASOR_PERIOD) * (out.o0);
 #endif
 }
 #if 0

@@ -6,7 +6,7 @@ struct matrix_in {
 struct matrix_out {
     T o0[3][4];
 };
-static inline void matrix_update(struct cgen_state *s, const struct cgen_in *i, struct cgen_out *o) {
+static inline void matrix_update(struct matrix_state *s, const struct matrix_in *i, struct matrix_out *o) {
     // function body
     // loop index init
     I n0 = zero();
@@ -45,7 +45,7 @@ struct integrator_in {
 struct integrator_out {
     T o0;
 };
-static inline void integrator_update(struct cgen_state *s, const struct cgen_in *i, struct cgen_out *o) {
+static inline void integrator_update(struct integrator_state *s, const struct integrator_in *i, struct integrator_out *o) {
     // function body
     // feedback state snapshot
     T l0 = copy(s->s0);
@@ -67,7 +67,7 @@ struct procproc_in {
 struct procproc_out {
     T o0;
 };
-static inline void procproc_update(struct cgen_state *s, const struct cgen_in *i, struct cgen_out *o) {
+static inline void procproc_update(struct procproc_state *s, const struct procproc_in *i, struct procproc_out *o) {
     // function body
     // feedback state snapshot
     T l0 = copy(s->s0);
@@ -94,7 +94,7 @@ struct sumramp_in {
 struct sumramp_out {
     T o0;
 };
-static inline void sumramp_update(struct cgen_state *s, const struct cgen_in *i, struct cgen_out *o) {
+static inline void sumramp_update(struct sumramp_state *s, const struct sumramp_in *i, struct sumramp_out *o) {
     // function body
     // loop index init
     I n0 = zero();

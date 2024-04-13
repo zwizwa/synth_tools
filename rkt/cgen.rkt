@@ -285,7 +285,8 @@
   (w-struct "out"   function-out)
     
   ;; Function
-  (w "static inline void ~a_update(struct cgen_state *s, const struct cgen_in *i, struct cgen_out *o) {\n" ctag)
+  (w "static inline void ~a_update(struct ~a_state *s, const struct ~a_in *i, struct ~a_out *o) {\n"
+     ctag ctag ctag ctag)
   (define (w-code code)
     (for ((stmt code))
          ;; (w "  // ~a\n" stmt)

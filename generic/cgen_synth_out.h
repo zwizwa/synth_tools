@@ -8,7 +8,7 @@ struct synth_in {
 struct synth_out {
     T o0;
 };
-static inline void synth_update(struct cgen_state *s, const struct cgen_in *i, struct cgen_out *o) {
+static inline void synth_update(struct synth_state *s, const struct synth_in *i, struct synth_out *o) {
     // function body
     // loop index init
     I n0 = zero();
