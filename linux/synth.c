@@ -24,8 +24,9 @@
 
 #include "jack_tools.h"
 
-// The rkt/cgen.rkt test case is a synth engine.
-#include "cgen_out.h"
+// The synth engine is part of the rkt/cgen.rkt test suite.
+// See rkt/test-cgen.rkt
+#include "cgen_synth_out.h"
 
 /* SYNTH */
 

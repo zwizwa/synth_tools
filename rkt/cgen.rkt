@@ -255,7 +255,7 @@
              (values r (append i index)))
            (values parent index))))))
 
-(define (fwrite-c-code s f output-stream)
+(define (fwrite-c-code s f ctag output-stream)
   (define (w . args) (apply fprintf output-stream args))
   ;; Register
 
@@ -267,25 +267,25 @@
   (define (indent)
     (apply string-append (make-list (add1 level) tab)))
 
-  (w "#ifndef CGEN_OUT_H\n")
-  (w "#define CGEN_OUT_H\n")
+  ;(w "#ifndef CGEN_OUT_H\n")
+  ;(w "#define CGEN_OUT_H\n")
   (w "#include \"cgen_lib.h\"\n")
   
   ;; Structs
   (define (w-struct name field)
-    (w "struct ~a {\n" name)
+    (w "struct ~a_~a {\n" ctag name)
     (for ((r (field f)))
          (let ((dims (reg-dims r)))
            (if (eq? dims '())
                (w "~a~a ~a;\n"   tab (reg-type r) (fmt-reg r))
                (w "~a~a ~a~a;\n" tab (reg-type r) (fmt-reg r) (fmt-array-size (map dim-size dims))))))
     (w "};\n"))
-  (w-struct "cgen_state" function-state)
-  (w-struct "cgen_in"    function-in)
-  (w-struct "cgen_out"   function-out)
+  (w-struct "state" function-state)
+  (w-struct "in"    function-in)
+  (w-struct "out"   function-out)
     
   ;; Function
-  (w "static inline void cgen_update(struct cgen_state *s, const struct cgen_in *i, struct cgen_out *o) {\n")
+  (w "static inline void ~a_update(struct cgen_state *s, const struct cgen_in *i, struct cgen_out *o) {\n" ctag)
   (define (w-code code)
     (for ((stmt code))
          ;; (w "  // ~a\n" stmt)
@@ -326,8 +326,9 @@
                               (fmt-array-index index)
                               (fmt-ref src))))
               (if slice
+                  ;; Recursively substitute slice names to partial
+                  ;; array references.
                   (let-values (((parent-dst parent-index) (expand-slice s slice)))
-                    
                     (w "~a~a~a = ~a; // expanded from: ~a\n"
                        (indent)
                        (fmt-ref parent-dst)
@@ -335,8 +336,8 @@
                        (fmt-ref src)
                        assignment
                        ))
-
                   (w "~a~a\n" assignment))))
+
            ((loop iter stop code)
             (begin
               (let ((fr (fmt-reg iter)))
@@ -351,7 +352,7 @@
   (w-code (function-code f))
   (w "}\n")
 
-  (w "#endif\n")
+  ;(w "#endif\n")
 
   )  
 
@@ -495,6 +496,9 @@
 (define (in-array! s . dims)
   (make-array-reg! s (for/list ((d dims)) (dim #f d)) 'i))
 
+(define (in-scalar! s)
+  (make-reg! s 'i))
+
 
 ;; Evaluator semantics field^ primitives.
 
@@ -533,6 +537,7 @@
 ;;     declarations and assigments, and substituting the refence with
 ;;     the "C slice" at the point of alement assigment.  This works
 ;;     beacuse the slice is ferentially transparent, i.e. the slice is
-;;     just a name.
+;;     just a name.  The second pass that performs the substitution is
+;;     combined with the c code generation.
 
 

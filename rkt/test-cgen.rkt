@@ -21,22 +21,47 @@
 (define-values/invoke-unit/infer field-lib@)
 (define-values/invoke-unit/infer main@)
 
-;; Run the compiler.
-(define s (init-cgen))
-;; FIXME: This should be inferred.  For now just hand it in.
 
-;; Loop sizes are derived from input size.
-(define f (compile s main (in-array! s 64)))
-(pp-function f)
-(display "slices:\n")
-;(pp (hash-map (cgen-slice s) cons))
-(pp (cgen-slice s))
+;; Run the compiler for a specific example defined as a case in main.
+(define (compile-example port example make-ins)
+  (let*
+      ((s (init-cgen))
+       (f (main s example)) ;; Select the function to compile
+       (compiled-f (apply compile s f (make-ins s))))
+    (pp-function compiled-f)
+    ;;(display "slices:\n")
+    ;;(pp (hash-map (cgen-slice s) cons))
+    ;;(pp (cgen-slice s))
+    ;; (fwrite-c-code (current-output-port)  f)
+    (fwrite-c-code s compiled-f example port)))
 
-(define port (open-output-file "../generic/cgen_out.h"  #:exists 'replace))
 
-;; (fwrite-c-code (current-output-port)  f)
-(fwrite-c-code s f port)
+;; Input argument constructors.
+(define (G s) '())  ;; nothing. this is just a generator
+(define (S s) (list (in-scalar! s))) ;; single scalar
+(define (V s) (list (in-array! s 64))) ;; single vector
 
-;(define h (make-hash))
-;(hash-set! h 'abc 123)
-;(pp h)
+
+(let ((port (open-output-file "../generic/cgen_test_out.h"  #:exists 'replace))
+      )
+  (for
+   ((example-spec
+     `((matrix     ,G)
+       (integrator ,S)
+       (procproc   ,S)
+       (sumramp    ,S)
+       ;; (synth  ,V)
+       )))
+   (pp (car example-spec))
+   (apply compile-example port example-spec)))
+
+;; FIXME: For now the synth engine is defined together with all the
+;; test programs, but it goes into a separate file to be included in
+;; synth.c
+(pp 'synth)
+(compile-example
+ (open-output-file "../generic/cgen_synth_out.h" #:exists 'replace)
+ 'synth
+ V)
+
+

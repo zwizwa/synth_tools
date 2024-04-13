@@ -9,6 +9,7 @@
  require
  provide
  let let*
+ case else
  (rename-out
   (dsp-app    #%app)
   (dsp-lambda lambda)
