@@ -3,15 +3,12 @@
 ;; and exposes basics: require provide
 (require
  racket/unit
- "field-sig.rkt"
- "field-lib-sig.rkt"
- "stream-sig.rkt"
- "main-sig.rkt"
+ "sig.rkt"
 )
 
 (define-unit main@
 
-  (import field^ field-lib^ stream^)
+  (import field^ field-lib^ loop^ stream^ float^)
   (export main^)
 
 
@@ -25,6 +22,9 @@
   (define (synth osc_inc)
     (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
       (map/sum osc osc_inc)))
+
+  (define integrate
+    (close 1 (lambda (s i) (let ((sn (+ s i))) (values sn sn)))))
 
   ;; A main^ unit only defines one function, so we use that to
   ;; dispatch on a symbol to return one of the test cases.  The inputs
@@ -57,6 +57,18 @@
          (loop 3 (lambda (i)
          (loop 4 (lambda (j)
            (values (* i j))))))))
+
+      ((timeloop)
+       ;; wrap a sample-based synth engine in a block-processing
+       ;; function, providing interpolation for block-rate parameters
+       (lambda (in)
+         (time 64
+           (lambda (i)
+             (let* ((x (integrate (ref in i)))
+                    (y (integrate x)))
+               (values
+                ;; y  ;; This breaks cgen
+                 ))))))
 
       ((synth)  synth)
       (else #f)))

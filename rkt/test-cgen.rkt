@@ -4,9 +4,7 @@
  racket/unit
 
  ;; Signatures
- "field-sig.rkt"
- "field-lib-sig.rkt"
- "main-sig.rkt"
+ "sig.rkt"
 
  ;; Generic code
  "field-lib-unit.rkt"
@@ -51,6 +49,7 @@
        (procproc   ,S)
        (sumramp    ,S)
        ;; (synth  ,V)
+       (timeloop   ,S)
        )))
    (pp (car example-spec))
    (apply compile-example port example-spec)))

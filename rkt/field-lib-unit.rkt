@@ -3,8 +3,7 @@
 ;; and exposes basics: require provide
 (require
  racket/unit
- "field-sig.rkt"
- "field-lib-sig.rkt"
+ "sig.rkt"
 )
 
 (define-unit field-lib@

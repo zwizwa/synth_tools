@@ -1,3 +1,0 @@
-#lang racket/signature
-main
-

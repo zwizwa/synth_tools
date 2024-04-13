@@ -1,7 +1,6 @@
 #lang racket/base
 (require
- "field-sig.rkt"
- "stream-sig.rkt"
+ "sig.rkt"
  racket/unit
  racket/list
  racket/match
@@ -18,7 +17,7 @@
 
 ;; The dims list uses the same order as C.  Leftmost is outer.
 
-(struct cgen (next-reg code state stack dims slice) #:mutable #:transparent)
+(struct cgen (next-reg code state stack coords slice) #:mutable #:transparent)
 
 (define (init-cgen)
   (cgen
@@ -26,7 +25,7 @@
    '() ;; code
    '() ;; state
    '() ;; stack
-   '() ;; dims
+   '() ;; coords
    (make-hash) ;; slice
    ))
 
@@ -102,8 +101,6 @@
 (define (comment! s msg)
   (code! s (comment msg)))
 
-(define (dims s)
-  (reverse (cgen-dims s)))
 
 (define (cgen-ref _ array . index)
   ;; Note that if the array is an input we can use this access to
@@ -112,24 +109,38 @@
   ;; first.
   (array-ref array index))
 
-;; Blocks are always loops.  (FIXME: Later, figure out how to
-;; implement "if").  Entering a block introduces a new index.  Each
-;; point inside a nested series of loops is always associated with a
-;; coordinate which is used to collect a block's output.  The language
-;; is fundamentally "grid oriented".
+;; Blocks are always loops.  For spatial loops, entering a block
+;; introduces a new coordinate dimension.  When state is introduced,
+;; it is always indexed by the current coordinate because each
+;; iteration through a nested loop should have its own stream state.
+;; One outer loop can be a time loop, in which case the coordinate is
+;; not updated.  State will be iteratively updated for each iteration
+;; through that loop.
 
-(define (enter-block! s index size)
-  (set-cgen-dims! s (cons (dim index size) (cgen-dims s)))
+(define (enter-block! s index size is-time)
+  (when (not is-time)
+    ;; FIXME (cgen-coords s) should really be '() here because this
+    ;; can only be the outer loop.  And, a time loop should happen
+    ;; only once.
+    (set-cgen-coords! s (cons (dim index size) (cgen-coords s))))
   (set-cgen-stack! s (cons (cgen-code s) (cgen-stack s)))
   (set-cgen-code! s '()))
 
-(define (leave-block! s)
+(define (leave-block! s is-time)
   (let* ((code (cgen-code s))
          (stack (cgen-stack s)))
-    (set-cgen-dims! s (cdr (cgen-dims s)))
+    (when (not is-time)
+      (set-cgen-coords! s (cdr (cgen-coords s))))
     (set-cgen-stack! s (cdr stack))
     (set-cgen-code! s (car stack))
     (reverse code)))
+
+;; For space-like loops, the current loop index / coordinate is saved
+;; such that state can be constructed in the correct multiplicity,
+;; association one state object to a particular loop coordinate.
+(define (loop-coords s)
+  (reverse (cgen-coords s)))
+
 
 ;; Add a slice reference.  Arrays that are returned as values are
 ;; implemented as slices into parent loop result arrays.
@@ -209,6 +220,7 @@
 (define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
 ;; Array index, size
 (define (fmt-array-index rs)
+  (log/pp "rs: " rs)
   (apply string-append (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
 (define (fmt-array-size sizes)
   (apply string-append (for/list ((size sizes)) (format "[~a]" size))))
@@ -363,7 +375,7 @@
 ;; fold, other outputs are accumulated in arrays.  Here s0 is the
 ;; initial state vector which can be omitted for zero init.  The f is
 ;; the iterated procedure, n is the number of iterations.
-(define (cgen-loop s nb-iter loop-body) ;; . s0
+(define (cgen-loop-generic s is-time nb-iter loop-body) ;; . s0
   (let* ((nb-state (- (procedure-arity loop-body) 2)) ;; (s i . state)
          ;; Before entering the loop, create initialized loop
          ;; variables.  FIXME: Later separate const and non-const.
@@ -373,7 +385,7 @@
          (state (for/list ((i nb-state)) (bind0! s 'l "zero"))))
          
     ;; Enter a new code block.
-    (enter-block! s index nb-iter)
+    (enter-block! s index nb-iter is-time)
     (comment! s "loop state snapshot")
 
     ;; Output arrays are constructed as an extra dimension added to
@@ -432,13 +444,20 @@
             
             ;; Finalize basic block and insert the block into the parent
             ;; context.
-            (let ((code (leave-block! s)))
+            (let ((code (leave-block! s is-time)))
               ;; Compile output array declarations before the loop body.
               (for ((o out)) (code! s (array o)))
               (loop! s index nb-iter code))
             
             (apply values (append state out))
             ))))))
+
+(define (cgen-loop s nb-iter loop-body)
+  (cgen-loop-generic s #f nb-iter loop-body))
+
+(define (cgen-timeloop s nb-iter loop-body)
+  (cgen-loop-generic s #t nb-iter loop-body))
+
 
 
 (define (cgen-close _ nb-state update)
@@ -458,10 +477,11 @@
               ;; new state variables corresponding to this instance
               ;; need to be added to the top level C function's state
               ;; when processor representing function is _applied_.
+              ;; And one state slot needs to be allocated for each
+              ;; point in a (nested) spatial iteration.
               ((state
                 (for/list ((i (in-range nb-state)))
-                          (make-state! s (dims
-                                          s))))
+                          (make-state! s (loop-coords s))))
                ;; (_ (comment! s state))
                ;; Buffer the state, see footnote (1).
                (_ (comment! s "feedback state snapshot"))
@@ -507,7 +527,7 @@
 ;; things simple.  The C primitives are defined in cgen_lib.h
 (define-unit cgen@
   (import)
-  (export field^ stream^)
+  (export field^ float^ loop^ stream^)
   (define + (op2 "add"))
   (define - (op2 "sub"))
   (define * (op2 "mul"))
@@ -516,6 +536,7 @@
 
   (define close  cgen-close)
   (define loop   cgen-loop)
+  (define time   cgen-timeloop)
   (define ref    cgen-ref)
   (define sizeof cgen-sizeof)
   
