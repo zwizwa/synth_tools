@@ -56,7 +56,7 @@
     (reg type dims tag nb)))
 
 (define (make-array-reg! s dims tag)
-  (make-generic-reg! s "T" dims tag))
+  (make-generic-reg! s 'T dims tag))
 
 ;; Scalar register.
 (define (make-reg! s tag)
@@ -85,7 +85,7 @@
 
 ;; Create a zero-initialized index variable.
 (define (index! s)
-  (let ((r (make-generic-reg! s "I" '() 'n)))
+  (let ((r (make-generic-reg! s 'I '() 'n)))
     (code! s (bind r "zero" '()))
     r))
   
@@ -148,7 +148,7 @@
 ;; Add a slice reference.  Arrays that are returned as values are
 ;; implemented as slices into parent loop result arrays.
 (define (def-slice! s reg parent index)
-  (log/pp "def-slice!" (list reg parent index))
+  ;; (log/pp "def-slice!" (list reg parent index))
   (let ((h (cgen-slice s))
         (v (slice parent index)))
     (hash-set! h reg v)))
@@ -224,7 +224,7 @@
 (define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
 ;; Array index, size
 (define (fmt-array-index rs)
-  (log/pp "fmt-array-index rs: " rs)
+  ;; (log/pp "fmt-array-index rs: " rs)
   (apply string-append
          (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
 (define (fmt-array-size sizes)
@@ -342,7 +342,7 @@
              (indent) (fmt-ref dst) (fmt-ref src)))
             
            ((array-assign dst coords src)
-            (let ((_ (log/pp "array-assign" (list dst coords src)))
+            (let (;;(_ (log/pp "array-assign" (list dst coords src)))
                   (slice (maybe-slice s dst))
                   (assignment (format "~a~a = ~a"
                                       (fmt-ref dst)
@@ -353,7 +353,7 @@
                   ;; array references and append the current
                   ;; coordinate.
                   (let-values (((parent-dst parent-coords) (expand-slice s slice)))
-                    (log/pp "expand-slice-rv: " (list parent-dst parent-coords))
+                    ;; (log/pp "expand-slice-rv: " (list parent-dst parent-coords))
                     (w "~a~a~a = ~a; // expanded from: ~a\n"
                        (indent)
                        (fmt-ref parent-dst)
@@ -480,7 +480,7 @@
        (closed-update
         ;; The processor instance only takes inputs.
         (lambda (s . in)
-          (log/pp "instance "  update)
+          ;; (log/pp "instance "  update)
           (let*
               ;; The core principle of the dsp stream language is that
               ;; a stateful stream processor instance corresponds to
@@ -504,9 +504,9 @@
                           (bind1! s 'l "copy" si)))
                )
             
-            (log/pp "  state:     " state)
-            (log/pp "  state-in:  " state-in)
-            (log/pp "  in:        " in)
+            ;;(log/pp "  state:     " state)
+            ;;(log/pp "  state-in:  " state-in)
+            ;;(log/pp "  in:        " in)
 
             (comment! s "feedback body")
            
@@ -515,9 +515,8 @@
               (lambda retvals
                 (let*-values
                     (((state-out out) (split-at retvals nb-state)))
-                     
-                  (log/pp "  state-out: " state-out)
-                  (log/pp "  out:       " out)
+                  ;;(log/pp "  state-out: " state-out)
+                  ;;(log/pp "  out:       " out)
                   (comment! s "feedback state update")
                   (for ((dst state) (src state-out)) (assign! s dst src))
                   (apply values out))))))))

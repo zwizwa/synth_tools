@@ -22,18 +22,22 @@
 
 ;; Run the compiler for a specific example defined as a case in main.
 (define (compile-example port example make-ins)
-  (let*
-      ((s (init-cgen))
-       (f (main s example)) ;; Select the function to compile
-       (compiled-f (apply compile s f (make-ins s))))
-    (pp-function compiled-f)
-    ;;(display "slices:\n")
-    ;;(pp (hash-map (cgen-slice s) cons))
-    ;;(pp (cgen-slice s))
-    ;; (fwrite-c-code (current-output-port)  f)
-    (fwrite-c-code s compiled-f example port)
-    (log/pp "meta:\n" (cgen-meta s))
-    ))
+    (parameterize
+        ((current-output-port
+          (open-output-file (format "~a.info" example)  #:exists 'replace)))
+      (let*
+          ((s (init-cgen))
+           (f (main s example)) ;; Select the function to compile
+           (compiled-f (apply compile s f (make-ins s))))
+        (pp-function compiled-f)
+        ;;(display "slices:\n")
+        ;;(pp (hash-map (cgen-slice s) cons))
+        ;;(pp (cgen-slice s))
+        ;; (fwrite-c-code (current-output-port)  f)
+        (fwrite-c-code s compiled-f example port)
+        (log/pp "meta:\n" (cgen-meta s))
+        (close-output-port (current-output-port))
+        )))
 
 
 ;; Input argument constructors.
