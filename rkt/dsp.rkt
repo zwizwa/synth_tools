@@ -10,6 +10,7 @@
  provide
  let let*
  case else
+ quasiquote quote
  (rename-out
   (dsp-app    #%app)
   (dsp-lambda lambda)

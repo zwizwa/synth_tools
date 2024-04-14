@@ -31,13 +31,16 @@
     ;;(pp (hash-map (cgen-slice s) cons))
     ;;(pp (cgen-slice s))
     ;; (fwrite-c-code (current-output-port)  f)
-    (fwrite-c-code s compiled-f example port)))
+    (fwrite-c-code s compiled-f example port)
+    (log/pp "meta:\n" (cgen-meta s))
+    ))
 
 
 ;; Input argument constructors.
 (define (G s) '())  ;; nothing. this is just a generator
 (define (S s) (list (in-scalar! s))) ;; single scalar
 (define (V s) (list (in-array! s 64))) ;; single vector
+(define (VS s) (list (in-array! s 64) (in-scalar! s))) ;; vector, scalar
 
 
 (let ((port (open-output-file "../generic/cgen_test_out.h"  #:exists 'replace))
@@ -45,8 +48,7 @@
   (for
    ((example-spec
      `(
-       (timeloop   ,V)
-
+       (timeloop   ,VS)
        (matrix     ,G)
        (integrator ,S)
        (procproc   ,S)

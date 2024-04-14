@@ -8,7 +8,7 @@
 
 (define-unit main@
 
-  (import field^ field-lib^ loop^ stream^ float^)
+  (import field^ field-lib^ loop^ stream^ float^ meta^)
   (export main^)
 
 
@@ -25,7 +25,9 @@
 
   (define integrate
     (close 1 (lambda (s i) (let ((sn (+ s i))) (values sn sn)))))
-
+  (define D
+    (close 1 (lambda (s i) (values i s))))
+  
   ;; A main^ unit only defines one function, so we use that to
   ;; dispatch on a symbol to return one of the test cases.  The inputs
   ;; need to be generated in test-cgen.rtk for cgen tests.
@@ -59,22 +61,23 @@
            (values (* i j))))))))
 
       ((timeloop)
-       ;; wrap a sample-based synth engine in a block-processing
-       ;; function, providing interpolation for block-rate parameters
-       (lambda (in)
-         (time (sizeof in)
-           (lambda (t)
-             (let* ((x (integrate (ref in t)))
-                    (y (integrate x)))
-               (values x y)
-               )))))
-
+       ;; Time loop with interpolated parameters, for block-based
+       ;; 2-rate inputs.
+       (lambda (in param)
+         (let* ((_ (meta! param '((unit . hz))))
+                (dparam (D param))
+                (incparam (/ (- param dparam) (sizeof in))))
+           (time
+            (sizeof in)
+            (lambda (t iparam)
+              (let* ((x (integrate (ref in t)))
+                     (y (integrate x)))
+                (values (+ iparam incparam) x y)
+                ))))))
+       
       ((synth)  synth)
       (else #f)))
 
-  ;; TODO features:
-  ;; - sizeof, so that mix-proc doesn't need size
-  ;; - rename for input and output field to make structs usable
     
 )
 (provide main@)

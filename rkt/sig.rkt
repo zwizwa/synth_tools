@@ -17,6 +17,9 @@
 (define-signature stream^
   (close  ;; close over time, feeding back via delay
 ))
+(define-signature meta^
+  (meta!  ;; attach extra metadata to a thing
+))
 
 ;; If should not use conditional execution, because that will make
 ;; state machines misbehave.  Look at how rai does it.

@@ -17,7 +17,7 @@
 
 ;; The dims list uses the same order as C.  Leftmost is outer.
 
-(struct cgen (next-reg code state stack coords slice) #:mutable #:transparent)
+(struct cgen (next-reg code state stack dims slice meta) #:mutable #:transparent)
 
 (define (init-cgen)
   (cgen
@@ -25,24 +25,25 @@
    '() ;; code
    '() ;; state
    '() ;; stack
-   '() ;; coords
+   '() ;; dims
    (make-hash) ;; slice
+   '() ;; meta
    ))
 
 
-(struct reg (type dims tag nb)       #:transparent)
-(struct const (value)                #:transparent)
-(struct dim (reg size)               #:transparent)
-(struct function (state in code out) #:transparent)
-(struct slice (parent index)         #:transparent)
+(struct reg (type dims tag nb)        #:transparent)
+(struct const (value)                 #:transparent)
+(struct dim (reg size)                #:transparent)
+(struct function (state in code out)  #:transparent)
+(struct slice (parent coords)         #:transparent)
 
-(struct bind (reg op args)           #:transparent)
-(struct array (reg)                  #:transparent)
-(struct assign (dst src)             #:transparent)
-(struct array-assign (reg index src) #:transparent)
-(struct array-ref (reg index)        #:transparent)
-(struct loop (iter stop code)        #:transparent)
-(struct comment (msg)                #:transparent)
+(struct bind (reg op args)            #:transparent)
+(struct array (reg)                   #:transparent)
+(struct assign (dst src)              #:transparent)
+(struct array-assign (reg coords src) #:transparent)
+(struct array-ref (reg coords)        #:transparent)
+(struct loop (iter stop code)         #:transparent)
+(struct comment (msg)                 #:transparent)
 
 
 ;; FIXME: Use a next-reg for each variable type.  This makes it easier
@@ -95,19 +96,19 @@
 (define (assign! s dst src)
   (code! s (assign dst src)))
 
-(define (array-assign! s dst index src)
-  (code! s (array-assign dst index src)))
+(define (array-assign! s dst coords src)
+  (code! s (array-assign dst coords src)))
 
 (define (comment! s msg)
   (code! s (comment msg)))
 
 
-(define (cgen-ref _ array . index)
+(define (cgen-ref _ array . coords)
   ;; Note that if the array is an input we can use this access to
   ;; infer the size if the indices are loop variables.  It could also
   ;; be left to the user to specify the input type.  Maybe do that
   ;; first.
-  (array-ref array index))
+  (array-ref array coords))
 
 ;; Blocks are always loops.  For spatial loops, entering a block
 ;; introduces a new coordinate dimension.  When state is introduced,
@@ -117,12 +118,14 @@
 ;; not updated.  State will be iteratively updated for each iteration
 ;; through that loop.
 
-(define (enter-block! s index size is-time)
-  (when (not is-time)
-    ;; FIXME (cgen-coords s) should really be '() here because this
-    ;; can only be the outer loop.  And, a time loop should happen
-    ;; only once.
-    (set-cgen-coords! s (cons (dim index size) (cgen-coords s))))
+(define (enter-block! s d is-time)
+  (let ((ds (cgen-dims s)))
+    (if is-time
+        (when (not (eq? ds '()))
+          ;; Time loops cannot occur inside space loops.
+          (error 'bad-timeloop-nesting))
+        ;; Space dimensions (coords + sizes) get tracked.
+        (set-cgen-dims! s (cons d ds))))
   (set-cgen-stack! s (cons (cgen-code s) (cgen-stack s)))
   (set-cgen-code! s '()))
 
@@ -130,16 +133,16 @@
   (let* ((code (cgen-code s))
          (stack (cgen-stack s)))
     (when (not is-time)
-      (set-cgen-coords! s (cdr (cgen-coords s))))
+      (set-cgen-dims! s (cdr (cgen-dims s))))
     (set-cgen-stack! s (cdr stack))
     (set-cgen-code! s (car stack))
     (reverse code)))
 
-;; For space-like loops, the current loop index / coordinate is saved
-;; such that state can be constructed in the correct multiplicity,
+;; For space loops, the current loop index / coordinate is saved such
+;; that state can be constructed in the correct multiplicity,
 ;; association one state object to a particular loop coordinate.
-(define (loop-coords s)
-  (reverse (cgen-coords s)))
+(define (loop-dims s)
+  (reverse (cgen-dims s)))
 
 
 ;; Add a slice reference.  Arrays that are returned as values are
@@ -249,8 +252,11 @@
            (format "~a->~a~a" tag tag nb))))))
 
 ;; Register reference.
+;; FIXME: Clean this up into pure reg reference and reg or lit.
 (define (fmt-ref r)
   (match r
+    ((? number?)
+     (format "~a" r))
     ((array-ref reg index)
      (format "~a~a" (fmt-reg-or-structmem reg) (fmt-array-index index)))
     ((reg type dims tag nb)
@@ -263,12 +269,12 @@
 ;; Recursively expand a slice reference.
 (define (expand-slice s slc)
   (match slc
-    ((slice parent indices)
-     (let ((pslice (maybe-slice s parent)))
+    ((slice reg coords)
+     (let ((pslice (maybe-slice s reg)))
        (if pslice
-           (let-values (((parent2 indices2) (expand-slice s pslice)))
-             (values parent2 (append indices2 indices)))
-           (values parent indices))))))
+           (let-values (((preg pcoords) (expand-slice s pslice)))
+             (values preg (append pcoords coords)))
+           (values reg coords))))))
 
 (define (fwrite-c-code s f ctag output-stream)
   (define (w . args) (apply fprintf output-stream args))
@@ -335,22 +341,23 @@
                  "~acopy_array(~a, ~a);\n")
              (indent) (fmt-ref dst) (fmt-ref src)))
             
-           ((array-assign dst index src)
-            (let ((_ (log/pp "array-assign" (list dst index src)))
+           ((array-assign dst coords src)
+            (let ((_ (log/pp "array-assign" (list dst coords src)))
                   (slice (maybe-slice s dst))
                   (assignment (format "~a~a = ~a"
                                       (fmt-ref dst)
-                              (fmt-array-index index)
+                              (fmt-array-index coords)
                               (fmt-ref src))))
               (if slice
                   ;; Recursively substitute slice names to partial
-                  ;; array references.
-                  (let-values (((parent-dst parent-index) (expand-slice s slice)))
-                    (log/pp "expand-slice-rv: " (list parent-dst parent-index))
+                  ;; array references and append the current
+                  ;; coordinate.
+                  (let-values (((parent-dst parent-coords) (expand-slice s slice)))
+                    (log/pp "expand-slice-rv: " (list parent-dst parent-coords))
                     (w "~a~a~a = ~a; // expanded from: ~a\n"
                        (indent)
                        (fmt-ref parent-dst)
-                       (fmt-array-index (append parent-index index))
+                       (fmt-array-index (append parent-coords coords))
                        (fmt-ref src)
                        assignment
                        ))
@@ -390,7 +397,7 @@
          (state (for/list ((i nb-state)) (bind0! s 'l "zero"))))
          
     ;; Enter a new code block.
-    (enter-block! s index nb-iter is-time)
+    (enter-block! s (dim index nb-iter) is-time)
     (comment! s "loop state snapshot")
 
     ;; Output arrays are constructed as an extra dimension added to
@@ -483,10 +490,12 @@
               ;; need to be added to the top level C function's state
               ;; when processor representing function is _applied_.
               ;; And one state slot needs to be allocated for each
-              ;; point in a (nested) spatial iteration.
+              ;; point in a (nested) spatial iteration.  Note that
+              ;; state registers contain dims (coords + sizes), not
+              ;; just coords.
               ((state
                 (for/list ((i (in-range nb-state)))
-                          (make-state! s (loop-coords s))))
+                          (make-state! s (loop-dims s))))
                ;; (_ (comment! s state))
                ;; Buffer the state, see footnote (1).
                (_ (comment! s "feedback state snapshot"))
@@ -526,13 +535,16 @@
   (make-reg! s 'i))
 
 
+(define (cgen-meta! s param itm)
+  (set-cgen-meta! s (cons (cons param itm) (cgen-meta s))))
+
 ;; Evaluator semantics field^ primitives.
 
 ;; Note that the C gen doesn't generate infix operations to keep
 ;; things simple.  The C primitives are defined in cgen_lib.h
 (define-unit cgen@
   (import)
-  (export field^ float^ loop^ stream^)
+  (export field^ float^ loop^ stream^ meta^)
   (define + (op2 "add"))
   (define - (op2 "sub"))
   (define * (op2 "mul"))
@@ -544,10 +556,18 @@
   (define time   cgen-timeloop)
   (define ref    cgen-ref)
   (define sizeof cgen-sizeof)
-  
+
+  (define meta!  cgen-meta!)
 
   )
 
+;; Wanted features
+;;
+;; - Input and output 1D arrays should optionally be referenced by
+;;   pointer instead of being defined in the structs.  This makes
+;;   interop with existing APIs a bit easier.
+;;
+;; - UI annotations
 
 
 ;; Footnotes
