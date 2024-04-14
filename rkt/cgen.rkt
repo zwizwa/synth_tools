@@ -145,6 +145,7 @@
 ;; Add a slice reference.  Arrays that are returned as values are
 ;; implemented as slices into parent loop result arrays.
 (define (def-slice! s reg parent index)
+  (log/pp "def-slice!" (list reg parent index))
   (let ((h (cgen-slice s))
         (v (slice parent index)))
     (hash-set! h reg v)))
@@ -193,7 +194,7 @@
                 ((equivalence
                   (format "~a == ~a;\n"
                           (fmt-ref ro) (fmt-ref o))))
-              (def-slice! s o ro '())  ;; FIXME: index
+              (def-slice! s o ro '())
               (comment! s (format "treat assignment as equivalence: ~a" equivalence))))))
 
     
@@ -222,10 +223,7 @@
 (define (fmt-array-index rs)
   (log/pp "fmt-array-index rs: " rs)
   (apply string-append
-         (for/list ((r rs))
-                   (if (eq? r '())
-                       "/*FIXME*/"
-                       (format "[~a]" (fmt-reg r))))))
+         (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
 (define (fmt-array-size sizes)
   (apply string-append (for/list ((size sizes)) (format "[~a]" size))))
 
@@ -262,14 +260,15 @@
 (define (fmt-args args)
   (apply string-append (intersperse ", " (map fmt-ref args))))
 
+;; Recursively expand a slice reference.
 (define (expand-slice s slc)
   (match slc
-    ((slice parent index)
-     (let ((parent2 (maybe-slice s parent)))
-       (if parent2
-           (let-values (((r i) (expand-slice s parent2)))
-             (values r (append i index)))
-           (values parent index))))))
+    ((slice parent indices)
+     (let ((pslice (maybe-slice s parent)))
+       (if pslice
+           (let-values (((parent2 indices2) (expand-slice s pslice)))
+             (values parent2 (append indices2 indices)))
+           (values parent indices))))))
 
 (define (fwrite-c-code s f ctag output-stream)
   (define (w . args) (apply fprintf output-stream args))
@@ -347,10 +346,11 @@
                   ;; Recursively substitute slice names to partial
                   ;; array references.
                   (let-values (((parent-dst parent-index) (expand-slice s slice)))
+                    (log/pp "expand-slice-rv: " (list parent-dst parent-index))
                     (w "~a~a~a = ~a; // expanded from: ~a\n"
                        (indent)
                        (fmt-ref parent-dst)
-                       (fmt-array-index (append (list parent-index) index))
+                       (fmt-array-index (append parent-index index))
                        (fmt-ref src)
                        assignment
                        ))
@@ -427,7 +427,7 @@
                  ;; FIXME: Also handle literals.
                  (match ov
                    ((reg type '() tag nb)
-                    ;; If out-val is a scalar register reference then
+                     ;; If out-val is a scalar register reference then
                     ;; we can just copy it.
                     (array-assign! s o (list index) ov))
                    ((reg type dims tag nb)
@@ -443,7 +443,7 @@
                                 (fmt-ref o)
                                 (fmt-array-index (list index))
                                 (fmt-ref ov))))
-                      (def-slice! s ov o index)
+                      (def-slice! s ov o (list index))
                       (comment! s (format "treat assignment as equivalence: ~a" equivalence))))
                    ))
             

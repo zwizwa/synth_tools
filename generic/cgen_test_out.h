@@ -1,4 +1,49 @@
 #include "cgen_lib.h"
+struct timeloop_state {
+    T s0;
+    T s1;
+};
+struct timeloop_in {
+    T i0[64];
+};
+struct timeloop_out {
+    T o0[64];
+    T o1[64];
+};
+static inline void timeloop_update(struct timeloop_state *s, const struct timeloop_in *i, struct timeloop_out *o) {
+    // function body
+    // loop index init
+    I n0 = zero();
+    // loop state init
+    // omit slice definition: T l4[64]
+    // omit slice definition: T l5[64]
+    for(; n0 < 64; n0++) {
+        // loop state snapshot
+        // loop body
+        // feedback state snapshot
+        T l0 = copy(s->s0);
+        // feedback body
+        T l1 = add(l0, i->i0[n0]);
+        // feedback state update
+        s->s0 = l1;
+        // feedback state snapshot
+        T l2 = copy(s->s1);
+        // feedback body
+        T l3 = add(l2, l1);
+        // feedback state update
+        s->s1 = l3;
+        // loop state update
+        // loop output
+        o->o0[n0] = l1; // expanded from: l4[n0] = l1
+        o->o1[n0] = l3; // expanded from: l5[n0] = l3
+    }
+    // function outputs
+    // treat assignment as equivalence: o->o0 == l4;
+
+    // treat assignment as equivalence: o->o1 == l5;
+
+}
+#include "cgen_lib.h"
 struct matrix_state {
 };
 struct matrix_in {
@@ -117,44 +162,4 @@ static inline void sumramp_update(struct sumramp_state *s, const struct sumramp_
     }
     // function outputs
     o->o0 = l0;
-}
-#include "cgen_lib.h"
-struct timeloop_state {
-    T s0;
-    T s1;
-};
-struct timeloop_in {
-    T i0[64];
-};
-struct timeloop_out {
-    T o0[64];
-};
-static inline void timeloop_update(struct timeloop_state *s, const struct timeloop_in *i, struct timeloop_out *o) {
-    // function body
-    // loop index init
-    I n0 = zero();
-    // loop state init
-    // omit slice definition: T l4[64]
-    for(; n0 < 64; n0++) {
-        // loop state snapshot
-        // loop body
-        // feedback state snapshot
-        T l0 = copy(s->s0);
-        // feedback body
-        T l1 = add(l0, i->i0[n0]);
-        // feedback state update
-        s->s0 = l1;
-        // feedback state snapshot
-        T l2 = copy(s->s1);
-        // feedback body
-        T l3 = add(l2, l1);
-        // feedback state update
-        s->s1 = l3;
-        // loop state update
-        // loop output
-        o->o0/*FIXME*/[n0] = l3; // expanded from: l4[n0] = l3
-    }
-    // function outputs
-    // treat assignment as equivalence: o->o0 == l4;
-
 }

@@ -44,23 +44,27 @@
       )
   (for
    ((example-spec
-     `((matrix     ,G)
+     `(
+       (timeloop   ,V)
+
+       (matrix     ,G)
        (integrator ,S)
        (procproc   ,S)
        (sumramp    ,S)
        ;; (synth  ,V)
-       (timeloop   ,V)
        )))
    (pp (car example-spec))
    (apply compile-example port example-spec)))
 
-;; FIXME: For now the synth engine is defined together with all the
-;; test programs, but it goes into a separate file to be included in
-;; synth.c
-(pp 'synth)
-(compile-example
- (open-output-file "../generic/cgen_synth_out.h" #:exists 'replace)
- 'synth
- V)
+
+(when #t
+  ;; FIXME: For now the synth engine is defined together with all the
+  ;; test programs, but it goes into a separate file to be included in
+  ;; synth.c
+  (pp 'synth)
+  (compile-example
+   (open-output-file "../generic/cgen_synth_out.h" #:exists 'replace)
+   'synth
+   V))
 
 

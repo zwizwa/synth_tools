@@ -63,12 +63,11 @@
        ;; function, providing interpolation for block-rate parameters
        (lambda (in)
          (time (sizeof in)
-           (lambda (i)
-             (let* ((x (integrate (ref in i)))
+           (lambda (t)
+             (let* ((x (integrate (ref in t)))
                     (y (integrate x)))
-               (values
-                y  ;; This breaks cgen
-                 ))))))
+               (values x y)
+               )))))
 
       ((synth)  synth)
       (else #f)))
