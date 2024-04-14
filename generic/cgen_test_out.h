@@ -38,10 +38,8 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
         o->o1[n0] = l3; // expanded from: l5[n0] = l3
     }
     // function outputs
-    // treat assignment as equivalence: o->o0 == l4;
-
-    // treat assignment as equivalence: o->o1 == l5;
-
+    // treat assignment as equivalence: o->o0 == l4
+    // treat assignment as equivalence: o->o1 == l5
 }
 #include "cgen_lib.h"
 struct matrix_state {
@@ -77,8 +75,7 @@ static inline void matrix_update(struct matrix_state *s, const struct matrix_in 
         // treat assignment as equivalence: l2[n0] == l1
     }
     // function outputs
-    // treat assignment as equivalence: o->o0 == l2;
-
+    // treat assignment as equivalence: o->o0 == l2
 }
 #include "cgen_lib.h"
 struct integrator_state {

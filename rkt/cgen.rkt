@@ -192,7 +192,7 @@
             ;; Similar to loop outputs
             (let*
                 ((equivalence
-                  (format "~a == ~a;\n"
+                  (format "~a == ~a"
                           (fmt-ref ro) (fmt-ref o))))
               (def-slice! s o ro '())
               (comment! s (format "treat assignment as equivalence: ~a" equivalence))))))
