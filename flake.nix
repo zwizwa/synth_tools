@@ -63,6 +63,7 @@
             rustToolchain
             pkg-config
             erlang
+            pulseaudio
           ];
 
           # There are currently two rust targets:
@@ -86,6 +87,7 @@
               # does this have to be nativeBuildInputs?
               buildInputs = with pkgs; [
                 alsa-lib
+                pulseaudio-dev
               ];
               nativeBuildInputs = with pkgs; [
                 pkg-config

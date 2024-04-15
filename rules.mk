@@ -83,6 +83,7 @@ STM_ELF_DIS := \
 
 HOST_ELF := \
 	linux/test_misc.dynamic.host.elf \
+	linux/test_pulse.dynamic.host.elf \
 	linux/test_synth_cgen.dynamic.host.elf \
 	linux/test_pdm.dynamic.host.elf \
 	linux/test_bl_midi.dynamic.host.elf \
@@ -338,7 +339,7 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	export LD=linux/dynamic.host.ld ; \
 	export MAP=$(patsubst %.elf,%.map,$@) ; \
 	export O=$< ; \
-	export LDLIBS="$(A_HOST) -Wl,--gc-sections -lpthread -ljack -lasound" ; \
+	export LDLIBS="$(A_HOST) -Wl,--gc-sections -lpthread -ljack -lasound `pkg-config libpulse-simple --cflags --libs`" ; \
 	export TYPE=elf ; \
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1

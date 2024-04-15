@@ -18,11 +18,39 @@
           (lambda (i acc)
             (+ acc (osc (ref inc i))))))
 
-  ;; FIXME put this in a separate module.
+  ;; FIXME put synth in a separate module.
+  
+  ;; (define (synth osc_inc)
+  ;;   (let* (;;(_ (meta! in    '((name . "In")    (unit . ms) (min . 1)  (max . 1000))))
+  ;;          ;;(_ (meta! param '((name . "Param") (unit . hz) (min . 20) (max . 20000))))
+  ;;          ;;(dparam (D param))
+  ;;          ;;(incparam (/ (- param dparam) (sizeof in)))
+  ;;          )
+  ;;     (time
+  ;;      1024 ;; (sizeof <something>)
+  ;;      (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
+  ;;        (map/sum osc osc_inc)))))
+
+  (define (deltas osc_inc n)
+    (loop (sizeof osc_inc)
+          (lambda (i)
+            (let* ((invn (/ 1 n))
+                   (oi (ref osc_inc i))
+                   (Doi (D oi)))
+              (* (- oi Doi) invn)))))
+  
+  ;; (define (synth osc_inc)
+  ;;   (let* ((n 1024)
+  ;;          (ds (deltas osc_inc n)))
+  ;;     (time 64
+  ;;           (lambda (t)
+  ;;             (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
+  ;;               (map/sum osc osc_inc))))
+
   (define (synth osc_inc)
     (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
       (map/sum osc osc_inc)))
-
+      
   (define integrate
     (close 1 (lambda (s i) (let ((sn (+ s i))) (values sn sn)))))
   (define D
@@ -64,7 +92,8 @@
        ;; Time loop with interpolated parameters, for block-based
        ;; 2-rate inputs.
        (lambda (in param)
-         (let* ((_ (meta! param '((unit . hz))))
+         (let* ((_ (meta! in    '((name . "In")    (unit . ms) (min . 1)  (max . 1000))))
+                (_ (meta! param '((name . "Param") (unit . hz) (min . 20) (max . 20000))))
                 (dparam (D param))
                 (incparam (/ (- param dparam) (sizeof in))))
            (time
