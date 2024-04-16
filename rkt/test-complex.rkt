@@ -4,19 +4,20 @@
  racket/match
  racket/unit)
 (define-signature field^ (+ - * /))
-(define-signature basefield^ (^+ ^- ^* ^/))
+(define-signature complex-field^ (c:+ c:- c:* c:/))
 
-;; To express one field in terms of another field we use a basefield^
-;; unit that has all field names prefixed.
+;; Express one field in terms of another field, and provide a rename
+;; for the interface to use the compound field as a field^ input of
+;; other units.
 
 ;; Interface rename
-(define-unit field-to-basefield@
-  (import field^)
-  (export basefield^)
-  (define ^+ +)
-  (define ^- -)
-  (define ^* *)
-  (define ^/ /))
+(define-unit complex-field-to-field@
+  (import complex-field^)
+  (export field^)
+  (define + c:+)
+  (define - c:-)
+  (define * c:*)
+  (define / c:/))
 
 
 ;; Complex number type
@@ -24,23 +25,23 @@
 
 ;; Complex field in terms of base field.
 (define-unit complex@
-  (import basefield^)
-  (export field^)
+  (import field^)
+  (export complex-field^)
 
-  (define/match (+ a b)
+  (define/match (c:+ a b)
     (((C ar ai) (C br bi))
-     (C (^+ ar br) (^+ ai bi))))
+     (C (+ ar br) (+ ai bi))))
 
-  (define/match (- a b)
+  (define/match (c:- a b)
     (((C ar ai) (C br bi))
-     (C (^- ar br) (^- ai bi))))
+     (C (- ar br) (- ai bi))))
 
-  (define/match (* a b)
+  (define/match (c:* a b)
     (((C ar ai) (C br bi))
-     (C (^- (^* ar br) (^* ai bi))
-        (^+ (^* ar bi) (^* ai br)))))
+     (C (- (* ar br) (* ai bi))
+        (+ (* ar bi) (* ai br)))))
 
-  (define / #f)
+  (define c:/ #f)
   
   )
 
@@ -56,20 +57,21 @@
   )
 
 ;; Instantiate complex field in terms of racket number ops.
-(define-compound-unit/infer racket-basefield@
-    (import)
-    (export basefield^)
-    (link racket-field@
-          field-to-basefield@))
 (define-compound-unit/infer racket-complex@
     (import)
-    (export field^)
+    (export complex-field^)
     (link
      complex@
-     racket-basefield@))
+     racket-field@))
+;; And rename it to field^ interface
+(define-compound-unit/infer racket-test@
+    (import)
+    (export field^)
+    (link racket-complex@
+          complex-field-to-field@))
 
 ;; Bind identifiers in this module
-(define-values/invoke-unit/infer racket-complex@)
+(define-values/invoke-unit/infer racket-test@)
 
 ;; And run some tests.
 (+ (C 1 2) (C 3 4))
