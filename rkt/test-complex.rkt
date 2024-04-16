@@ -4,33 +4,48 @@
  racket/match
  racket/unit)
 (define-signature field^ (+ - * /))
-(define-signature basefield^ (base:+ base:- base:* base:/))
+(define-signature basefield^ (^+ ^- ^* ^/))
 
-;; Complex numer type
-(struct complex (r i) #:transparent)
+;; To express one field in terms of another field we use a basefield^
+;; unit that has all field names prefixed.
 
 ;; Interface rename
 (define-unit field-to-basefield@
   (import field^)
   (export basefield^)
-  (define base:+ +)
-  (define base:- -)
-  (define base:* *)
-  (define base:/ /))
+  (define ^+ +)
+  (define ^- -)
+  (define ^* *)
+  (define ^/ /))
+
+
+;; Complex number type
+(struct C (r i) #:transparent)
 
 ;; Complex field in terms of base field.
 (define-unit complex@
   (import basefield^)
   (export field^)
+
   (define/match (+ a b)
-    (((complex ar ai) (complex br bi))
-     (complex (base:+ ar br) (base:+ ai bi))))
-  (define - #f)
-  (define * #f)
+    (((C ar ai) (C br bi))
+     (C (^+ ar br) (^+ ai bi))))
+
+  (define/match (- a b)
+    (((C ar ai) (C br bi))
+     (C (^- ar br) (^- ai bi))))
+
+  (define/match (* a b)
+    (((C ar ai) (C br bi))
+     (C (^- (^* ar br) (^* ai bi))
+        (^+ (^* ar bi) (^* ai br)))))
+
   (define / #f)
+  
   )
 
-;; Field in terms of Racket number operations.
+;; To test, defined field^ interface in terms of Racket number
+;; operations.  Note that "racket-base.rkt" doesn't export + - / *
 (define-unit racket-field@
   (import)
   (export field^)
@@ -41,21 +56,23 @@
   )
 
 ;; Instantiate complex field in terms of racket number ops.
-
 (define-compound-unit/infer racket-basefield@
     (import)
     (export basefield^)
     (link racket-field@
           field-to-basefield@))
-          
-
 (define-compound-unit/infer racket-complex@
     (import)
     (export field^)
-    (link racket-basefield@
-          complex@))
+    (link
+     complex@
+     racket-basefield@))
 
+;; Bind identifiers in this module
 (define-values/invoke-unit/infer racket-complex@)
 
-(+ (complex 1 2) (complex 3 4))
+;; And run some tests.
+(+ (C 1 2) (C 3 4))
+(* (C 1 2) (C 3 4))
    
+
