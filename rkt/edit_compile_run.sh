@@ -10,9 +10,12 @@ inotifywait \
     test-cgen.rkt \
     cgen.rkt \
     dsp.rkt \
+    typed-cgen.rkt \
 
 # racket test-eval.rkt
-racket test-cgen.rkt
+# racket test-cgen.rkt
+
+racket typed-cgen.rkt
 
 exec $0
 

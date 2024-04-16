@@ -46,9 +46,9 @@
 (struct comment (msg)                 #:transparent)
 
 
-;; FIXME: Use a next-reg for each variable type.  This makes it easier
-;; to give predictable names to in/out/state structs, and makes code
-;; easier to read.
+;; Use a next-reg for each variable tag (i o s l).  This makes it
+;; easier to give predictable names to in/out/state structs, and makes
+;; generated code easier to read.
 (define (make-generic-reg! s type dims tag)
   (let* ((h (cgen-next-reg s))
          (nb (hash-ref h tag 0)))
