@@ -1,4 +1,6 @@
 #!/bin/sh
+echo 
+echo "begin $0"
 
 inotifywait \
     edit_compile_run.sh \
@@ -16,6 +18,6 @@ inotifywait \
 # racket test-cgen.rkt
 
 racket typed-cgen.rkt
-
+echo "end $0"
 exec $0
 

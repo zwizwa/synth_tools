@@ -110,6 +110,8 @@
   ;; first.
   (array-ref array coords))
 
+
+
 ;; Blocks are always loops.  For spatial loops, entering a block
 ;; introduces a new coordinate dimension.  When state is introduced,
 ;; it is always indexed by the current coordinate because each
