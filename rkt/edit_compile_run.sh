@@ -10,14 +10,16 @@ inotifywait \
     test-main-unit.rkt \
     test-eval.rkt \
     test-cgen.rkt \
+    test-complex.rkt \
     cgen.rkt \
     dsp.rkt \
     typed-cgen.rkt \
 
 # racket test-eval.rkt
 # racket test-cgen.rkt
+# racket typed-cgen.rkt
+racket test-complex.rkt
 
-racket typed-cgen.rkt
 echo "end $0"
 exec $0
 
