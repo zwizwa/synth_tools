@@ -17,8 +17,8 @@ inotifywait \
 
 # racket test-eval.rkt
 # racket test-cgen.rkt
-# racket typed-cgen.rkt
-racket test-complex.rkt
+racket typed-cgen.rkt
+# racket test-complex.rkt
 
 echo "end $0"
 exec $0

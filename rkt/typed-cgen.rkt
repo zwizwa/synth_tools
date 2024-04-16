@@ -17,7 +17,7 @@
 (define-type Opcode String)
 
 (struct reg ([type : Symbol]
-             [dims : Any]
+             [dims : (Listof dim)]
              [tag  : RegTag]
              [nb   : Integer])
         #:transparent)
@@ -257,11 +257,14 @@
 (define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
 
 ;; Array index, size
-(: fmt-array-index (-> (Listof reg) String))
+(: fmt-array-index (-> (Listof Val) String))
 (define (fmt-array-index rs)
   (apply string-append
-         (for/list ((r rs)) (format "[~a]" (fmt-reg r)))))
+         (map (lambda ([r : Val]) (format "[~a]" (fmt-ref r))) rs)))
 
+(: dims-regs (-> (Listof dim) (Listof reg)))
+(define (dims-regs dims)
+  (map dim-reg dims))
 
 ;; reg or s->mem
 (: fmt-reg-or-structmem (-> reg String))
@@ -281,7 +284,7 @@
        (if (and (eq? tag 's)
                 (not (eq? '() dims)))
            ;; Indexed
-           (format "~a->~a~a~a" tag tag nb (fmt-array-index (map dim-reg dims)))
+           (format "~a->~a~a~a" tag tag nb (fmt-array-index (dims-regs dims)))
            ;; All the rest lives in a struct.
            (format "~a->~a~a" tag tag nb))))))
 
@@ -302,7 +305,13 @@
 
 ;; The result of compiling a collection of nested stream processing
 ;; functions is one C function parameterized with a state vector.
-(: compile (-> cgen Any Any function)) ;; FIXME: API changed + this is very polymorphic.
+(: compile
+   (-> cgen
+       ;; It seems simpler in typed racket to collect the input
+       ;; arguments in a list instead of varargs.
+       (-> cgen (Listof reg) (Values reg))
+       (Listof reg)
+       function))
 (define (compile s main in)
   (code! s (comment "function body"))
   (let*
@@ -311,7 +320,7 @@
        ;(in (for/list ((i (in-range nb-in))) (make-reg! s 'i)))
 
        ;; Apply the function, collecting the output expressions.
-       (out (call-with-values (lambda () (apply main s in)) list))
+       (out (call-with-values (lambda () ( main s in)) list))
 
        ;; FIXME: outreg should be more like this
        ;; ((outreg (for/list ((ov out-val)) (make-out-array-reg! s (dim index nb-iter) 'l ov))))
@@ -320,7 +329,7 @@
        ;; Buffer the outputs to make sure they are all registers, and
        ;; perform the assgment.
        ;; (outreg (for/list ((o out)) (make-reg! s 'o)))
-       (outreg (for/list ((o out)) (make-array-reg! s (reg-dims o) 'o)))
+       (outreg (map (lambda ([o : reg]) (make-array-reg! s (reg-dims o) 'o)) out))
        )
 
     (code! s (comment "function outputs"))
@@ -334,11 +343,45 @@
             (let*
                 ((equivalence
                   (format "~a == ~a"
-                          (fmt-ref ro) (fmt-ref o))))
+                          (fmt-ref ro) (fmt-ref o)))
+                 (msg (format "treat assignment as equivalence: ~a" equivalence)))
               (def-slice! s o ro '())
-              (code! s (comment (format "treat assignment as equivalence: ~a" equivalence)))))))
+              (code! s (comment msg))))))
 
     
     ;; Reverse state and code stacks. The in and out lists are already
     ;; in the correct order.
     (function (reverse (cgen-state s)) in (reverse (cgen-code s)) outreg)))
+
+(: pp-function (-> function Void))
+(define (pp-function f)
+  (display "state:\n") (pp (function-state f))
+  (display "in:\n")    (pp (function-in f))
+  (display "code:\n")  (for ((code (function-code f)))
+                            (pp code))
+  (display "out:\n")   (pp (function-out f)))
+
+(: intersperse (All (S) (-> S (Listof S) (Listof S))))
+(define (intersperse between elems)
+  (if (pair? elems)
+      (cdr (apply
+            append
+            (map (lambda ([elem : S]) (list between elem)) elems)))
+      '()))
+
+(define tab "    ")
+
+(: fmt-args (-> (Listof Val) String))
+(define (fmt-args args)
+  (apply string-append (intersperse ", " (map fmt-ref args))))
+
+;; Recursively expand a slice reference.
+(: expand-slice (-> cgen slice (Values reg (Listof reg))))
+(define (expand-slice s slc)
+  (match slc
+    ((slice reg coords)
+     (let ((pslice (maybe-slice s reg)))
+       (if pslice
+           (let-values (((preg pcoords) (expand-slice s pslice)))
+             (values preg (append pcoords coords)))
+           (values reg coords))))))
