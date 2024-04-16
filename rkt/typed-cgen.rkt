@@ -262,6 +262,12 @@
   (apply string-append
          (map (lambda ([r : Val]) (format "[~a]" (fmt-ref r))) rs)))
 
+(: fmt-array-size (-> (Listof Number) String))
+(define (fmt-array-size sizes)
+  (apply string-append
+         (map (lambda ([size : Number]) (format "[~a]" size)) sizes)))
+  
+
 (: dims-regs (-> (Listof dim) (Listof reg)))
 (define (dims-regs dims)
   (map dim-reg dims))
@@ -385,3 +391,109 @@
            (let-values (((preg pcoords) (expand-slice s pslice)))
              (values preg (append pcoords coords)))
            (values reg coords))))))
+
+(: fwrite-c-code (-> cgen function String Output-Port Void))
+(define (fwrite-c-code s f ctag output-stream)
+  (: w (-> String Any * Void))
+  (define (w fmt . args)
+    (apply fprintf output-stream fmt args))
+  ;; Register
+
+
+
+  (define level 0)
+  (define (enter!) (set! level (add1 level)))
+  (define (leave!) (set! level (sub1 level)))
+  (define (indent)
+    (apply string-append (make-list (add1 level) tab)))
+
+  ;(w "#ifndef CGEN_OUT_H\n")
+  ;(w "#define CGEN_OUT_H\n")
+  (w "#include \"cgen_lib.h\"\n")
+  
+  ;; Structs
+  (: w-struct (-> String (-> function (Listof reg)) Void))
+  (define (w-struct name field)
+    (w "struct ~a_~a {\n" ctag name)
+    (for ((r (field f)))
+         (let ((dims (reg-dims r)))
+           (if (eq? dims '())
+               (w "~a~a ~a;\n"   tab (reg-type r) (fmt-reg r))
+               (w "~a~a ~a~a;\n" tab (reg-type r) (fmt-reg r) (fmt-array-size (map dim-size dims))))))
+    (w "};\n"))
+  (w-struct "state" function-state)
+  (w-struct "in"    function-in)
+  (w-struct "out"   function-out)
+    
+  ;; Function
+  (w "static inline void ~a_update(struct ~a_state *s, const struct ~a_in *i, struct ~a_out *o) {\n"
+     ctag ctag ctag ctag)
+
+  (: w-code (-> (Listof Code) Void))
+  (define (w-code code)
+    (for ((stmt code))
+         ;; (w "  // ~a\n" stmt)
+         (match stmt
+
+           ((comment msg)
+            (w "~a// ~a\n"
+               (indent) msg))
+
+           ((bind r op args)
+            (w "~a~a ~a = ~a(~a);\n"
+               (indent) (reg-type r) (fmt-reg r) op (fmt-args args)))
+
+           ((array r)
+            (let ((slicedef
+                   (format "~a ~a~a"
+                           (reg-type r)
+                           (fmt-reg r)
+                           (fmt-array-size (map dim-size (reg-dims r))))))
+              (if (maybe-slice s r)
+                  (w "~a// omit slice definition: ~a\n" (indent) slicedef)
+                  (w "~a~a;\n"
+                     (indent) slicedef))))
+
+           ((assign dst src)
+            (w "~a~a = ~a;\n"
+               (indent) (fmt-ref dst) (fmt-ref src)))
+            
+           ((array-assign dst coords src)
+            (let (;;(_ (log/pp "array-assign" (list dst coords src)))
+                  (slice (maybe-slice s dst))
+                  (assignment (format "~a~a = ~a"
+                                      (fmt-ref dst)
+                              (fmt-array-index coords)
+                              (fmt-ref src))))
+              (if slice
+                  ;; Recursively substitute slice names to partial
+                  ;; array references and append the current
+                  ;; coordinate.
+                  (let-values (((parent-dst parent-coords) (expand-slice s slice)))
+                    ;; (log/pp "expand-slice-rv: " (list parent-dst parent-coords))
+                    (w "~a~a~a = ~a; // expanded from: ~a\n"
+                       (indent)
+                       (fmt-ref parent-dst)
+                       (fmt-array-index (append parent-coords coords))
+                       (fmt-ref src)
+                       assignment
+                       ))
+                  (w "~a~a\n" assignment))))
+
+           ((loop iter stop code)
+            (begin
+              (let ((fr (fmt-reg iter)))
+                (w "~afor(; ~a < ~a; ~a++) {\n"
+                   (indent) fr stop fr))
+              (enter!)
+              (w-code code)
+              (leave!)
+              (w "~a}\n"
+                 (indent)))
+            ))))
+  (w-code (function-code f))
+  (w "}\n")
+
+  ;(w "#endif\n")
+
+  )  
