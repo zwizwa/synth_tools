@@ -22,7 +22,7 @@
              [nb   : Integer])
         #:transparent)
 
-(struct dim ([reg  : reg]
+(struct dim ([reg  : (U reg #f)]  ;; FIXME: represent differently
              [size : Integer])
         #:transparent)
 
@@ -282,7 +282,11 @@
 
 (: dims-regs (-> (Listof dim) (Listof reg)))
 (define (dims-regs dims)
-  (map dim-reg dims))
+  (map (lambda ([d : dim])
+         (let ((r (dim-reg d)))
+           (assert r reg?)
+           r))
+       dims))
 
 ;; reg or s->mem
 (: fmt-reg-or-structmem (-> reg String))
@@ -535,14 +539,14 @@
 ;; initial state vector which can be omitted for zero init.  The f is
 ;; the iterated procedure, n is the number of iterations.
 
-(define-type TargetFunction
+(define-type TargetLoopFunction
   (-> cgen reg reg * (Values reg)))
 
 (: cgen-loop-generic
    (-> cgen
        Boolean
        Nonnegative-Integer
-       TargetFunction
+       TargetLoopFunction
        (Listof reg)))
 (define (cgen-loop-generic s is-time nb-iter loop-body) ;; . s0
   (let* ((nb-state (procedure-fixed-arity-minus loop-body 2)) ;; (s i . state)
@@ -629,12 +633,96 @@
 
 
 ;; For now we keep DSP language "dynamically typed at compile time".
-(: cgen-loop (-> cgen Nonnegative-Integer TargetFunction
+(: cgen-loop (-> cgen Nonnegative-Integer TargetLoopFunction
                  AnyValues))
 (define (cgen-loop s nb-iter loop-body)
   (apply values (cgen-loop-generic s #f nb-iter loop-body)))
 
-(: cgen-timeloop (-> cgen Nonnegative-Integer TargetFunction
+(: cgen-timeloop (-> cgen Nonnegative-Integer TargetLoopFunction
                      AnyValues))
 (define (cgen-timeloop s nb-iter loop-body)
   (apply values (cgen-loop-generic s #t nb-iter loop-body)))
+
+
+(define-type TargetCloseFunction
+  (-> cgen reg * (Values reg)))
+
+(: cgen-close (-> Any Nonnegative-Integer TargetCloseFunction
+                  ;; (-> cgen reg * AnyValues)
+                  Procedure
+                  ))
+(define (cgen-close _ nb-state update)
+  (let*
+      ;; sub1/add1 account for the extra state parameter that is
+      ;; added to dsp functions
+      ((nb-in (procedure-fixed-arity-minus update 1))
+       (closed-update : (-> cgen reg * AnyValues)
+        ;; The processor instance only takes inputs.
+        (lambda (s . in)
+          
+          
+          ;; (log/pp "instance "  update)
+          (let*
+              ;; The core principle of the dsp stream language is that
+              ;; a stateful stream processor instance corresponds to
+              ;; the _application_ of the function that represents it,
+              ;; not the function abstraction itself.  This means that
+              ;; new state variables corresponding to this instance
+              ;; need to be added to the top level C function's state
+              ;; when processor representing function is _applied_.
+              ;; And one state slot needs to be allocated for each
+              ;; point in a (nested) spatial iteration.  Note that
+              ;; state registers contain dims (coords + sizes), not
+              ;; just coords.
+              ((state : (Listof reg)
+                (for/list ((i (in-range nb-state)))
+                          (make-state! s (loop-dims s))))
+               ;; (_ (comment! s state))
+               ;; Buffer the state, see footnote (1).
+               (_ (code! s (comment "feedback state snapshot")))
+               (state-in : (Listof reg)
+                (for/list ((si state))
+                          (bind1! s 'l "copy" si)))
+               (state-in-and-in : (Listof reg)
+                (append state-in in))                
+               )
+            
+            
+            ;;(log/pp "  state:     " state)
+            ;;(log/pp "  state-in:  " state-in)
+            ;;(log/pp "  in:        " in)
+
+            (code! s (comment "feedback body"))
+           
+            (let*-values
+                ((([retvals : (Listof reg)])
+                  (call-with-values
+                      (lambda () (apply update s state-in-and-in)) list))
+                 (([state-out : (Listof reg)]
+                   [out       : (Listof reg)])
+                  (split-at retvals nb-state)))
+              ;;(log/pp "  state-out: " state-out)
+              ;;(log/pp "  out:       " out)
+              (code! s (comment "feedback state update"))
+              (for ((dst state) (src state-out))
+                   (code! s (assign dst src)))
+              (apply values out))
+            ))))
+    (procedure-reduce-arity closed-update (add1 nb-in))
+    ))
+
+(: cgen-sizeof (-> cgen reg AnyValues))
+(define (cgen-sizeof _ array)
+  (apply values (map dim-size (reg-dims array))))
+
+(: in-array! (-> cgen Nonnegative-Integer * reg))
+(define (in-array! s . dims)
+  (make-array-reg! s (for/list ((d dims)) (dim #f d)) 'i))
+
+(: in-scalar! (-> cgen reg))
+(define (in-scalar! s)
+  (make-reg! s 'i))
+
+(: cgen-meta! (-> cgen reg Any Void))
+(define (cgen-meta! s param itm)
+  (set-cgen-meta! s (cons (cons param itm) (cgen-meta s))))
