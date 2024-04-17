@@ -627,14 +627,14 @@
       (append state out)
       )))
 
+
+;; For now we keep DSP language "dynamically typed at compile time".
 (: cgen-loop (-> cgen Nonnegative-Integer TargetFunction
-                 (Values reg)))
+                 AnyValues))
 (define (cgen-loop s nb-iter loop-body)
-  (let ((reg-list (cgen-loop-generic s #f nb-iter loop-body)))
-    (apply values reg-list)))
+  (apply values (cgen-loop-generic s #f nb-iter loop-body)))
 
 (: cgen-timeloop (-> cgen Nonnegative-Integer TargetFunction
-                     (Values reg)))
+                     AnyValues))
 (define (cgen-timeloop s nb-iter loop-body)
-  (let ((reg-list (cgen-loop-generic s #t nb-iter loop-body)))
-    (apply values reg-list)))
+  (apply values (cgen-loop-generic s #t nb-iter loop-body)))
