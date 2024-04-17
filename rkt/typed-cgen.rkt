@@ -121,6 +121,18 @@
 (define (make-array-reg! s dims tag)
   (make-generic-reg! s 'T dims tag))
 
+;; Output arrays are constructed as an extra dimension added to
+;; the type of a return value.
+(: make-out-array-reg!
+   (-> cgen dim RegTag reg
+       reg))
+(define (make-out-array-reg! s dim tag out-val)
+  (let ((dims (reg-dims out-val))) ;; FIXME: This might not be a register
+    (make-array-reg! s (cons dim dims) tag)))
+    
+
+
+
 ;; Scalar register.
 (: make-reg!
    (-> cgen RegTag
@@ -497,3 +509,132 @@
   ;(w "#endif\n")
 
   )  
+
+;; procedure-arity returns:
+;; (U (Listof (U Exact-Nonnegative-Integer arity-at-least))
+;;    Exact-Nonnegative-Integer
+;;    arity-at-least)
+;; This needs to be handled using a run time check.
+(: procedure-fixed-arity-minus (-> Procedure Nonnegative-Integer
+                                   Nonnegative-Integer))
+(define (procedure-fixed-arity-minus f n)
+  (let ((a (procedure-arity f)))
+    (assert a number?)
+    (let ((am (- a n)))
+      (assert (>= am 0))
+      am)))
+
+(: reg-list (-> reg * (Listof reg)))
+(define (reg-list . regs)
+  (apply list regs))
+
+
+;; For now there is only one datatype: the array.  There is one
+;; iteration: the iteration of a state machine.  State output acts as
+;; fold, other outputs are accumulated in arrays.  Here s0 is the
+;; initial state vector which can be omitted for zero init.  The f is
+;; the iterated procedure, n is the number of iterations.
+
+(define-type TargetFunction
+  (-> cgen reg reg * (Values reg)))
+
+(: cgen-loop-generic
+   (-> cgen
+       Boolean
+       Nonnegative-Integer
+       TargetFunction
+       (Listof reg)))
+(define (cgen-loop-generic s is-time nb-iter loop-body) ;; . s0
+  (let* ((nb-state (procedure-fixed-arity-minus loop-body 2)) ;; (s i . state)
+         ;; Before entering the loop, create initialized loop
+         ;; variables.  FIXME: Later separate const and non-const.
+         (_ (code! s (comment "loop index init")))
+         (index (index! s))
+         (_ (code! s (comment "loop state init")))
+         (state : (Listof reg)
+          (for/list ((_ (in-range nb-state)))
+                    (bind0! s 'l "zero"))))
+         
+    ;; Enter a new code block.
+    (enter-block! s (dim index nb-iter) is-time)
+    (code! s (comment "loop state snapshot"))
+
+    (let*-values
+        ;; Buffer the state, see footnote (1).
+        ((([state-in : (Listof reg)])
+          (for/list ((si state))
+                    (bind1! s 'l "copy" si)))
+         ((_) (code! s (comment "loop body")))
+         (([retvals : (Listof reg)] )
+          (call-with-values
+              (lambda () (apply loop-body s index state-in)) reg-list))
+         (([state-val : (Listof reg)]
+           [out-val   : (Listof reg)])
+          (split-at retvals nb-state))
+         (([out : (Listof reg)])
+          (for/list ((ov out-val))
+                    (make-out-array-reg!
+                     s (dim index nb-iter) 'l ov))))
+      ;; Assign state registers.  These are always scalar
+      (code! s (comment "loop state update"))
+      (for ((dst state)
+            (src state-val))
+           (code! s (assign dst src)))
+
+      ;; Output assignment is solved in two steps.  The code
+      ;; constructs local 1-dim arrays and uses the current loop index
+      ;; to fill them.  This works as long as the references are not
+      ;; returned to the enclosing scope.  If that is the case, the
+      ;; code needs to be patched in a second step to move the array
+      ;; elsewhere.
+        
+      (code! s (comment "loop output"))
+            
+      (for ((o  out)
+            (ov out-val))
+           ;; FIXME: Also handle literals.
+           (match ov
+             ((struct reg (type '() tag nb))
+              ;; If out-val is a scalar register reference then we
+              ;; can just copy it.
+              (code! s (array-assign o (list index) ov)))
+             ((reg type dims tag nb)
+              ;; If it is an array, some more work is needed to make
+              ;; sure we write into the correct location.  At this
+              ;; point we know that:
+              ;;
+              ;; - The 'o' array we created is actually a slice of a
+              ;;   parent array.
+              (let*
+                  ((equivalence
+                    (format "~a~a == ~a"
+                            (fmt-ref o)
+                            (fmt-array-index (list index))
+                            (fmt-ref ov)))
+                   (msg (format "treat assignment as equivalence: ~a" equivalence)))
+                (def-slice! s ov o (list index))
+                (code! s (comment msg))))
+             ))
+      
+            
+      ;; Finalize basic block and insert the block into the parent
+      ;; context.
+      (let ((code (leave-block! s is-time)))
+        ;; Compile output array declarations before the loop body.
+        (for ((o out)) (code! s (array o)))
+        (code! s (loop index nb-iter code)))
+      
+      (append state out)
+      )))
+
+(: cgen-loop (-> cgen Nonnegative-Integer TargetFunction
+                 (Values reg)))
+(define (cgen-loop s nb-iter loop-body)
+  (let ((reg-list (cgen-loop-generic s #f nb-iter loop-body)))
+    (apply values reg-list)))
+
+(: cgen-timeloop (-> cgen Nonnegative-Integer TargetFunction
+                     (Values reg)))
+(define (cgen-timeloop s nb-iter loop-body)
+  (let ((reg-list (cgen-loop-generic s #t nb-iter loop-body)))
+    (apply values reg-list)))
