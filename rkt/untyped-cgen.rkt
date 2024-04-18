@@ -7,17 +7,17 @@
 (provide
  (all-defined-out))
 
-;; For now we keep DSP language "dynamically typed at compile time",
+;; For now we keep dsp language "dynamically typed at compile time",
 ;; mostly because it is not clear how to implement typed Racket for
-;; the dsp core, nor if it is really necessary.
+;; the dsp language, nor if it is really necessary to manage
+;; complexity.  This makes it easy to keep using multiple arguments /
+;; multiple return values.
 ;;
-;; However, the cgen core really needs types just to be able to manage
-;; the complexity.
+;; In contrast, the cgen core really needs types just to be able to
+;; manage the granularity of the data types.  It represents functions
+;; as (Listof Ref) -> (Listof reg), and we perform conversion between
+;; multival and list at this end.
 
-;; With DSP lang dynamically typed, we can keep working with multiple
-;; arguments and multiple return values, but perform a translation
-;; here at the untyped end before calling the typed/contracted cgen
-;; routines.
 
 ;; Convert between multiarg->multival and list->list functions.
 (define (m2l f)

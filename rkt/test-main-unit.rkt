@@ -39,17 +39,18 @@
                    (Doi (D oi)))
               (* (- oi Doi) invn)))))
   
-  ;; (define (synth osc_inc)
-  ;;   (let* ((n 1024)
-  ;;          (ds (deltas osc_inc n)))
-  ;;     (time 64
-  ;;           (lambda (t)
-  ;;             (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
-  ;;               (map/sum osc osc_inc))))
-
   (define (synth osc_inc)
-    (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
-      (map/sum osc osc_inc)))
+    (let* ((n 1024)
+           (ds (deltas osc_inc n)))
+      (time n
+            ;; FIXME: use deltas to update
+            (lambda (t)
+              (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
+                (map/sum osc osc_inc))))))
+
+  ;;(define (synth osc_inc)
+  ;;  (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
+  ;;    (map/sum osc osc_inc)))
       
   (define integrate
     (close 1 (lambda (s i) (let ((sn (+ s i))) (values sn sn)))))

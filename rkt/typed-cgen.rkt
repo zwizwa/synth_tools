@@ -13,7 +13,7 @@
 ;; (struct const (value)                 #:transparent)
 ;; (struct function (state in code out)  #:transparent)
 
-(define-type RegTag (U 'i 'o 's 'l 'n))
+(define-type RegTag (U 'i 'o 's 'l 'n 't))
 (define-type Opcode String)
 
 (struct reg ([type : Symbol]
@@ -94,7 +94,8 @@
 
 (define (init-cgen)
   (cgen
-   (make-hash '((i . 0) (o . 0) (s . 0) (l . 0) (n . 0))) ;; next-reg
+   (make-hash
+    '((i . 0) (o . 0) (s . 0) (l . 0) (n . 0) (t . 0))) ;; next-reg
    '() ;; code
    '() ;; state
    '() ;; stack
@@ -172,9 +173,9 @@
 (define (bind2! s tag op a b) (let ((r (make-reg! s tag))) (code! s (bind r op (list a b))) r))
 
 ;; Create a zero-initialized index variable.
-(: index! (-> cgen reg))
-(define (index! s)
-  (let ((r (make-generic-reg! s 'I '() 'n)))
+(: index! (-> cgen RegTag reg))
+(define (index! s tag)
+  (let ((r (make-generic-reg! s 'I '() tag)))
     (code! s (bind r "zero" '()))
     r))
 
@@ -295,7 +296,7 @@
         (nb   (reg-nb r))
         (dims (reg-dims r)))
     (case tag
-      ((l n)
+      ((l n t)
        ;; Local variables: temporary or index
        (fmt-reg r))
       (else
@@ -466,8 +467,8 @@
                   (slice (maybe-slice s dst))
                   (assignment (format "~a~a = ~a"
                                       (fmt-ref dst)
-                              (fmt-array-index coords)
-                              (fmt-ref src))))
+                                      (fmt-array-index coords)
+                                      (fmt-ref src))))
               (if slice
                   ;; Recursively substitute slice names to partial
                   ;; array references and append the current
@@ -481,7 +482,7 @@
                        (fmt-ref src)
                        assignment
                        ))
-                  (w "~a~a\n" assignment))))
+                  (w "~a~a\n" (indent) assignment))))
 
            ((loop iter stop code)
             (begin
@@ -540,7 +541,7 @@
   (let* (;; Before entering the loop, create initialized loop
          ;; variables.  FIXME: Later separate const and non-const.
          (_ (code! s (comment "loop index init")))
-         (index (index! s))
+         (index (index! s (if is-time 't 'n)))
          (_ (code! s (comment "loop state init")))
          (state : (Listof reg)
           (for/list ((_ (in-range nb-state)))

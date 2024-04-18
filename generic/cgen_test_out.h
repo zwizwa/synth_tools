@@ -22,16 +22,16 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
     T l1 = sub(i->i1, l0);
     T l2 = div(l1, 64);
     // loop index init
-    I n0 = zero();
+    I t0 = zero();
     // loop state init
     T l3 = zero();
     // omit slice definition: T l11[64]
     // omit slice definition: T l12[64]
-    for(; n0 < 64; n0++) {
+    for(; t0 < 64; t0++) {
         // loop state snapshot
         T l4 = copy(l3);
         // loop body
-        T l5 = copy(i->i0[n0]);
+        T l5 = copy(i->i0[t0]);
         // feedback state snapshot
         T l6 = copy(s->s1);
         // feedback body
@@ -48,8 +48,8 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
         // loop state update
         l3 = l10;
         // loop output
-        o->o1[n0] = l7; // expanded from: l11[n0] = l7
-        o->o2[n0] = l9; // expanded from: l12[n0] = l9
+        o->o1[t0] = l7; // expanded from: l11[t0] = l7
+        o->o2[t0] = l9; // expanded from: l12[t0] = l9
     }
     // function body
     // function outputs
