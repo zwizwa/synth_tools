@@ -1,11 +1,11 @@
 #lang typed/racket/base
 (require
  "sig.rkt"
- typed/racket/unit 
  racket/match
  racket/list
  racket/pretty
  )
+(provide (all-defined-out))
 
 ;; TODO:
 ;; - Go over all Any, Symbol types
@@ -94,7 +94,7 @@
 
 (define (init-cgen)
   (cgen
-   (make-hash '((i . 0) (o . 0) (s . 0) (l . 0))) ;; next-reg
+   (make-hash '((i . 0) (o . 0) (s . 0) (l . 0) (n . 0))) ;; next-reg
    '() ;; code
    '() ;; state
    '() ;; stack
@@ -190,9 +190,9 @@
 ;;   (code! s (comment msg)))
 
 
-;; FIXME: I don't know how to type this.
-;(define (cgen-ref _ array . coords)
-;  (array-ref array coords))
+(: cgen-ref (-> cgen reg reg * Val))
+(define (cgen-ref _ array . coords)
+  (array-ref array coords))
 
 
 
@@ -323,34 +323,21 @@
     ))
   
 
-
-
 ;; The result of compiling a collection of nested stream processing
 ;; functions is one C function parameterized with a state vector.
-(: compile
+(: compile/list
    (-> cgen
-       ;; It seems simpler in typed racket to collect the input
-       ;; arguments in a list instead of varargs.
-       (-> cgen (Listof reg) (Values reg))
-       (Listof reg)
+       ;; We take inputs and already evaluated outputs.  Caller needs
+       ;; to apply the hoas function to the input probe registers to
+       ;; produce out.
+       (Listof reg) ;; in
+       (Listof reg) ;; out
        function))
-(define (compile s main in)
+(define (compile/list s in out)
   (code! s (comment "function body"))
   (let*
-      (;; Generate registers to serve as function inputs
-       ;(nb-in (sub1 (procedure-arity main)))
-       ;(in (for/list ((i (in-range nb-in))) (make-reg! s 'i)))
-
-       ;; Apply the function, collecting the output expressions.
-       (out (call-with-values (lambda () ( main s in)) list))
-
-       ;; FIXME: outreg should be more like this
-       ;; ((outreg (for/list ((ov out-val)) (make-out-array-reg! s (dim index nb-iter) 'l ov))))
-
-       
-       ;; Buffer the outputs to make sure they are all registers, and
+      (;; Buffer the outputs to make sure they are all registers, and
        ;; perform the assgment.
-       ;; (outreg (for/list ((o out)) (make-reg! s 'o)))
        (outreg (map (lambda ([o : reg]) (make-array-reg! s (reg-dims o) 'o)) out))
        )
 
@@ -540,15 +527,15 @@
 ;; the iterated procedure, n is the number of iterations.
 
 (define-type TargetLoopFunction
-  (-> cgen reg reg * (Values reg)))
+  (-> cgen reg (Listof reg) (Listof reg)))
 
-(: cgen-loop-generic
+(: cgen-loop/list
    (-> cgen
        Boolean
        Nonnegative-Integer
        TargetLoopFunction
        (Listof reg)))
-(define (cgen-loop-generic s is-time nb-iter loop-body) ;; . s0
+(define (cgen-loop/list s is-time nb-iter loop-body) ;; . s0
   (let* ((nb-state (procedure-fixed-arity-minus loop-body 2)) ;; (s i . state)
          ;; Before entering the loop, create initialized loop
          ;; variables.  FIXME: Later separate const and non-const.
@@ -570,8 +557,7 @@
                     (bind1! s 'l "copy" si)))
          ((_) (code! s (comment "loop body")))
          (([retvals : (Listof reg)] )
-          (call-with-values
-              (lambda () (apply loop-body s index state-in)) reg-list))
+          (loop-body s index state-in))
          (([state-val : (Listof reg)]
            [out-val   : (Listof reg)])
           (split-at retvals nb-state))
@@ -632,88 +618,66 @@
       )))
 
 
-;; For now we keep DSP language "dynamically typed at compile time".
-(: cgen-loop (-> cgen Nonnegative-Integer TargetLoopFunction
-                 AnyValues))
-(define (cgen-loop s nb-iter loop-body)
-  (apply values (cgen-loop-generic s #f nb-iter loop-body)))
+;; Arity is passed elsewhere.
+(define-type TargetListFunction
+  (-> cgen (Listof reg) (Listof reg)))
 
-(: cgen-timeloop (-> cgen Nonnegative-Integer TargetLoopFunction
-                     AnyValues))
-(define (cgen-timeloop s nb-iter loop-body)
-  (apply values (cgen-loop-generic s #t nb-iter loop-body)))
+;; FIXME: I can't seem to be able to reconstruct the function type,
+;; only Procedure
 
-
-(define-type TargetCloseFunction
-  (-> cgen reg * (Values reg)))
-
-(: cgen-close (-> Any Nonnegative-Integer TargetCloseFunction
-                  ;; (-> cgen reg * AnyValues)
-                  Procedure
-                  ))
-(define (cgen-close _ nb-state update)
-  (let*
-      ;; sub1/add1 account for the extra state parameter that is
-      ;; added to dsp functions
-      ((nb-in (procedure-fixed-arity-minus update 1))
-       (closed-update : (-> cgen reg * AnyValues)
-        ;; The processor instance only takes inputs.
-        (lambda (s . in)
-          
-          
-          ;; (log/pp "instance "  update)
-          (let*
-              ;; The core principle of the dsp stream language is that
-              ;; a stateful stream processor instance corresponds to
-              ;; the _application_ of the function that represents it,
-              ;; not the function abstraction itself.  This means that
-              ;; new state variables corresponding to this instance
-              ;; need to be added to the top level C function's state
-              ;; when processor representing function is _applied_.
-              ;; And one state slot needs to be allocated for each
-              ;; point in a (nested) spatial iteration.  Note that
-              ;; state registers contain dims (coords + sizes), not
-              ;; just coords.
-              ((state : (Listof reg)
+(: cgen-close/list (-> Nonnegative-Integer ;; nb-state
+                       Nonnegative-Integer ;; nb-in
+                       TargetListFunction  ;; open function
+                       TargetListFunction  ;; closed function
+                       ))
+(define (cgen-close/list nb-state nb-in update)
+  (lambda (s in)
+    ;; (log/pp "instance "  update)
+    (let*
+        ;; The core principle of the dsp stream language is that a
+        ;; stateful stream processor instance corresponds to the
+        ;; _application_ of the function that represents it, not the
+        ;; function abstraction itself.  This means that new state
+        ;; variables corresponding to this instance need to be added
+        ;; to the top level C function's state when processor
+        ;; representing function is _applied_.  And one state slot
+        ;; needs to be allocated for each point in a (nested) spatial
+        ;; iteration.  Note that state registers contain dims (coords
+        ;; + sizes), not just coords.
+        ((state : (Listof reg)
                 (for/list ((i (in-range nb-state)))
                           (make-state! s (loop-dims s))))
-               ;; (_ (comment! s state))
-               ;; Buffer the state, see footnote (1).
-               (_ (code! s (comment "feedback state snapshot")))
-               (state-in : (Listof reg)
-                (for/list ((si state))
-                          (bind1! s 'l "copy" si)))
-               (state-in-and-in : (Listof reg)
-                (append state-in in))                
-               )
+         ;; (_ (comment! s state))
+         ;; Buffer the state, see footnote (1).
+         (_ (code! s (comment "feedback state snapshot")))
+         (state-in : (Listof reg)
+                   (for/list ((si state))
+                             (bind1! s 'l "copy" si)))
+         (state-in-and-in : (Listof reg)
+                          (append state-in in))                
+         )
             
             
-            ;;(log/pp "  state:     " state)
-            ;;(log/pp "  state-in:  " state-in)
-            ;;(log/pp "  in:        " in)
-
-            (code! s (comment "feedback body"))
+      ;;(log/pp "  state:     " state)
+      ;;(log/pp "  state-in:  " state-in)
+      ;;(log/pp "  in:        " in)
+      
+      (code! s (comment "feedback body"))
            
-            (let*-values
-                ((([retvals : (Listof reg)])
-                  (call-with-values
-                      (lambda () (apply update s state-in-and-in)) list))
-                 (([state-out : (Listof reg)]
-                   [out       : (Listof reg)])
-                  (split-at retvals nb-state)))
-              ;;(log/pp "  state-out: " state-out)
-              ;;(log/pp "  out:       " out)
-              (code! s (comment "feedback state update"))
-              (for ((dst state) (src state-out))
-                   (code! s (assign dst src)))
-              (apply values out))
-            ))))
-    (procedure-reduce-arity closed-update (add1 nb-in))
-    ))
+      (let*-values
+          ((([retvals : (Listof reg)])
+            (update s state-in-and-in))
+           (([state-out : (Listof reg)]
+             [out       : (Listof reg)])
+            (split-at retvals nb-state)))
+        ;;(log/pp "  state-out: " state-out)
+        ;;(log/pp "  out:       " out)
+        (code! s (comment "feedback state update"))
+        (for ((dst state) (src state-out))
+             (code! s (assign dst src)))
+        out)
+      )))
 
-(: cgen-sizeof (-> cgen reg AnyValues))
-(define (cgen-sizeof _ array)
-  (apply values (map dim-size (reg-dims array))))
 
 (: in-array! (-> cgen Nonnegative-Integer * reg))
 (define (in-array! s . dims)
@@ -726,3 +690,31 @@
 (: cgen-meta! (-> cgen reg Any Void))
 (define (cgen-meta! s param itm)
   (set-cgen-meta! s (cons (cons param itm) (cgen-meta s))))
+
+
+
+;; Wanted features
+;;
+;; - Input and output 1D arrays should optionally be referenced by
+;;   pointer instead of being defined in the structs.  This makes
+;;   interop with existing APIs a bit easier.
+;;
+
+;; Footnotes
+
+;; (1) State input expressions are buffered before injecting them into
+;;     lambda expressions to avoid them getting passed around, which
+;;     could mean they get compiled after their next-state assigment
+;;     statements.  It is assumed that the C compiler can easily get
+;;     rid of additional assignments.
+;;
+;; (2) The first pass defines arrays to collect loop outputs.  This
+;;     leads to whole array assigments that get optimized away by
+;;     keeping track of which variables are slices, omitting
+;;     declarations and assigments, and substituting the refence with
+;;     the "C slice" at the point of alement assigment.  This works
+;;     beacuse the slice is ferentially transparent, i.e. the slice is
+;;     just a name.  The second pass that performs the substitution is
+;;     combined with the c code generation.
+
+

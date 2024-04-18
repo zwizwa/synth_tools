@@ -11,7 +11,9 @@
  "test-main-unit.rkt"
  
  ;; Substrate implementation
- "cgen.rkt"
+ ;; "cgen.rkt"
+ "untyped-cgen.rkt"
+ "typed-cgen.rkt"
  )
 
 ;; Instantiate and introduces identifies into this module's namespace.
@@ -35,7 +37,7 @@
         ;;(pp (cgen-slice s))
         ;; (fwrite-c-code (current-output-port)  f)
         (fwrite-c-code s compiled-f example port)
-        (log/pp "meta:\n" (cgen-meta s))
+        ;; (log/pp "meta:\n" (cgen-meta s))
         (close-output-port (current-output-port))
         )))
 
