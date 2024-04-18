@@ -46,7 +46,7 @@
 
 (define (compile s main . in)
   (let ((out ((m2l main) s in)))
-    (apply values (compile/list sin out))))
+    (compile/list s in out)))
 
 
 ;; Variant foor loop forms
@@ -55,10 +55,16 @@
     (call-with-values
         (lambda () (apply f s index args))
       list)))
+(define (loop* s is-time nb-iter loop-body)
+  (let* ((nb-state (- (procedure-arity loop-body) 2)))
+    (apply values
+           (cgen-loop/list s is-time nb-iter nb-state (m2l-loop loop-body)))))
+  
 (define (cgen-loop s nb-iter loop-body)
-  (apply values (cgen-loop/list s #f nb-iter (m2l-loop loop-body))))
+  (loop* s #f nb-iter loop-body))
 (define (cgen-timeloop s nb-iter loop-body)
-  (apply values (cgen-loop/list s #t nb-iter (m2l-loop loop-body))))
+  (loop* s #t nb-iter loop-body))
+  
 
 
 

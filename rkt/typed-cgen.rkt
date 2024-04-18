@@ -32,7 +32,7 @@
 (struct bind
         ([reg : reg]
          [op : Opcode]
-         [args : (Listof Val)])
+         [args : (Listof Ref)])
         #:transparent)
 
 (struct array
@@ -41,19 +41,19 @@
 
 (struct assign
         ([dst : reg]
-         [src : Val])
+         [src : Ref])
         #:transparent)
 
 (struct array-assign
         ([reg : reg]
          [coords : (Listof reg)]
-         [src : Val])
+         [src : Ref])
         #:transparent)
 
 ;; FIXME: This is the same as slice
 (struct array-ref
         ([reg : reg]
-         [coords : (Listof Val)])
+         [coords : (Listof Ref)])
         #:transparent)
 
 (struct loop
@@ -66,7 +66,7 @@
         ([msg : String])
         #:transparent)
 
-(define-type Val (U reg array-ref Number))
+(define-type Ref (U reg array-ref Number))
 
 (define-type Code (U bind array assign array-assign loop comment))
 
@@ -165,8 +165,8 @@
 ;;    (+ 3 n)))
 
 (: bind0! (-> cgen RegTag Opcode         reg))
-(: bind1! (-> cgen RegTag Opcode Val     reg))
-(: bind2! (-> cgen RegTag Opcode Val Val reg))
+(: bind1! (-> cgen RegTag Opcode Ref     reg))
+(: bind2! (-> cgen RegTag Opcode Ref Ref reg))
 (define (bind0! s tag op)     (let ((r (make-reg! s tag))) (code! s (bind r op (list))) r))
 (define (bind1! s tag op a)   (let ((r (make-reg! s tag))) (code! s (bind r op (list a))) r))
 (define (bind2! s tag op a b) (let ((r (make-reg! s tag))) (code! s (bind r op (list a b))) r))
@@ -190,7 +190,7 @@
 ;;   (code! s (comment msg)))
 
 
-(: cgen-ref (-> cgen reg reg * Val))
+(: cgen-ref (-> cgen reg reg * Ref))
 (define (cgen-ref _ array . coords)
   (array-ref array coords))
 
@@ -256,8 +256,8 @@
 (define (maybe-slice s reg)
   (hash-ref (cgen-slice s) reg #f))
 
-(: op1 (-> Opcode (-> cgen Val     reg)))
-(: op2 (-> Opcode (-> cgen Val Val reg)))
+(: op1 (-> Opcode (-> cgen Ref     reg)))
+(: op2 (-> Opcode (-> cgen Ref Ref reg)))
 
 (define (op1 op) (lambda (s a)   (bind1! s 'l op a)))
 (define (op2 op) (lambda (s a b) (bind2! s 'l op a b)))
@@ -269,10 +269,10 @@
 (define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
 
 ;; Array index, size
-(: fmt-array-index (-> (Listof Val) String))
+(: fmt-array-index (-> (Listof Ref) String))
 (define (fmt-array-index rs)
   (apply string-append
-         (map (lambda ([r : Val]) (format "[~a]" (fmt-ref r))) rs)))
+         (map (lambda ([r : Ref]) (format "[~a]" (fmt-ref r))) rs)))
 
 (: fmt-array-size (-> (Listof Number) String))
 (define (fmt-array-size sizes)
@@ -311,7 +311,7 @@
            (format "~a->~a~a" tag tag nb))))))
 
 ;; Reference or literal value
-(: fmt-ref (-> Val String))
+(: fmt-ref (-> Ref String))
 (define (fmt-ref r)
   (match r
     ((? number?)
@@ -380,7 +380,7 @@
 
 (define tab "    ")
 
-(: fmt-args (-> (Listof Val) String))
+(: fmt-args (-> (Listof Ref) String))
 (define (fmt-args args)
   (apply string-append (intersperse ", " (map fmt-ref args))))
 
@@ -395,7 +395,7 @@
              (values preg (append pcoords coords)))
            (values reg coords))))))
 
-(: fwrite-c-code (-> cgen function String Output-Port Void))
+(: fwrite-c-code (-> cgen function Symbol Output-Port Void))
 (define (fwrite-c-code s f ctag output-stream)
   (: w (-> String Any * Void))
   (define (w fmt . args)
@@ -532,12 +532,12 @@
 (: cgen-loop/list
    (-> cgen
        Boolean
-       Nonnegative-Integer
+       Nonnegative-Integer ;; nb-iter
+       Nonnegative-Integer ;; nb-state
        TargetLoopFunction
        (Listof reg)))
-(define (cgen-loop/list s is-time nb-iter loop-body) ;; . s0
-  (let* ((nb-state (procedure-fixed-arity-minus loop-body 2)) ;; (s i . state)
-         ;; Before entering the loop, create initialized loop
+(define (cgen-loop/list s is-time nb-iter nb-state loop-body) ;; . s0
+  (let* (;; Before entering the loop, create initialized loop
          ;; variables.  FIXME: Later separate const and non-const.
          (_ (code! s (comment "loop index init")))
          (index (index! s))
@@ -620,7 +620,7 @@
 
 ;; Arity is passed elsewhere.
 (define-type TargetListFunction
-  (-> cgen (Listof reg) (Listof reg)))
+  (-> cgen (Listof Ref) (Listof reg)))
 
 ;; FIXME: I can't seem to be able to reconstruct the function type,
 ;; only Procedure
@@ -630,10 +630,22 @@
                        TargetListFunction  ;; open function
                        TargetListFunction  ;; closed function
                        ))
+
+;; Sample non-reg references in a reg.  It's a lot simpler to make
+;; most of the interfaces work with regs only.  Low level compiler can
+;; easily remove unnecessary reg copy operations.
+(: as-reg! (-> cgen Ref reg))
+(define (as-reg! s ref)
+  (if (reg? ref) ref
+      ;; FIXME: dims?  Or assume ref is scalar?
+      (bind1! s 'l "copy" ref)))
+
 (define (cgen-close/list nb-state nb-in update)
-  (lambda (s in)
+  (lambda (s inref)
     ;; (log/pp "instance "  update)
     (let*
+        ((in : (Listof reg)
+             (for/list ((r inref)) (as-reg! s r)))
         ;; The core principle of the dsp stream language is that a
         ;; stateful stream processor instance corresponds to the
         ;; _application_ of the function that represents it, not the
@@ -644,7 +656,7 @@
         ;; needs to be allocated for each point in a (nested) spatial
         ;; iteration.  Note that state registers contain dims (coords
         ;; + sizes), not just coords.
-        ((state : (Listof reg)
+         (state : (Listof reg)
                 (for/list ((i (in-range nb-state)))
                           (make-state! s (loop-dims s))))
          ;; (_ (comment! s state))
