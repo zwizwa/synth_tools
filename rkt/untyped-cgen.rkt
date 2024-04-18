@@ -15,20 +15,25 @@
 ;; the complexity.
 
 ;; With DSP lang dynamically typed, we can keep working with multiple
-;; arugments and multiple return values, but perform a translation
+;; arguments and multiple return values, but perform a translation
 ;; here at the untyped end before calling the typed/contracted cgen
 ;; routines.
 
-;; Convert multiarg->multival to list->list
+;; Convert between multiarg->multival and list->list functions.
 (define (m2l f)
   (lambda (s args)
     (call-with-values
         (lambda () (apply f s args))
       list)))
-;; Convert list->list to multiarg->multival
 (define (l2m f)
   (lambda (s . args)
-    (apply values (f s args)))) 
+    (apply values (f s args))))
+
+(define (compile s main . in)
+  ;; Generate code by applying the hoas to the input probes.
+  (let ((out ((m2l main) s in)))
+    ;; ... and collect function form.
+    (compile/list s in out)))
 
 
 (define (cgen-close s nb-state update)
@@ -44,27 +49,24 @@
        (closed (l2m closed/list)))
     (procedure-reduce-arity closed (add1 nb-in))))
 
-(define (compile s main . in)
-  (let ((out ((m2l main) s in)))
-    (compile/list s in out)))
-
-
-;; Variant foor loop forms
+;; like m2l above but with extra index argument
 (define (m2l-loop f)
   (lambda (s index args)
     (call-with-values
         (lambda () (apply f s index args))
       list)))
+
 (define (loop* s is-time nb-iter loop-body)
   (let* ((nb-state (- (procedure-arity loop-body) 2)))
     (apply values
-           (cgen-loop/list s is-time nb-iter nb-state (m2l-loop loop-body)))))
+           (cgen-loop/list
+            s is-time nb-iter nb-state (m2l-loop loop-body)))))
   
 (define (cgen-loop s nb-iter loop-body)
   (loop* s #f nb-iter loop-body))
 (define (cgen-timeloop s nb-iter loop-body)
   (loop* s #t nb-iter loop-body))
-  
+
 
 
 
