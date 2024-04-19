@@ -545,9 +545,10 @@
   (for/list ((r ref))
             (bind1! s 'l "copy" r)))
 
-
+;; Note that we can't constrain the return value of user-defined
+;; functions, so this needs to be Ref.
 (define-type TargetLoopFunction
-  (-> cgen reg (Listof reg) (Listof reg)))
+  (-> cgen reg (Listof reg) (Listof Ref)))
 
 (: cgen-loop/list
    (-> cgen
@@ -598,15 +599,17 @@
           (for/list ((si state))
                     (bind1! s 'l "copy" si)))
          ((_) (code! s (comment "loop body")))
-         (([retvals : (Listof reg)] )
+         (([retvals : (Listof Ref)] )
           (loop-body s index state-in))
-         (([state-val : (Listof reg)]
-           [out-val   : (Listof reg)])
+         (([state-val : (Listof Ref)]
+           [out-val   : (Listof Ref)])
           (split-at retvals nb-state))
-         (([out : (Listof reg)])
-          (for/list ((ov out-val))
+         (([out-reg : (Listof reg)])
+          (for/list ((ov out-val)) (as-reg! s ov)))
+         (([out-arr : (Listof reg)])
+          (for/list ((r out-reg))
                     (make-out-array-reg!
-                     s (dim index nb-iter) 'l ov))))
+                     s (dim index nb-iter) 'l r))))
       ;; Assign state registers.  These are always scalar
       (code! s (comment "loop state update"))
       (for ((dst state)
@@ -622,7 +625,7 @@
         
       (code! s (comment "loop output"))
             
-      (for ((o  out)
+      (for ((o  out-arr)
             (ov out-val))
            ;; FIXME: Also handle literals.
            (match ov
@@ -653,10 +656,10 @@
       ;; context.
       (let ((code (leave-block! s is-time)))
         ;; Compile output array declarations before the loop body.
-        (for ((o out)) (code! s (array o)))
+        (for ((o out-arr)) (code! s (array o)))
         (code! s (loop index nb-iter code)))
       
-      (append state out)
+      (append state out-reg)
       )))
 
 
