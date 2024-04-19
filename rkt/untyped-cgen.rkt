@@ -88,8 +88,13 @@
     (loop* s #f nb-iter state-init loop-body))
    ))
 
-(define (cgen-timeloop s nb-iter loop-body)
-  (loop* s #t nb-iter #f loop-body))
+(define cgen-timeloop
+  (match-lambda*
+   ((list s nb-iter loop-body)
+    (loop* s #t nb-iter #f loop-body))
+   ((list s nb-iter state-init loop-body)
+    (loop* s #t nb-iter state-init loop-body))
+   ))
 
 
 

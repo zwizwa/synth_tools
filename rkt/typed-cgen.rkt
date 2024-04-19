@@ -536,6 +536,16 @@
   (for/list ((_ (in-range nb-state)))
             (bind0! s 'l "zero")))
 
+
+(: cgen-loop-state-from!
+   (-> cgen
+       (Listof Ref) ;; Initializer exprssions
+       (Listof reg)))
+(define (cgen-loop-state-from! s ref)
+  (for/list ((r ref))
+            (bind1! s 'l "copy" r)))
+
+
 (define-type TargetLoopFunction
   (-> cgen reg (Listof reg) (Listof reg)))
 
@@ -570,8 +580,9 @@
                    (_ (code! s (comment "state initializer")))
                    (state-ref : (Listof Ref)
                               (state-init s '()))
+                   ;; Always make a copy, even if the input is a register!
                    (state-reg : (Listof reg)
-                    (for/list ((r state-ref)) (as-reg! s r))))
+                    (cgen-loop-state-from! s state-ref)))
               (values
                state-reg
                (length state-reg)))

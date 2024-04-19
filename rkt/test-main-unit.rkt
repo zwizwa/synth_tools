@@ -112,9 +112,28 @@
                  (values 123 456))
                (lambda (i s1 s2)
                  (values s1 s2)))))
-       
-      ((synth)  synth)
-      (else #f)))
+
+      ((interpol)
+        ;; 1. control rate state machine
+        ;; 2. signal rate interpolation
+        (lambda (osc_inc)
+          (let* ((n 1024)
+                 (invn (/ 1 n))
+                 ;; Interpolated delta.  FIXME: Better to compute or
+                 ;; to create intermediates?
+                 (deltas 
+                  (loop (sizeof osc_inc)
+                        (lambda (i)
+                          (let* ((oi (ref osc_inc i))
+                                 (Doi (D oi)))
+                            (* (- oi Doi) invn))))))
+            (time n
+                  (lambda () osc_inc)
+                  (lambda (t interp_inc)
+                    123)
+                  ))))
+      
+      ))
 
     
 )

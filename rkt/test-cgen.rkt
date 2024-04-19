@@ -60,6 +60,7 @@
        (integrator ,S)
        (procproc   ,S)
        (sumramp    ,S)
+       (interpol   ,V)
        ;; (synth  ,V)
        )))
    (pp (car example-spec))
