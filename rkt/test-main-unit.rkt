@@ -114,34 +114,34 @@
                  (values s1 s2)))))
 
       ((interpol)
-        ;; 1. control rate state machine
-        ;; 2. signal rate interpolation
+       ;; 1. control rate state machine ('D' operator used outside of time loop)
+       ;; 2. signal rate interpolation (loop state in time loop)
+       ;; 3. signal rate state machine (use of osc)
         (lambda (osc_inc)
-          (let* ((n_t 1024)
-                 (invn_t (/ 1 n_t))
-                 (n_voices (sizeof osc_inc))
-                 ;; Interpolated delta.  FIXME: Better to compute or
-                 ;; to create intermediates?
-                 (deltas 
-                  (loop n_voices
-                        (lambda (i)
-                          (let* ((oi (ref osc_inc i))
-                                 (Doi (D oi)))
-                            (* (- oi Doi) invn_t))))))
-            (time n_t
-                  (lambda () osc_inc)
-                  ;; FIXME: Iterate over all voices, accumulate output
-                  ;; and increment the inc state.
-                  (lambda (t interp_inc)
-                    (let* ((interp_inc_next interp_inc)
-                           (out n_t))
-                      (values interp_inc
-                              n_t)))
-                  ))))
-      
+          (let*-values
+              (((n_t) 1024)
+               ((invn_t) (/ 1 n_t))
+               ((n_voices) (sizeof osc_inc))
+               ;; Interpolated delta.  FIXME: Better to compute or to
+               ;; create intermediates?
+               ((deltas) 
+                (loop n_voices
+                      (lambda (i)
+                        (let* ((oi (ref osc_inc i))
+                               (Doi (D oi)))
+                          (* (- oi Doi) invn_t)))))
+               ((_ out)
+                (time n_t
+                      (lambda () osc_inc)
+                      ;; FIXME: Iterate over all voices, accumulate output
+                      ;; and increment the inc state.
+                      (lambda (t interp_inc)
+                        (let* ((interp_inc_next interp_inc)
+                               (out n_t))
+                          (values interp_inc
+                                  n_t)))
+                      )))
+            out)))
       ))
-  
-
-    
-)
+  )
 (provide main@)

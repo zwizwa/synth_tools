@@ -214,8 +214,7 @@ struct interpol_in {
     T i0[64];
 };
 struct interpol_out {
-    T o0;
-    T o1[1024];
+    T o0[1024];
 };
 static inline void interpol_update(struct interpol_state *s, const struct interpol_in *i, struct interpol_out *o) {
     T l0 = div(1, 1024);
@@ -251,10 +250,9 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         // loop state update
         l6 = l7;
         // loop output
-        o->o1[t0] = 1024; // expanded from: l9[t0] = 1024
+        o->o0[t0] = 1024; // expanded from: l9[t0] = 1024
     }
     // function body
     // function outputs
-    o->o0 = l6;
-    // treat assignment as equivalence: o->o1 == l9
+    // treat assignment as equivalence: o->o0 == l9
 }

@@ -8,7 +8,7 @@
  #%datum
  require
  provide
- let let*
+ let let* let-values let*-values
  case else
  quasiquote quote
  (rename-out
