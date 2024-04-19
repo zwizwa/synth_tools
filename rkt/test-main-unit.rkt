@@ -104,6 +104,14 @@
                      (y (integrate x)))
                 (values (+ iparam incparam) x y)
                 ))))))
+
+      ((loopinit)
+       (lambda ()
+         (loop 4
+               (lambda ()
+                 (values 1 2))
+               (lambda (i s1 s2)
+                 (values s1 s2)))))
        
       ((synth)  synth)
       (else #f)))

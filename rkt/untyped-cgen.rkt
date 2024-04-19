@@ -1,11 +1,19 @@
 #lang racket/base
 (require
  racket/unit
+ racket/match
+ racket/pretty
  "sig.rkt"
  "typed-cgen.rkt")
 ;; Evaluator semantics field^ primitives.
 (provide
  (all-defined-out))
+
+;; (define logf printf)
+(define (log/pp tag item)
+  (display tag)
+  (pretty-print item))
+
 
 ;; For now we keep dsp language "dynamically typed at compile time",
 ;; mostly because it is not clear how to implement typed Racket for
@@ -56,16 +64,27 @@
         (lambda () (apply f s index args))
       list)))
 
-(define (loop* s is-time nb-iter loop-body)
-  (let* ((nb-state (- (procedure-arity loop-body) 2)))
+(define (loop* s is-time nb-iter maybe-state loop-body)
+  (let* ((state-or-nb-state
+          (or maybe-state
+              (- (procedure-arity loop-body) 2))))
     (apply values
            (cgen-loop/list
-            s is-time nb-iter nb-state (m2l-loop loop-body)))))
-  
-(define (cgen-loop s nb-iter loop-body)
-  (loop* s #f nb-iter loop-body))
+            s is-time nb-iter state-or-nb-state (m2l-loop loop-body)))))
+
+(define cgen-loop
+  (match-lambda*
+   ((list s nb-iter loop-body)
+    (loop* s #f nb-iter #f loop-body))
+   ((list s nb-iter state-init loop-body)
+    (let* ((_ (code! s (comment "state init")))
+           (state-ref ((m2l state-init) s '()))
+           (state-reg (for/list ((ref state-ref)) (as-reg! s ref))))
+      (loop* s #f nb-iter state-reg loop-body)))
+   ))
+
 (define (cgen-timeloop s nb-iter loop-body)
-  (loop* s #t nb-iter loop-body))
+  (loop* s #t nb-iter #f loop-body))
 
 
 

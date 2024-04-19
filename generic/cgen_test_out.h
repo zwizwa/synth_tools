@@ -94,6 +94,37 @@ static inline void matrix_update(struct matrix_state *s, const struct matrix_in 
     // treat assignment as equivalence: o->o0 == l2
 }
 #include "cgen_lib.h"
+struct loopinit_state {
+};
+struct loopinit_in {
+};
+struct loopinit_out {
+    T o0;
+    T o1;
+};
+static inline void loopinit_update(struct loopinit_state *s, const struct loopinit_in *i, struct loopinit_out *o) {
+    // state init
+
+    T l0 = copy(1);
+    T l1 = copy(2);
+    // loop index init
+    I n0 = zero();
+    for(; n0 < 4; n0++) {
+        // loop state snapshot
+        T l2 = copy(l0);
+        T l3 = copy(l1);
+        // loop body
+        // loop state update
+        l0 = l2;
+        l1 = l3;
+        // loop output
+    }
+    // function body
+    // function outputs
+    o->o0 = l0;
+    o->o1 = l1;
+}
+#include "cgen_lib.h"
 struct integrator_state {
     T s0;
 };

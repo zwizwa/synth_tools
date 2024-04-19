@@ -56,6 +56,7 @@
      `(
        (timeloop   ,VS)
        (matrix     ,G)
+       (loopinit   ,G)
        (integrator ,S)
        (procproc   ,S)
        (sumramp    ,S)

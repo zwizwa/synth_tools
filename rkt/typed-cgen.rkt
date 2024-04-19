@@ -527,6 +527,15 @@
 ;; initial state vector which can be omitted for zero init.  The f is
 ;; the iterated procedure, n is the number of iterations.
 
+
+(: cgen-loop-state-zero!
+   (-> cgen
+       Nonnegative-Integer ;; nb-state
+       (Listof reg)))
+(define (cgen-loop-state-zero! s nb-state)
+  (for/list ((_ (in-range nb-state)))
+            (bind0! s 'l "zero")))
+
 (define-type TargetLoopFunction
   (-> cgen reg (Listof reg) (Listof reg)))
 
@@ -534,19 +543,25 @@
    (-> cgen
        Boolean
        Nonnegative-Integer ;; nb-iter
-       Nonnegative-Integer ;; nb-state
+       (U Nonnegative-Integer (Listof reg)) ;; nb-state or state variables
        TargetLoopFunction
        (Listof reg)))
-(define (cgen-loop/list s is-time nb-iter nb-state loop-body) ;; . s0
-  (let* (;; Before entering the loop, create initialized loop
-         ;; variables.  FIXME: Later separate const and non-const.
-         (_ (code! s (comment "loop index init")))
-         (index (index! s (if is-time 't 'n)))
-         (_ (code! s (comment "loop state init")))
-         (state : (Listof reg)
-          (for/list ((_ (in-range nb-state)))
-                    (bind0! s 'l "zero"))))
-         
+(define (cgen-loop/list s is-time nb-iter state-or-nb-state loop-body) ;; . s0
+  (let*-values (;; Before entering the loop, create initialized loop
+                ;; variables.  FIXME: Later separate const and non-const.
+                ((_) (code! s (comment "loop index init")))
+                ((index) (index! s (if is-time 't 'n)))
+                ((state nb-state)
+                 (if (number? state-or-nb-state)
+                     (begin
+                       (code! s (comment "loop state init"))
+                       (values
+                        (cgen-loop-state-zero! s state-or-nb-state)
+                        state-or-nb-state))
+                     (values
+                      state-or-nb-state
+                      (length state-or-nb-state))))
+                )
     ;; Enter a new code block.
     (enter-block! s (dim index nb-iter) is-time)
     (code! s (comment "loop state snapshot"))
