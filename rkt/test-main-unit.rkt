@@ -109,7 +109,7 @@
        (lambda ()
          (loop 4
                (lambda ()
-                 (values 1 2))
+                 (values 123 456))
                (lambda (i s1 s2)
                  (values s1 s2)))))
        

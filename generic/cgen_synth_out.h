@@ -12,7 +12,7 @@ struct synth_out {
 static inline void synth_update(struct synth_state *s, const struct synth_in *i, struct synth_out *o) {
     // loop index init
     I n0 = zero();
-    // loop state init
+    // loop state zero init
     T l5[64];
     for(; n0 < 64; n0++) {
         // loop state snapshot
@@ -32,14 +32,14 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
     }
     // loop index init
     I t0 = zero();
-    // loop state init
+    // loop state zero init
     // omit slice definition: T l13[1024]
     for(; t0 < 1024; t0++) {
         // loop state snapshot
         // loop body
         // loop index init
         I n1 = zero();
-        // loop state init
+        // loop state zero init
         T l6 = zero();
         for(; n1 < 64; n1++) {
             // loop state snapshot

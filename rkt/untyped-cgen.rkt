@@ -64,23 +64,28 @@
         (lambda () (apply f s index args))
       list)))
 
-(define (loop* s is-time nb-iter maybe-state loop-body)
-  (let* ((state-or-nb-state
-          (or maybe-state
-              (- (procedure-arity loop-body) 2))))
-    (apply values
-           (cgen-loop/list
-            s is-time nb-iter state-or-nb-state (m2l-loop loop-body)))))
+(define (loop* s is-time nb-iter maybe-state-init loop-body)
+  (let* ((state-init-or-nb-state
+          (if maybe-state-init
+              (m2l maybe-state-init)
+              (- (procedure-arity loop-body) 2)))
+         (out
+          (cgen-loop/list
+           s
+           is-time
+           nb-iter
+           state-init-or-nb-state
+           (m2l-loop loop-body))))
+             
+    (apply values out)))
+
 
 (define cgen-loop
   (match-lambda*
    ((list s nb-iter loop-body)
     (loop* s #f nb-iter #f loop-body))
    ((list s nb-iter state-init loop-body)
-    (let* ((_ (code! s (comment "state init")))
-           (state-ref ((m2l state-init) s '()))
-           (state-reg (for/list ((ref state-ref)) (as-reg! s ref))))
-      (loop* s #f nb-iter state-reg loop-body)))
+    (loop* s #f nb-iter state-init loop-body))
    ))
 
 (define (cgen-timeloop s nb-iter loop-body)

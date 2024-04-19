@@ -542,26 +542,41 @@
 (: cgen-loop/list
    (-> cgen
        Boolean
-       Nonnegative-Integer ;; nb-iter
-       (U Nonnegative-Integer (Listof reg)) ;; nb-state or state variables
+       ;; nb-iter number of loop iterations
+       Nonnegative-Integer
+       ;; state-iniit-or-nb-state indicates the number of states to
+       ;; generate, or a thunk that produces a list of Ref to be used
+       ;; as state init.
+       (U Nonnegative-Integer
+          (-> cgen
+              '()
+              (Listof Ref))) 
        TargetLoopFunction
        (Listof reg)))
-(define (cgen-loop/list s is-time nb-iter state-or-nb-state loop-body) ;; . s0
-  (let*-values (;; Before entering the loop, create initialized loop
-                ;; variables.  FIXME: Later separate const and non-const.
-                ((_) (code! s (comment "loop index init")))
-                ((index) (index! s (if is-time 't 'n)))
-                ((state nb-state)
-                 (if (number? state-or-nb-state)
-                     (begin
-                       (code! s (comment "loop state init"))
-                       (values
-                        (cgen-loop-state-zero! s state-or-nb-state)
-                        state-or-nb-state))
-                     (values
-                      state-or-nb-state
-                      (length state-or-nb-state))))
-                )
+(define (cgen-loop/list s is-time nb-iter state-init-or-nb-state loop-body) ;; . s0
+  (let*-values
+      (;; Before entering the loop, create initialized loop
+       ;; variables.  FIXME: Later separate const and non-const.
+       ((_) (code! s (comment "loop index init")))
+       ((index) (index! s (if is-time 't 'n)))
+       ((state nb-state)
+        (if (number? state-init-or-nb-state)
+            (let ((nb-state state-init-or-nb-state))
+              (code! s (comment "loop state zero init"))
+              (values
+               (cgen-loop-state-zero! s nb-state)
+               nb-state))
+            (let* ((state-init state-init-or-nb-state)
+                   (_ (code! s (comment "state initializer")))
+                   (state-ref : (Listof Ref)
+                              (state-init s '()))
+                   (state-reg : (Listof reg)
+                    (for/list ((r state-ref)) (as-reg! s r))))
+              (values
+               state-reg
+               (length state-reg)))
+            ))
+       )
     ;; Enter a new code block.
     (enter-block! s (dim index nb-iter) is-time)
     (code! s (comment "loop state snapshot"))

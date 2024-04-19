@@ -23,7 +23,7 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
     T l2 = div(l1, 64);
     // loop index init
     I t0 = zero();
-    // loop state init
+    // loop state zero init
     T l3 = zero();
     // omit slice definition: T l11[64]
     // omit slice definition: T l12[64]
@@ -68,14 +68,14 @@ struct matrix_out {
 static inline void matrix_update(struct matrix_state *s, const struct matrix_in *i, struct matrix_out *o) {
     // loop index init
     I n0 = zero();
-    // loop state init
+    // loop state zero init
     // omit slice definition: T l2[3][4]
     for(; n0 < 3; n0++) {
         // loop state snapshot
         // loop body
         // loop index init
         I n1 = zero();
-        // loop state init
+        // loop state zero init
         // omit slice definition: T l1[4]
         for(; n1 < 4; n1++) {
             // loop state snapshot
@@ -103,12 +103,11 @@ struct loopinit_out {
     T o1;
 };
 static inline void loopinit_update(struct loopinit_state *s, const struct loopinit_in *i, struct loopinit_out *o) {
-    // state init
-
-    T l0 = copy(1);
-    T l1 = copy(2);
     // loop index init
     I n0 = zero();
+    // state initializer
+    T l0 = copy(123);
+    T l1 = copy(456);
     for(; n0 < 4; n0++) {
         // loop state snapshot
         T l2 = copy(l0);
@@ -186,7 +185,7 @@ struct sumramp_out {
 static inline void sumramp_update(struct sumramp_state *s, const struct sumramp_in *i, struct sumramp_out *o) {
     // loop index init
     I n0 = zero();
-    // loop state init
+    // loop state zero init
     T l0 = zero();
     for(; n0 < 3; n0++) {
         // loop state snapshot
