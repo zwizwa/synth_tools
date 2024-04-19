@@ -599,17 +599,22 @@
           (for/list ((si state))
                     (bind1! s 'l "copy" si)))
          ((_) (code! s (comment "loop body")))
-         (([retvals : (Listof Ref)] )
-          (loop-body s index state-in))
+         
+         (([retvals : (Listof Ref)] )   (loop-body s index state-in))
+
          (([state-val : (Listof Ref)]
-           [out-val   : (Listof Ref)])
-          (split-at retvals nb-state))
+           [out-val   : (Listof Ref)])  (split-at retvals nb-state))
+
+         ;; FIXME: If a loop function returns a literal (degenerate
+         ;; case) then out-reg contains an intermediate register that
+         ;; is not properly assigned.
+
          (([out-reg : (Listof reg)])
-          (for/list ((ov out-val)) (as-reg! s ov)))
-         (([out-arr : (Listof reg)])
-          (for/list ((r out-reg))
-                    (make-out-array-reg!
-                     s (dim index nb-iter) 'l r))))
+          (for/list ((ov out-val))      (as-reg! s ov)))
+
+         (([out-arr : (Listof reg)])    (for/list ((r out-reg))
+                                                  (make-out-array-reg!
+                                                   s (dim index nb-iter) 'l r))))
       ;; Assign state registers.  These are always scalar
       (code! s (comment "loop state update"))
       (for ((dst state)
@@ -629,10 +634,6 @@
             (ov out-val))
            ;; FIXME: Also handle literals.
            (match ov
-             ((struct reg (type '() tag nb))
-              ;; If out-val is a scalar register reference then we
-              ;; can just copy it.
-              (code! s (array-assign o (list index) ov)))
              ((reg type dims tag nb)
               ;; If it is an array, some more work is needed to make
               ;; sure we write into the correct location.  At this
@@ -649,6 +650,11 @@
                    (msg (format "treat assignment as equivalence: ~a" equivalence)))
                 (def-slice! s ov o (list index))
                 (code! s (comment msg))))
+             (else
+              ;; If out-val is a scalar reference then we can just
+              ;; copy it.
+              (code! s (array-assign o (list index) ov)))
+             
              ))
       
             

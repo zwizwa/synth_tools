@@ -117,23 +117,30 @@
         ;; 1. control rate state machine
         ;; 2. signal rate interpolation
         (lambda (osc_inc)
-          (let* ((n 1024)
-                 (invn (/ 1 n))
+          (let* ((n_t 1024)
+                 (invn_t (/ 1 n_t))
+                 (n_voices (sizeof osc_inc))
                  ;; Interpolated delta.  FIXME: Better to compute or
                  ;; to create intermediates?
                  (deltas 
-                  (loop (sizeof osc_inc)
+                  (loop n_voices
                         (lambda (i)
                           (let* ((oi (ref osc_inc i))
                                  (Doi (D oi)))
-                            (* (- oi Doi) invn))))))
-            (time n
+                            (* (- oi Doi) invn_t))))))
+            (time n_t
                   (lambda () osc_inc)
+                  ;; FIXME: Iterate over all voices, accumulate output
+                  ;; and increment the inc state.
                   (lambda (t interp_inc)
-                    123)
+                    (let* ((interp_inc_next interp_inc)
+                           (out n_t))
+                      (values interp_inc
+                              n_t)))
                   ))))
       
       ))
+  
 
     
 )

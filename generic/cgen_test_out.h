@@ -48,8 +48,8 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
         // loop state update
         l3 = l10;
         // loop output
-        l11[t0] = l7
-        l12[t0] = l9
+        // treat assignment as equivalence: l11[t0] == l7
+        // treat assignment as equivalence: l12[t0] == l9
     }
     // function body
     // function outputs
@@ -83,11 +83,11 @@ static inline void matrix_update(struct matrix_state *s, const struct matrix_in 
             T l0 = mul(n0, n1);
             // loop state update
             // loop output
-            l1[n1] = l0
+            // treat assignment as equivalence: l1[n1] == l0
         }
         // loop state update
         // loop output
-        l2[n0] = l0
+        // treat assignment as equivalence: l2[n0] == l0
     }
     // function body
     // function outputs
@@ -215,6 +215,7 @@ struct interpol_in {
 };
 struct interpol_out {
     T o0;
+    T o1;
 };
 static inline void interpol_update(struct interpol_state *s, const struct interpol_in *i, struct interpol_out *o) {
     T l0 = div(1, 1024);
@@ -235,21 +236,25 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         T l4 = mul(l3, l0);
         // loop state update
         // loop output
-        l5[n0] = l4
+        // treat assignment as equivalence: l5[n0] == l4
     }
     // loop index init
     I t0 = zero();
     // state initializer
     T l6 = copy(i->i0);
+    T l9[1024];
     for(; t0 < 1024; t0++) {
         // loop state snapshot
         T l7 = copy(l6);
         // loop body
+        T l8 = copy(1024);
         // loop state update
-        l6 = 123;
+        l6 = l7;
         // loop output
+        l9[t0] = 1024
     }
     // function body
     // function outputs
     o->o0 = l6;
+    o->o1 = l8;
 }
