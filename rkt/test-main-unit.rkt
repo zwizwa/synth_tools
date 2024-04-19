@@ -119,7 +119,10 @@
        ;; 3. signal rate state machine (use of osc)
         (lambda (osc_inc)
           (let*-values
-              (((n_t) 1024)
+              (((osc) (close 1 (lambda (s i) (values (+ s i) s))))
+
+
+               ((n_t) 1024)
                ((invn_t) (/ 1 n_t))
                ((n_voices) (sizeof osc_inc))
                ;; Interpolated delta.  FIXME: Better to compute or to
@@ -136,10 +139,16 @@
                       ;; FIXME: Iterate over all voices, accumulate output
                       ;; and increment the inc state.
                       (lambda (t interp_inc)
-                        (let* ((interp_inc_next interp_inc)
-                               (out n_t))
-                          (values interp_inc
-                                  n_t)))
+                        (let*-values
+                            (((out interp_inc_next)
+                              (loop n_voices
+                                    (lambda (i mix)
+                                      (values
+                                       (+ mix
+                                          (osc interp_inc))
+                                       (+ interp_inc (ref deltas i)))))))
+                          (values interp_inc_next
+                                  out)))
                       )))
             out)))
       ))

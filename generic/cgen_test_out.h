@@ -209,6 +209,7 @@ static inline void sumramp_update(struct sumramp_state *s, const struct sumramp_
 #include "cgen_lib.h"
 struct interpol_state {
     T s0[64];
+    T s1[64];
 };
 struct interpol_in {
     T i0[64];
@@ -241,18 +242,39 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
     I t0 = zero();
     // state initializer
     T l6 = copy(i->i0);
-    // omit slice definition: T l9[1024]
+    // omit slice definition: T l15[1024]
     for(; t0 < 1024; t0++) {
         // loop state snapshot
         T l7 = copy(l6);
         // loop body
-        T l8 = copy(1024);
+        // loop index init
+        I n1 = zero();
+        // loop state zero init
+        T l8 = zero();
+        T l14[64];
+        for(; n1 < 64; n1++) {
+            // loop state snapshot
+            T l9 = copy(l8);
+            // loop body
+            // feedback state snapshot
+            T l10 = copy(s->s1[n1]);
+            // feedback body
+            T l11 = add(l10, l7);
+            // feedback state update
+            s->s1[n1] = l11;
+            T l12 = add(l9, l10);
+            T l13 = add(l7, l5[n1]);
+            // loop state update
+            l8 = l12;
+            // loop output
+            // treat assignment as equivalence: l14[n1] == l13
+        }
         // loop state update
-        l6 = l7;
+        l6 = l14;
         // loop output
-        o->o0[t0] = 1024; // expanded from: l9[t0] = 1024
+        // treat assignment as equivalence: l15[t0] == l8
     }
     // function body
     // function outputs
-    // treat assignment as equivalence: o->o0 == l9
+    // treat assignment as equivalence: o->o0 == l15
 }
