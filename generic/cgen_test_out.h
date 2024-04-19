@@ -10,8 +10,8 @@ struct timeloop_in {
 };
 struct timeloop_out {
     T o0;
-    T o1;
-    T o2;
+    T o1[64];
+    T o2[64];
 };
 static inline void timeloop_update(struct timeloop_state *s, const struct timeloop_in *i, struct timeloop_out *o) {
     // feedback state snapshot
@@ -25,8 +25,8 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
     I t0 = zero();
     // loop state zero init
     T l3 = zero();
-    T l11[64];
-    T l12[64];
+    // omit slice definition: T l11[64]
+    // omit slice definition: T l12[64]
     for(; t0 < 64; t0++) {
         // loop state snapshot
         T l4 = copy(l3);
@@ -54,8 +54,8 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
     // function body
     // function outputs
     o->o0 = l3;
-    o->o1 = l7;
-    o->o2 = l9;
+    // treat assignment as equivalence: o->o1 == l11
+    // treat assignment as equivalence: o->o2 == l12
 }
 #include "cgen_lib.h"
 struct matrix_state {
@@ -63,20 +63,20 @@ struct matrix_state {
 struct matrix_in {
 };
 struct matrix_out {
-    T o0;
+    T o0[3][4];
 };
 static inline void matrix_update(struct matrix_state *s, const struct matrix_in *i, struct matrix_out *o) {
     // loop index init
     I n0 = zero();
     // loop state zero init
-    T l2[3];
+    // omit slice definition: T l2[3][4]
     for(; n0 < 3; n0++) {
         // loop state snapshot
         // loop body
         // loop index init
         I n1 = zero();
         // loop state zero init
-        T l1[4];
+        // omit slice definition: T l1[4]
         for(; n1 < 4; n1++) {
             // loop state snapshot
             // loop body
@@ -87,11 +87,11 @@ static inline void matrix_update(struct matrix_state *s, const struct matrix_in 
         }
         // loop state update
         // loop output
-        // treat assignment as equivalence: l2[n0] == l0
+        // treat assignment as equivalence: l2[n0] == l1
     }
     // function body
     // function outputs
-    o->o0 = l0;
+    // treat assignment as equivalence: o->o0 == l2
 }
 #include "cgen_lib.h"
 struct loopinit_state {
@@ -215,7 +215,7 @@ struct interpol_in {
 };
 struct interpol_out {
     T o0;
-    T o1;
+    T o1[1024];
 };
 static inline void interpol_update(struct interpol_state *s, const struct interpol_in *i, struct interpol_out *o) {
     T l0 = div(1, 1024);
@@ -242,7 +242,7 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
     I t0 = zero();
     // state initializer
     T l6 = copy(i->i0);
-    T l9[1024];
+    // omit slice definition: T l9[1024]
     for(; t0 < 1024; t0++) {
         // loop state snapshot
         T l7 = copy(l6);
@@ -251,10 +251,10 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         // loop state update
         l6 = l7;
         // loop output
-        l9[t0] = 1024
+        o->o1[t0] = 1024; // expanded from: l9[t0] = 1024
     }
     // function body
     // function outputs
     o->o0 = l6;
-    o->o1 = l8;
+    // treat assignment as equivalence: o->o1 == l9
 }

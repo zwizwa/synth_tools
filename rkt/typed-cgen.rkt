@@ -665,7 +665,7 @@
         (for ((o out-arr)) (code! s (array o)))
         (code! s (loop index nb-iter code)))
       
-      (append state out-reg)
+      (append state out-arr)
       )))
 
 
