@@ -13,7 +13,15 @@
 ;; (struct const (value)                 #:transparent)
 ;; (struct function (state in code out)  #:transparent)
 
-(define-type RegTag (U 'i 'o 's 'l 'n 't))
+(define-type RegTag
+  (U 'i ;; Input
+     'o ;; Output
+     's ;; State
+     'v ;; Local variable
+     'n ;; Local loop counter
+     't ;; Local time counter
+     'l ;; Local loop state
+     ))
 (define-type Opcode String)
 
 (struct reg ([type : Symbol]
@@ -94,8 +102,9 @@
 
 (define (init-cgen)
   (cgen
+   ;; next-reg
    (make-hash
-    '((i . 0) (o . 0) (s . 0) (l . 0) (n . 0) (t . 0))) ;; next-reg
+    '((i . 0) (o . 0) (s . 0) (v . 0) (n . 0) (t . 0) (l . 0))) 
    '() ;; code
    '() ;; state
    '() ;; stack
@@ -260,8 +269,8 @@
 (: op1 (-> Opcode (-> cgen Ref     reg)))
 (: op2 (-> Opcode (-> cgen Ref Ref reg)))
 
-(define (op1 op) (lambda (s a)   (bind1! s 'l op a)))
-(define (op2 op) (lambda (s a b) (bind2! s 'l op a b)))
+(define (op1 op) (lambda (s a)   (bind1! s 'v op a)))
+(define (op2 op) (lambda (s a b) (bind2! s 'v op a b)))
 
 (define pp pretty-print)
 
@@ -296,7 +305,7 @@
         (nb   (reg-nb r))
         (dims (reg-dims r)))
     (case tag
-      ((l n t)
+      ((v n t l)
        ;; Local variables: temporary or index
        (fmt-reg r))
       (else
@@ -597,7 +606,7 @@
         ;; Buffer the state, see footnote (1).
         ((([state-in : (Listof reg)])
           (for/list ((si state))
-                    (bind1! s 'l "copy" si)))
+                    (bind1! s 'v "copy" si)))
          ((_) (code! s (comment "loop body")))
          
          (([retvals : (Listof Ref)] )   (loop-body s index state-in))
@@ -614,7 +623,7 @@
 
          (([out-arr : (Listof reg)])    (for/list ((r out-reg))
                                                   (make-out-array-reg!
-                                                   s (dim index nb-iter) 'l r))))
+                                                   s (dim index nb-iter) 'v r))))
       ;; Assign state registers.  These are always scalar
       (code! s (comment "loop state update"))
       (for ((dst state)
@@ -689,7 +698,7 @@
 (define (as-reg! s ref)
   (if (reg? ref) ref
       ;; FIXME: dims?  Or assume ref is scalar?
-      (bind1! s 'l "copy" ref)))
+      (bind1! s 'v "copy" ref)))
 
 (define (cgen-close/list nb-state nb-in update)
   (lambda (s inref)
@@ -715,7 +724,7 @@
          (_ (code! s (comment "feedback state snapshot")))
          (state-in : (Listof reg)
                    (for/list ((si state))
-                             (bind1! s 'l "copy" si)))
+                             (bind1! s 'v "copy" si)))
          (state-in-and-in : (Listof reg)
                           (append state-in in))                
          )

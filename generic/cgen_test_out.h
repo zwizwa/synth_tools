@@ -15,47 +15,47 @@ struct timeloop_out {
 };
 static inline void timeloop_update(struct timeloop_state *s, const struct timeloop_in *i, struct timeloop_out *o) {
     // feedback state snapshot
-    T l0 = copy(s->s0);
+    T v0 = copy(s->s0);
     // feedback body
     // feedback state update
     s->s0 = i->i1;
-    T l1 = sub(i->i1, l0);
-    T l2 = div(l1, 64);
+    T v1 = sub(i->i1, v0);
+    T v2 = div(v1, 64);
     // loop index init
     I t0 = zero();
     // loop state zero init
-    T l3 = zero();
-    // omit slice definition: T l11[64]
-    // omit slice definition: T l12[64]
+    T l0 = zero();
+    // omit slice definition: T v10[64]
+    // omit slice definition: T v11[64]
     for(; t0 < 64; t0++) {
         // loop state snapshot
-        T l4 = copy(l3);
+        T v3 = copy(l0);
         // loop body
-        T l5 = copy(i->i0[t0]);
+        T v4 = copy(i->i0[t0]);
         // feedback state snapshot
-        T l6 = copy(s->s1);
+        T v5 = copy(s->s1);
         // feedback body
-        T l7 = add(l6, l5);
+        T v6 = add(v5, v4);
         // feedback state update
-        s->s1 = l7;
+        s->s1 = v6;
         // feedback state snapshot
-        T l8 = copy(s->s2);
+        T v7 = copy(s->s2);
         // feedback body
-        T l9 = add(l8, l7);
+        T v8 = add(v7, v6);
         // feedback state update
-        s->s2 = l9;
-        T l10 = add(l4, l2);
+        s->s2 = v8;
+        T v9 = add(v3, v2);
         // loop state update
-        l3 = l10;
+        l0 = v9;
         // loop output
-        // treat assignment as equivalence: l11[t0] == l7
-        // treat assignment as equivalence: l12[t0] == l9
+        // treat assignment as equivalence: v10[t0] == v6
+        // treat assignment as equivalence: v11[t0] == v8
     }
     // function body
     // function outputs
-    o->o0 = l3;
-    // treat assignment as equivalence: o->o1 == l11
-    // treat assignment as equivalence: o->o2 == l12
+    o->o0 = l0;
+    // treat assignment as equivalence: o->o1 == v10
+    // treat assignment as equivalence: o->o2 == v11
 }
 #include "cgen_lib.h"
 struct matrix_state {
@@ -69,29 +69,29 @@ static inline void matrix_update(struct matrix_state *s, const struct matrix_in 
     // loop index init
     I n0 = zero();
     // loop state zero init
-    // omit slice definition: T l2[3][4]
+    // omit slice definition: T v2[3][4]
     for(; n0 < 3; n0++) {
         // loop state snapshot
         // loop body
         // loop index init
         I n1 = zero();
         // loop state zero init
-        // omit slice definition: T l1[4]
+        // omit slice definition: T v1[4]
         for(; n1 < 4; n1++) {
             // loop state snapshot
             // loop body
-            T l0 = mul(n0, n1);
+            T v0 = mul(n0, n1);
             // loop state update
             // loop output
-            // treat assignment as equivalence: l1[n1] == l0
+            // treat assignment as equivalence: v1[n1] == v0
         }
         // loop state update
         // loop output
-        // treat assignment as equivalence: l2[n0] == l1
+        // treat assignment as equivalence: v2[n0] == v1
     }
     // function body
     // function outputs
-    // treat assignment as equivalence: o->o0 == l2
+    // treat assignment as equivalence: o->o0 == v2
 }
 #include "cgen_lib.h"
 struct loopinit_state {
@@ -110,12 +110,12 @@ static inline void loopinit_update(struct loopinit_state *s, const struct loopin
     T l1 = copy(456);
     for(; n0 < 4; n0++) {
         // loop state snapshot
-        T l2 = copy(l0);
-        T l3 = copy(l1);
+        T v0 = copy(l0);
+        T v1 = copy(l1);
         // loop body
         // loop state update
-        l0 = l2;
-        l1 = l3;
+        l0 = v0;
+        l1 = v1;
         // loop output
     }
     // function body
@@ -135,14 +135,14 @@ struct integrator_out {
 };
 static inline void integrator_update(struct integrator_state *s, const struct integrator_in *i, struct integrator_out *o) {
     // feedback state snapshot
-    T l0 = copy(s->s0);
+    T v0 = copy(s->s0);
     // feedback body
-    T l1 = add(l0, i->i0);
+    T v1 = add(v0, i->i0);
     // feedback state update
-    s->s0 = l1;
+    s->s0 = v1;
     // function body
     // function outputs
-    o->o0 = l0;
+    o->o0 = v0;
 }
 #include "cgen_lib.h"
 struct procproc_state {
@@ -157,20 +157,20 @@ struct procproc_out {
 };
 static inline void procproc_update(struct procproc_state *s, const struct procproc_in *i, struct procproc_out *o) {
     // feedback state snapshot
-    T l0 = copy(s->s0);
+    T v0 = copy(s->s0);
     // feedback body
-    T l1 = add(l0, i->i0);
+    T v1 = add(v0, i->i0);
     // feedback state update
-    s->s0 = l1;
+    s->s0 = v1;
     // feedback state snapshot
-    T l2 = copy(s->s1);
+    T v2 = copy(s->s1);
     // feedback body
-    T l3 = add(l2, l0);
+    T v3 = add(v2, v0);
     // feedback state update
-    s->s1 = l3;
+    s->s1 = v3;
     // function body
     // function outputs
-    o->o0 = l2;
+    o->o0 = v2;
 }
 #include "cgen_lib.h"
 struct sumramp_state {
@@ -189,17 +189,17 @@ static inline void sumramp_update(struct sumramp_state *s, const struct sumramp_
     T l0 = zero();
     for(; n0 < 3; n0++) {
         // loop state snapshot
-        T l1 = copy(l0);
+        T v0 = copy(l0);
         // loop body
         // feedback state snapshot
-        T l2 = copy(s->s0[n0]);
+        T v1 = copy(s->s0[n0]);
         // feedback body
-        T l3 = add(l2, i->i0);
+        T v2 = add(v1, i->i0);
         // feedback state update
-        s->s0[n0] = l3;
-        T l4 = add(l1, l2);
+        s->s0[n0] = v2;
+        T v3 = add(v0, v1);
         // loop state update
-        l0 = l4;
+        l0 = v3;
         // loop output
     }
     // function body
@@ -218,63 +218,63 @@ struct interpol_out {
     T o0[1024];
 };
 static inline void interpol_update(struct interpol_state *s, const struct interpol_in *i, struct interpol_out *o) {
-    T l0 = div(1, 1024);
+    T v0 = div(1, 1024);
     // loop index init
     I n0 = zero();
     // loop state zero init
-    T l5[64];
+    T v5[64];
     for(; n0 < 64; n0++) {
         // loop state snapshot
         // loop body
-        T l1 = copy(i->i0[n0]);
+        T v1 = copy(i->i0[n0]);
         // feedback state snapshot
-        T l2 = copy(s->s0[n0]);
+        T v2 = copy(s->s0[n0]);
         // feedback body
         // feedback state update
-        s->s0[n0] = l1;
-        T l3 = sub(i->i0[n0], l2);
-        T l4 = mul(l3, l0);
+        s->s0[n0] = v1;
+        T v3 = sub(i->i0[n0], v2);
+        T v4 = mul(v3, v0);
         // loop state update
         // loop output
-        // treat assignment as equivalence: l5[n0] == l4
+        // treat assignment as equivalence: v5[n0] == v4
     }
     // loop index init
     I t0 = zero();
     // state initializer
-    T l6 = copy(i->i0);
-    // omit slice definition: T l15[1024]
+    T l0 = copy(i->i0);
+    // omit slice definition: T v13[1024]
     for(; t0 < 1024; t0++) {
         // loop state snapshot
-        T l7 = copy(l6);
+        T v6 = copy(l0);
         // loop body
         // loop index init
         I n1 = zero();
         // loop state zero init
-        T l8 = zero();
-        T l14[64];
+        T l1 = zero();
+        T v12[64];
         for(; n1 < 64; n1++) {
             // loop state snapshot
-            T l9 = copy(l8);
+            T v7 = copy(l1);
             // loop body
             // feedback state snapshot
-            T l10 = copy(s->s1[n1]);
+            T v8 = copy(s->s1[n1]);
             // feedback body
-            T l11 = add(l10, l7);
+            T v9 = add(v8, v6);
             // feedback state update
-            s->s1[n1] = l11;
-            T l12 = add(l9, l10);
-            T l13 = add(l7, l5[n1]);
+            s->s1[n1] = v9;
+            T v10 = add(v7, v8);
+            T v11 = add(v6, v5[n1]);
             // loop state update
-            l8 = l12;
+            l1 = v10;
             // loop output
-            // treat assignment as equivalence: l14[n1] == l13
+            // treat assignment as equivalence: v12[n1] == v11
         }
         // loop state update
-        l6 = l14;
+        l0 = v12;
         // loop output
-        // treat assignment as equivalence: l15[t0] == l8
+        // treat assignment as equivalence: v13[t0] == l1
     }
     // function body
     // function outputs
-    // treat assignment as equivalence: o->o0 == l15
+    // treat assignment as equivalence: o->o0 == v13
 }
