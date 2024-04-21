@@ -45,7 +45,7 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
         // feedback state update
         s->s2 = v8;
         T v9 = add(v3, v2);
-        // loop body output as reg
+        // loop body output as var
         // loop state update
         l0 = v9;
         // loop output
@@ -82,12 +82,12 @@ static inline void matrix_update(struct matrix_state *s, const struct matrix_in 
             // loop state snapshot
             // loop body
             T v0 = mul(n0, n1);
-            // loop body output as reg
+            // loop body output as var
             // loop state update
             // loop output
             o->o0[n0][n1] = v0; // expanded from: v1[n1] = v0
         }
-        // loop body output as reg
+        // loop body output as var
         // loop state update
         // loop output
         // loop-out: treat assignment as equivalence: v2[n0] == v1
@@ -117,7 +117,7 @@ static inline void loopinit_update(struct loopinit_state *s, const struct loopin
         T v0 = copy(l0);
         T v1 = copy(l1);
         // loop body
-        // loop body output as reg
+        // loop body output as var
         // loop state update
         l0 = v0;
         l1 = v1;
@@ -203,7 +203,7 @@ static inline void sumramp_update(struct sumramp_state *s, const struct sumramp_
         // feedback state update
         s->s0[n0] = v2;
         T v3 = add(v0, v1);
-        // loop body output as reg
+        // loop body output as var
         // loop state update
         l0 = v3;
         // loop output
@@ -240,7 +240,7 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         s->s0[n0] = v1;
         T v3 = sub(i->i0[n0], v2);
         T v4 = mul(v3, v0);
-        // loop body output as reg
+        // loop body output as var
         // loop state update
         // loop output
         v5[n0] = v4
@@ -255,7 +255,7 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
     for(; n1 < 64; n1++) {
         // loop state snapshot
         // loop body
-        // loop body output as reg
+        // loop body output as var
         T v6 = copy(i->i0[n1]);
         // loop state update
         // loop output
@@ -285,13 +285,13 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
             s->s1[n2] = v11;
             T v12 = add(v9, v10);
             T v13 = add(v8, v5[n2]);
-            // loop body output as reg
+            // loop body output as var
             // loop state update
             l1 = v12;
             // loop output
             v14[n2] = v13
         }
-        // loop body output as reg
+        // loop body output as var
         // loop state update
         l0 = v14;
         // loop output
@@ -321,7 +321,7 @@ static inline void loopstateinit_update(struct loopstateinit_state *s, const str
     for(; n1 < 64; n1++) {
         // loop state snapshot
         // loop body
-        // loop body output as reg
+        // loop body output as var
         T v0 = copy(i->i0[n1]);
         // loop state update
         // loop output
@@ -333,7 +333,7 @@ static inline void loopstateinit_update(struct loopstateinit_state *s, const str
         // loop state snapshot
         T v2 = copy(l0);
         // loop body
-        // loop body output as reg
+        // loop body output as var
         // loop state update
         l0 = v2;
         // loop output

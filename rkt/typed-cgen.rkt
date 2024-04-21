@@ -13,7 +13,7 @@
 ;; (struct const (value)                 #:transparent)
 ;; (struct function (state in code out)  #:transparent)
 
-(define-type RegTag
+(define-type VarTag
   (U 'i ;; Input
      'o ;; Output
      's ;; State
@@ -24,48 +24,48 @@
      ))
 (define-type Opcode String)
 
-(struct reg ([type : Symbol]
+(struct var ([type : Symbol]
              [dims : (Listof dim)]
-             [tag  : RegTag]
+             [tag  : VarTag]
              [nb   : Integer])
         #:transparent)
 
-(struct dim ([reg  : (U reg #f)]  ;; FIXME: represent differently
+(struct dim ([var  : (U var #f)]  ;; FIXME: represent differently
              [size : Integer])
         #:transparent)
 
 
-;; FIXME: RHS can be reg or literal or array ref.  Bundle those into
+;; FIXME: RHS can be var or literal or array ref.  Bundle those into
 ;; the value type.
 (struct bind
-        ([reg : reg]
+        ([var : var]
          [op : Opcode]
          [args : (Listof Ref)])
         #:transparent)
 
 (struct array
-        ([reg : reg])
+        ([var : var])
         #:transparent)
 
 (struct assign
-        ([dst : reg]
+        ([dst : var]
          [src : Ref])
         #:transparent)
 
 (struct assign-element
-        ([reg : reg]
-         [coords : (Listof reg)]
+        ([var : var]
+         [coords : (Listof var)]
          [src : Ref])
         #:transparent)
 
 ;; FIXME: This is the same as slice
 (struct array-ref
-        ([reg : reg]
+        ([var : var]
          [coords : (Listof Ref)])
         #:transparent)
 
 (struct loop
-        ([iter : reg]
+        ([iter : var]
          [stop : Any]
          [code : (Listof Code)])
         #:transparent)
@@ -74,35 +74,35 @@
         ([msg : String])
         #:transparent)
 
-(define-type Ref (U reg array-ref Number))
+(define-type Ref (U var array-ref Number))
 
 (define-type Code (U bind array assign assign-element loop comment))
 
-(struct slice ([parent : reg]
-               [coords : (Listof reg)])
+(struct slice ([parent : var]
+               [coords : (Listof var)])
         #:transparent)
 
 (struct cgen
-        ([next-reg : (Mutable-HashTable RegTag Integer)]
+        ([next-var : (Mutable-HashTable VarTag Integer)]
          [code     : (Listof Code)]
-         [state    : (Listof reg)]
+         [state    : (Listof var)]
          [stack    : (Listof (Listof Code))]
          [dims     : (Listof dim)]
-         [slice    : (Mutable-HashTable reg slice)]
-         [meta : (Listof (Pair reg Any))]
+         [slice    : (Mutable-HashTable var slice)]
+         [meta : (Listof (Pair var Any))]
          ) #:mutable #:transparent)
 
 (struct function
-        ([state : (Listof reg)]
-         [in    : (Listof reg)]
+        ([state : (Listof var)]
+         [in    : (Listof var)]
          [code  : (Listof Code)]
-         [out   : (Listof reg)]
+         [out   : (Listof var)]
          )
         #:transparent)
 
 (define (init-cgen)
   (cgen
-   ;; next-reg
+   ;; next-var
    (make-hash
     '((i . 0) (o . 0) (s . 0) (v . 0) (n . 0) (t . 0) (l . 0))) 
    '() ;; code
@@ -113,49 +113,49 @@
    '() ;; meta
    ))
 
-;; Use a next-reg for each variable tag (i o s l).  This makes it
+;; Use a next-var for each variable tag (i o s l).  This makes it
 ;; easier to give predictable names to in/out/state structs, and makes
 ;; generated code easier to read.
-(: make-generic-reg!
-   (-> cgen Symbol (Listof dim) RegTag
-       reg))
-(define (make-generic-reg! s type dims tag)
-  (let* ((h (cgen-next-reg s))
+(: make-generic-var!
+   (-> cgen Symbol (Listof dim) VarTag
+       var))
+(define (make-generic-var! s type dims tag)
+  (let* ((h (cgen-next-var s))
          (nb (hash-ref h tag)))
     (hash-set! h tag (add1 nb))
-    (reg type dims tag nb)))
+    (var type dims tag nb)))
 
-(: make-array-reg!
-   (-> cgen (Listof dim) RegTag
-       reg))
-(define (make-array-reg! s dims tag)
-  (make-generic-reg! s 'T dims tag))
+(: make-array-var!
+   (-> cgen (Listof dim) VarTag
+       var))
+(define (make-array-var! s dims tag)
+  (make-generic-var! s 'T dims tag))
 
 ;; Output arrays are constructed as an extra dimension added to
 ;; the type of a return value.
-(: make-out-array-reg!
-   (-> cgen dim RegTag reg
-       reg))
-(define (make-out-array-reg! s dim tag out-val)
-  (let ((dims (reg-dims out-val))) ;; FIXME: This might not be a register
-    (make-array-reg! s (cons dim dims) tag)))
+(: make-out-array-var!
+   (-> cgen dim VarTag var
+       var))
+(define (make-out-array-var! s dim tag out-val)
+  (let ((dims (var-dims out-val))) ;; FIXME: This might not be a variable
+    (make-array-var! s (cons dim dims) tag)))
     
 
 
 
-;; Scalar register.
-(: make-reg!
-   (-> cgen RegTag
-       reg))
-(define (make-reg! s tag)
-  (make-array-reg! s '() tag))
+;; Scalar variable.
+(: make-var!
+   (-> cgen VarTag
+       var))
+(define (make-var! s tag)
+  (make-array-var! s '() tag))
 
 ;; This creates an array if it is referenced in a loop context.
 (: make-state!
    (-> cgen (Listof dim)
-       reg))
+       var))
 (define (make-state! s dims)
-  (let ((r (make-array-reg! s dims 's)))
+  (let ((r (make-array-var! s dims 's)))
     (set-cgen-state! s (cons r (cgen-state s)))
     r))
 
@@ -169,22 +169,22 @@
 ;; (define (_nbind! n)
 ;;   (procedure-reduce-arity
 ;;    (lambda (s tag op . args)
-;;      (let* ((r (make-reg! s tag)))
+;;      (let* ((r (make-var! s tag)))
 ;;        (code! s (bind r op args))
 ;;        r))
 ;;    (+ 3 n)))
 
-(: bind0! (-> cgen RegTag Opcode         reg))
-(: bind1! (-> cgen RegTag Opcode Ref     reg))
-(: bind2! (-> cgen RegTag Opcode Ref Ref reg))
-(define (bind0! s tag op)     (let ((r (make-reg! s tag))) (code! s (bind r op (list))) r))
-(define (bind1! s tag op a)   (let ((r (make-reg! s tag))) (code! s (bind r op (list a))) r))
-(define (bind2! s tag op a b) (let ((r (make-reg! s tag))) (code! s (bind r op (list a b))) r))
+(: bind0! (-> cgen VarTag Opcode         var))
+(: bind1! (-> cgen VarTag Opcode Ref     var))
+(: bind2! (-> cgen VarTag Opcode Ref Ref var))
+(define (bind0! s tag op)     (let ((r (make-var! s tag))) (code! s (bind r op (list))) r))
+(define (bind1! s tag op a)   (let ((r (make-var! s tag))) (code! s (bind r op (list a))) r))
+(define (bind2! s tag op a b) (let ((r (make-var! s tag))) (code! s (bind r op (list a b))) r))
 
 ;; Create a zero-initialized index variable.
-(: index! (-> cgen RegTag reg))
+(: index! (-> cgen VarTag var))
 (define (index! s tag)
-  (let ((r (make-generic-reg! s 'I '() tag)))
+  (let ((r (make-generic-var! s 'I '() tag)))
     (code! s (bind r "zero" '()))
     r))
 
@@ -200,7 +200,7 @@
 ;;   (code! s (comment msg)))
 
 
-(: cgen-ref (-> cgen reg reg * Ref))
+(: cgen-ref (-> cgen var var * Ref))
 (define (cgen-ref _ array . coords)
   (array-ref array coords))
 
@@ -252,22 +252,22 @@
 ;; Add a slice reference.  Arrays that are returned as values are
 ;; implemented as slices into parent loop result arrays.
 (: def-slice!
-   (-> cgen reg reg (Listof reg)
+   (-> cgen var var (Listof var)
        Void))
-(define (def-slice! s reg parent index)
-  ;; (log/pp "def-slice!" (list reg parent index))
+(define (def-slice! s var parent index)
+  ;; (log/pp "def-slice!" (list var parent index))
   (let ((h (cgen-slice s))
         (v (slice parent index)))
-    (hash-set! h reg v)))
+    (hash-set! h var v)))
 
-;; FIXME: Don't use reg-nb to index because counting starts from 0 for
+;; FIXME: Don't use var-nb to index because counting starts from 0 for
 ;; each storage class.
-(: maybe-slice (-> cgen reg (U slice #f)))
-(define (maybe-slice s reg)
-  (hash-ref (cgen-slice s) reg #f))
+(: maybe-slice (-> cgen var (U slice #f)))
+(define (maybe-slice s var)
+  (hash-ref (cgen-slice s) var #f))
 
-(: op1 (-> Opcode (-> cgen Ref     reg)))
-(: op2 (-> Opcode (-> cgen Ref Ref reg)))
+(: op1 (-> Opcode (-> cgen Ref     var)))
+(: op2 (-> Opcode (-> cgen Ref Ref var)))
 
 (define (op1 op) (lambda (s a)   (bind1! s 'v op a)))
 (define (op2 op) (lambda (s a b) (bind2! s 'v op a b)))
@@ -275,8 +275,8 @@
 (define pp pretty-print)
 
 ;; Formatters shared by C code emission and comment formatting.
-(: fmt-reg (-> reg String))
-(define (fmt-reg r) (format "~a~a" (reg-tag r) (reg-nb r)))
+(: fmt-var (-> var String))
+(define (fmt-var r) (format "~a~a" (var-tag r) (var-nb r)))
 
 ;; Array index, size
 (: fmt-array-index (-> (Listof Ref) String))
@@ -290,33 +290,33 @@
          (map (lambda ([size : Number]) (format "[~a]" size)) sizes)))
   
 
-(: dims-regs (-> (Listof dim) (Listof reg)))
-(define (dims-regs dims)
+(: dims-vars (-> (Listof dim) (Listof var)))
+(define (dims-vars dims)
   (map (lambda ([d : dim])
-         (let ((r (dim-reg d)))
-           (assert r reg?)
+         (let ((r (dim-var d)))
+           (assert r var?)
            r))
        dims))
 
-;; reg or s->mem
-(: fmt-reg-or-structmem (-> reg String))
-(define (fmt-reg-or-structmem r)
-  (let ((tag  (reg-tag r))
-        (nb   (reg-nb r))
-        (dims (reg-dims r)))
+;; var or s->mem
+(: fmt-var-or-structmem (-> var String))
+(define (fmt-var-or-structmem r)
+  (let ((tag  (var-tag r))
+        (nb   (var-nb r))
+        (dims (var-dims r)))
     (case tag
       ((v n t l)
        ;; Local variables: temporary or index
-       (fmt-reg r))
+       (fmt-var r))
       (else
        ;; All the rest lives in a struct.
        ;;
-       ;; State registers can be multi-dimensional, and are always
-       ;; associated to specific registers indexing the grid.
+       ;; State variables can be multi-dimensional, and are always
+       ;; associated to specific variables indexing the grid.
        (if (and (eq? tag 's)
                 (not (eq? '() dims)))
            ;; Indexed
-           (format "~a->~a~a~a" tag tag nb (fmt-array-index (dims-regs dims)))
+           (format "~a->~a~a~a" tag tag nb (fmt-array-index (dims-vars dims)))
            ;; All the rest lives in a struct.
            (format "~a->~a~a" tag tag nb))))))
 
@@ -326,17 +326,17 @@
   (match r
     ((? number?)
      (format "~a" r))
-    ((array-ref reg index)
-     (format "~a~a" (fmt-reg-or-structmem reg) (fmt-array-index index)))
-    ((reg type dims tag nb)
-     (fmt-reg-or-structmem r))
+    ((array-ref var index)
+     (format "~a~a" (fmt-var-or-structmem var) (fmt-array-index index)))
+    ((var type dims tag nb)
+     (fmt-var-or-structmem r))
     ))
 
 
 ;; Single-assignment arrays that are later copied into other arrays
 ;; can be elimiated by substituting the element-wise assignment in a
 ;; second pass.
-(: slice-equiv! (-> cgen String reg (Listof reg) reg Void))
+(: slice-equiv! (-> cgen String var (Listof var) var Void))
 (define (slice-equiv! s logtag ro array-index o)
   ;; Similar to loop outputs
   (let*
@@ -355,32 +355,32 @@
 (: compile/list
    (-> cgen
        ;; We take inputs and already evaluated outputs.  Caller needs
-       ;; to apply the hoas function to the input probe registers to
+       ;; to apply the hoas function to the input probe variables to
        ;; produce out.
-       (Listof reg) ;; in
-       (Listof reg) ;; out
+       (Listof var) ;; in
+       (Listof var) ;; out
        function))
 (define (compile/list s in out)
   (code! s (comment "function body"))
   (let*
-      (;; Buffer the outputs to make sure they are all registers, and
+      (;; Buffer the outputs to make sure they are all variables, and
        ;; perform the assgment.
-       (outreg (map (lambda ([o : reg]) (make-array-reg! s (reg-dims o) 'o)) out))
+       (outvar (map (lambda ([o : var]) (make-array-var! s (var-dims o) 'o)) out))
        )
 
     (code! s (comment "function outputs"))
-    (for ((ro outreg) (o out))
+    (for ((ro outvar) (o out))
          (match o
-           ((reg type '() tag nb)
+           ((var type '() tag nb)
             ;; Scalar output value
             (code! s (assign ro o)))
-           ((reg type dims tag nb)
+           ((var type dims tag nb)
             (slice-equiv! s "top-out" ro '() o))))
 
     
     ;; Reverse state and code stacks. The in and out lists are already
     ;; in the correct order.
-    (function (reverse (cgen-state s)) in (reverse (cgen-code s)) outreg)))
+    (function (reverse (cgen-state s)) in (reverse (cgen-code s)) outvar)))
 
 (: pp-function (-> function Void))
 (define (pp-function f)
@@ -405,22 +405,22 @@
   (apply string-append (intersperse ", " (map fmt-ref args))))
 
 ;; Recursively expand a slice reference.
-(: expand-slice (-> cgen slice (Values reg (Listof reg))))
+(: expand-slice (-> cgen slice (Values var (Listof var))))
 (define (expand-slice s slc)
   (match slc
-    ((slice reg coords)
-     (let ((pslice (maybe-slice s reg)))
+    ((slice var coords)
+     (let ((pslice (maybe-slice s var)))
        (if pslice
-           (let-values (((preg pcoords) (expand-slice s pslice)))
-             (values preg (append pcoords coords)))
-           (values reg coords))))))
+           (let-values (((pvar pcoords) (expand-slice s pslice)))
+             (values pvar (append pcoords coords)))
+           (values var coords))))))
 
 (: fwrite-c-code (-> cgen function Symbol Output-Port Void))
 (define (fwrite-c-code s f ctag output-stream)
   (: w (-> String Any * Void))
   (define (w fmt . args)
     (apply fprintf output-stream fmt args))
-  ;; Register
+  ;; Variable
 
 
 
@@ -435,14 +435,14 @@
   (w "#include \"cgen_lib.h\"\n")
   
   ;; Structs
-  (: w-struct (-> String (-> function (Listof reg)) Void))
+  (: w-struct (-> String (-> function (Listof var)) Void))
   (define (w-struct name field)
     (w "struct ~a_~a {\n" ctag name)
     (for ((r (field f)))
-         (let ((dims (reg-dims r)))
+         (let ((dims (var-dims r)))
            (if (eq? dims '())
-               (w "~a~a ~a;\n"   tab (reg-type r) (fmt-reg r))
-               (w "~a~a ~a~a;\n" tab (reg-type r) (fmt-reg r) (fmt-array-size (map dim-size dims))))))
+               (w "~a~a ~a;\n"   tab (var-type r) (fmt-var r))
+               (w "~a~a ~a~a;\n" tab (var-type r) (fmt-var r) (fmt-array-size (map dim-size dims))))))
     (w "};\n"))
   (w-struct "state" function-state)
   (w-struct "in"    function-in)
@@ -464,14 +464,14 @@
 
            ((bind r op args)
             (w "~a~a ~a = ~a(~a);\n"
-               (indent) (reg-type r) (fmt-reg r) op (fmt-args args)))
+               (indent) (var-type r) (fmt-var r) op (fmt-args args)))
 
            ((array r)
             (let ((slicedef
                    (format "~a ~a~a"
-                           (reg-type r)
-                           (fmt-reg r)
-                           (fmt-array-size (map dim-size (reg-dims r))))))
+                           (var-type r)
+                           (fmt-var r)
+                           (fmt-array-size (map dim-size (var-dims r))))))
               (if (maybe-slice s r)
                   (w "~a// omit slice definition: ~a\n" (indent) slicedef)
                   (w "~a~a;\n"
@@ -505,7 +505,7 @@
 
            ((loop iter stop code)
             (begin
-              (let ((fr (fmt-reg iter)))
+              (let ((fr (fmt-var iter)))
                 (w "~afor(; ~a < ~a; ~a++) {\n"
                    (indent) fr stop fr))
               (enter!)
@@ -535,9 +535,9 @@
       (assert (>= am 0))
       am)))
 
-(: reg-list (-> reg * (Listof reg)))
-(define (reg-list . regs)
-  (apply list regs))
+(: var-list (-> var * (Listof var)))
+(define (var-list . vars)
+  (apply list vars))
 
 
 ;; For now there is only one datatype: the array.  There is one
@@ -550,7 +550,7 @@
 (: cgen-loop-state-zero!
    (-> cgen
        Nonnegative-Integer ;; nb-state
-       (Listof reg)))
+       (Listof var)))
 (define (cgen-loop-state-zero! s nb-state)
   (for/list ((_ (in-range nb-state)))
             (bind0! s 'l "zero")))
@@ -559,25 +559,21 @@
 (: cgen-loop-state-from!
    (-> cgen
        (Listof Ref) ;; Initializer exprssions
-       (Listof reg)))
+       (Listof var)))
 (define (cgen-loop-state-from! s ref)
   (code! s (comment "loop-state-from!"))
   (for/list ((r ref))
-            (match 4
-              ((reg type dims tag nb)
-               ...)
-              (else
-               (bind1! s 'l "copy" r)))))
+            (bind1! s 'l "copy" r)))
 
 ;; Note that we can't constrain the return value of user-defined
 ;; functions, so this needs to be Ref.
 (define-type TargetLoopFunction
-  (-> cgen reg (Listof reg) (Listof Ref)))
+  (-> cgen var (Listof var) (Listof Ref)))
 
 
 ;; FIXME: Convert empty init to function that generates zeros.  While
 ;; compiling the init body, convert array outputs to reference loops.
-;; Make sure all outputs are new registers.  Then they can be reused
+;; Make sure all outputs are new variables.  Then they can be reused
 ;; as state.
 
 (: cgen-loop/list
@@ -593,7 +589,7 @@
               '()
               (Listof Ref))) 
        TargetLoopFunction
-       (Listof reg)))
+       (Listof var)))
 (define (cgen-loop/list s is-time nb-iter state-init-or-nb-state loop-body) ;; . s0
   (let*-values
       (;; Before entering the loop, create initialized loop
@@ -611,12 +607,12 @@
                    (_ (code! s (comment "loop state initializer")))
                    (state-ref : (Listof Ref)
                               (state-init s '()))
-                   ;; Always make a copy, even if the input is a register!
-                   (state-reg : (Listof reg)
+                   ;; Always make a copy, even if the input is a variable!
+                   (state-var : (Listof var)
                     (cgen-loop-state-from! s state-ref)))
               (values
-               state-reg
-               (length state-reg)))
+               state-var
+               (length state-var)))
             ))
        )
     ;; Enter a new code block.
@@ -626,7 +622,7 @@
     (let*-values
         ;; Buffer the state, see footnote (1).
         (((_) (code! s (comment "loop state snapshot")))
-         (([state-in : (Listof reg)])
+         (([state-in : (Listof var)])
           (for/list ((si state))
                     (bind1! s 'v "copy" si)))
          ((_) (code! s (comment "loop body")))
@@ -637,17 +633,17 @@
            [out-val   : (Listof Ref)])  (split-at retvals nb-state))
 
          ;; FIXME: If a loop function returns a literal (degenerate
-         ;; case) then out-reg contains an intermediate register that
+         ;; case) then out-var contains an intermediate variable that
          ;; is not properly assigned.
 
-         ((_) (code! s (comment "loop body output as reg")))
-         (([out-reg : (Listof reg)])
-          (for/list ((ov out-val))      (as-reg! s ov)))
+         ((_) (code! s (comment "loop body output as var")))
+         (([out-var : (Listof var)])
+          (for/list ((ov out-val))      (as-var! s ov)))
 
-         (([out-arr : (Listof reg)])    (for/list ((r out-reg))
-                                                  (make-out-array-reg!
+         (([out-arr : (Listof var)])    (for/list ((r out-var))
+                                                  (make-out-array-var!
                                                    s (dim index nb-iter) 'v r))))
-      ;; Assign state registers.  These are always scalar
+      ;; Assign state variables.  These are always scalar
       (code! s (comment "loop state update"))
       (for ((dst state)
             (src state-val))
@@ -663,14 +659,14 @@
       (code! s (comment "loop output"))
             
       (for ((a out-arr)
-            (r out-reg))
+            (r out-var))
            (match r
              ;; FIXME: If an assignment is to a state variable it
              ;; should never be made equivalent.
-             ((reg type '() tag nb)
+             ((var type '() tag nb)
               ;; If rval is not an array, just assign it.
               (code! s (assign-element a (list index) r)))
-             ((reg type dims tag nb)
+             ((var type dims tag nb)
               ;; If it is an array, some more work is needed to make
               ;; sure we write into the correct location.  At this
               ;; point we know that:
@@ -698,7 +694,7 @@
 
 ;; Arity is passed elsewhere.
 (define-type TargetListFunction
-  (-> cgen (Listof Ref) (Listof reg)))
+  (-> cgen (Listof Ref) (Listof var)))
 
 ;; FIXME: I can't seem to be able to reconstruct the function type,
 ;; only Procedure
@@ -709,12 +705,12 @@
                        TargetListFunction  ;; closed function
                        ))
 
-;; Sample non-reg references in a reg.  It's a lot simpler to make
-;; most of the interfaces work with regs only.  Low level compiler can
-;; easily remove unnecessary reg copy operations.
-(: as-reg! (-> cgen Ref reg))
-(define (as-reg! s ref)
-  (if (reg? ref) ref
+;; Sample non-var references in a var.  It's a lot simpler to make
+;; most of the interfaces work with vars only.  Low level compiler can
+;; easily remove unnecessary var copy operations.
+(: as-var! (-> cgen Ref var))
+(define (as-var! s ref)
+  (if (var? ref) ref
       ;; FIXME: dims?  Or assume ref is scalar?
       (bind1! s 'v "copy" ref)))
 
@@ -722,8 +718,8 @@
   (lambda (s inref)
     ;; (log/pp "instance "  update)
     (let*
-        ((in : (Listof reg)
-             (for/list ((r inref)) (as-reg! s r)))
+        ((in : (Listof var)
+             (for/list ((r inref)) (as-var! s r)))
         ;; The core principle of the dsp stream language is that a
         ;; stateful stream processor instance corresponds to the
         ;; _application_ of the function that represents it, not the
@@ -732,18 +728,18 @@
         ;; to the top level C function's state when processor
         ;; representing function is _applied_.  And one state slot
         ;; needs to be allocated for each point in a (nested) spatial
-        ;; iteration.  Note that state registers contain dims (coords
+        ;; iteration.  Note that state variables contain dims (coords
         ;; + sizes), not just coords.
-         (state : (Listof reg)
+         (state : (Listof var)
                 (for/list ((i (in-range nb-state)))
                           (make-state! s (loop-dims s))))
          ;; (_ (comment! s state))
          ;; Buffer the state, see footnote (1).
          (_ (code! s (comment "feedback state snapshot")))
-         (state-in : (Listof reg)
+         (state-in : (Listof var)
                    (for/list ((si state))
                              (bind1! s 'v "copy" si)))
-         (state-in-and-in : (Listof reg)
+         (state-in-and-in : (Listof var)
                           (append state-in in))                
          )
             
@@ -755,10 +751,10 @@
       (code! s (comment "feedback body"))
            
       (let*-values
-          ((([retvals : (Listof reg)])
+          ((([retvals : (Listof var)])
             (update s state-in-and-in))
-           (([state-out : (Listof reg)]
-             [out       : (Listof reg)])
+           (([state-out : (Listof var)]
+             [out       : (Listof var)])
             (split-at retvals nb-state)))
         ;;(log/pp "  state-out: " state-out)
         ;;(log/pp "  out:       " out)
@@ -769,15 +765,15 @@
       )))
 
 
-(: in-array! (-> cgen Nonnegative-Integer * reg))
+(: in-array! (-> cgen Nonnegative-Integer * var))
 (define (in-array! s . dims)
-  (make-array-reg! s (for/list ((d dims)) (dim #f d)) 'i))
+  (make-array-var! s (for/list ((d dims)) (dim #f d)) 'i))
 
-(: in-scalar! (-> cgen reg))
+(: in-scalar! (-> cgen var))
 (define (in-scalar! s)
-  (make-reg! s 'i))
+  (make-var! s 'i))
 
-(: cgen-meta! (-> cgen reg Any Void))
+(: cgen-meta! (-> cgen var Any Void))
 (define (cgen-meta! s param itm)
   (set-cgen-meta! s (cons (cons param itm) (cgen-meta s))))
 

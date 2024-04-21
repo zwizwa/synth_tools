@@ -100,7 +100,7 @@
 
 
 (define (cgen-sizeof _ array)
-  (apply values (map dim-size (reg-dims array))))
+  (apply values (map dim-size (var-dims array))))
 
 
 
