@@ -113,6 +113,22 @@
                (lambda (i s1 s2)
                  (values s1 s2)))))
 
+      ((loopstateinit)
+       (lambda (osc_inc)
+         (loop 10
+               (lambda ()
+                 ;; FIXME: First fix the loop form, then the array form.
+                 ;osc_inc
+                 (loop (sizeof osc_inc)
+                       (lambda (i) (ref osc_inc i)))
+                 )
+               (lambda (i loopstate)
+                 ;;(loop (sizeof loopstate)
+                 ;;      (lambda (i) (+ 1 (ref loopstate i))))
+                 loopstate
+                 )
+               )))
+
       ((interpol)
        ;; 1. control rate state machine ('D' operator used outside of time loop)
        ;; 2. signal rate interpolation (loop state in time loop)
@@ -135,7 +151,12 @@
                           (* (- oi Doi) invn_t)))))
                ((_ out)
                 (time n_t
-                      (lambda () osc_inc)
+                      (lambda ()
+                        ;; FIXME: First fix the loop form, then the array form.
+                        ;;osc_inc
+                        (loop (sizeof osc_inc)
+                              (lambda (i) (ref osc_inc i)))
+                        )
                       ;; FIXME: Iterate over all voices, accumulate output
                       ;; and increment the inc state.
                       (lambda (t interp_inc)

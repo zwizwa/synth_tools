@@ -54,13 +54,14 @@
   (for
    ((example-spec
      `(
-       (timeloop   ,VS)
-       (matrix     ,G)
-       (loopinit   ,G)
-       (integrator ,S)
-       (procproc   ,S)
-       (sumramp    ,S)
-       (interpol   ,V)
+       (timeloop      ,VS)
+       (matrix        ,G)
+       (loopinit      ,G)
+       (integrator    ,S)
+       (procproc      ,S)
+       (sumramp       ,S)
+       (interpol      ,V)
+       (loopstateinit ,V)
        ;; (synth  ,V)
        )))
    (pp (car example-spec))

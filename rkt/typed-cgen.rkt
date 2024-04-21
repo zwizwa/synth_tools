@@ -52,7 +52,7 @@
          [src : Ref])
         #:transparent)
 
-(struct array-assign
+(struct assign-element
         ([reg : reg]
          [coords : (Listof reg)]
          [src : Ref])
@@ -76,7 +76,7 @@
 
 (define-type Ref (U reg array-ref Number))
 
-(define-type Code (U bind array assign array-assign loop comment))
+(define-type Code (U bind array assign assign-element loop comment))
 
 (struct slice ([parent : reg]
                [coords : (Listof reg)])
@@ -194,8 +194,8 @@
 ;;   (code! s (loop iter stop code)))
 ;; (define (assign! s dst src)
 ;;   (code! s (assign dst src)))
-;; (define (array-assign! s dst coords src)
-;;   (code! s (array-assign dst coords src)))
+;; (define (assign-element! s dst coords src)
+;;   (code! s (assign-element dst coords src)))
 ;; (define (comment! s msg)
 ;;   (code! s (comment msg)))
 
@@ -331,7 +331,24 @@
     ((reg type dims tag nb)
      (fmt-reg-or-structmem r))
     ))
-  
+
+
+;; Single-assignment arrays that are later copied into other arrays
+;; can be elimiated by substituting the element-wise assignment in a
+;; second pass.
+(: slice-equiv! (-> cgen String reg (Listof reg) reg Void))
+(define (slice-equiv! s logtag ro array-index o)
+  ;; Similar to loop outputs
+  (let*
+      ((equivalence
+        (format "~a~a == ~a"
+                (fmt-ref ro)
+                (fmt-array-index array-index)
+                (fmt-ref o)))
+       (msg (format "~a: treat assignment as equivalence: ~a" logtag equivalence)))
+    (def-slice! s o ro array-index)
+    (code! s (comment msg))))
+
 
 ;; The result of compiling a collection of nested stream processing
 ;; functions is one C function parameterized with a state vector.
@@ -358,14 +375,7 @@
             ;; Scalar output value
             (code! s (assign ro o)))
            ((reg type dims tag nb)
-            ;; Similar to loop outputs
-            (let*
-                ((equivalence
-                  (format "~a == ~a"
-                          (fmt-ref ro) (fmt-ref o)))
-                 (msg (format "treat assignment as equivalence: ~a" equivalence)))
-              (def-slice! s o ro '())
-              (code! s (comment msg))))))
+            (slice-equiv! s "top-out" ro '() o))))
 
     
     ;; Reverse state and code stacks. The in and out lists are already
@@ -471,8 +481,8 @@
             (w "~a~a = ~a;\n"
                (indent) (fmt-ref dst) (fmt-ref src)))
             
-           ((array-assign dst coords src)
-            (let (;;(_ (log/pp "array-assign" (list dst coords src)))
+           ((assign-element dst coords src)
+            (let (;;(_ (log/pp "assign-element" (list dst coords src)))
                   (slice (maybe-slice s dst))
                   (assignment (format "~a~a = ~a"
                                       (fmt-ref dst)
@@ -551,13 +561,24 @@
        (Listof Ref) ;; Initializer exprssions
        (Listof reg)))
 (define (cgen-loop-state-from! s ref)
+  (code! s (comment "loop-state-from!"))
   (for/list ((r ref))
-            (bind1! s 'l "copy" r)))
+            (match 4
+              ((reg type dims tag nb)
+               ...)
+              (else
+               (bind1! s 'l "copy" r)))))
 
 ;; Note that we can't constrain the return value of user-defined
 ;; functions, so this needs to be Ref.
 (define-type TargetLoopFunction
   (-> cgen reg (Listof reg) (Listof Ref)))
+
+
+;; FIXME: Convert empty init to function that generates zeros.  While
+;; compiling the init body, convert array outputs to reference loops.
+;; Make sure all outputs are new registers.  Then they can be reused
+;; as state.
 
 (: cgen-loop/list
    (-> cgen
@@ -581,13 +602,13 @@
        ((index) (index! s (if is-time 't 'n)))
        ((state nb-state)
         (if (number? state-init-or-nb-state)
-            (let ((nb-state state-init-or-nb-state))
+            (let* ((nb-state state-init-or-nb-state))
               (code! s (comment "loop state zero init"))
               (values
                (cgen-loop-state-zero! s nb-state)
                nb-state))
             (let* ((state-init state-init-or-nb-state)
-                   (_ (code! s (comment "state initializer")))
+                   (_ (code! s (comment "loop state initializer")))
                    (state-ref : (Listof Ref)
                               (state-init s '()))
                    ;; Always make a copy, even if the input is a register!
@@ -600,11 +621,12 @@
        )
     ;; Enter a new code block.
     (enter-block! s (dim index nb-iter) is-time)
-    (code! s (comment "loop state snapshot"))
+    
 
     (let*-values
         ;; Buffer the state, see footnote (1).
-        ((([state-in : (Listof reg)])
+        (((_) (code! s (comment "loop state snapshot")))
+         (([state-in : (Listof reg)])
           (for/list ((si state))
                     (bind1! s 'v "copy" si)))
          ((_) (code! s (comment "loop body")))
@@ -618,6 +640,7 @@
          ;; case) then out-reg contains an intermediate register that
          ;; is not properly assigned.
 
+         ((_) (code! s (comment "loop body output as reg")))
          (([out-reg : (Listof reg)])
           (for/list ((ov out-val))      (as-reg! s ov)))
 
@@ -639,10 +662,14 @@
         
       (code! s (comment "loop output"))
             
-      (for ((o  out-arr)
-            (ov out-val))
-           ;; FIXME: Also handle literals.
-           (match ov
+      (for ((a out-arr)
+            (r out-reg))
+           (match r
+             ;; FIXME: If an assignment is to a state variable it
+             ;; should never be made equivalent.
+             ((reg type '() tag nb)
+              ;; If rval is not an array, just assign it.
+              (code! s (assign-element a (list index) r)))
              ((reg type dims tag nb)
               ;; If it is an array, some more work is needed to make
               ;; sure we write into the correct location.  At this
@@ -650,20 +677,11 @@
               ;;
               ;; - The 'o' array we created is actually a slice of a
               ;;   parent array.
-              (let*
-                  ((equivalence
-                    (format "~a~a == ~a"
-                            (fmt-ref o)
-                            (fmt-array-index (list index))
-                            (fmt-ref ov)))
-                   (msg (format "treat assignment as equivalence: ~a" equivalence)))
-                (def-slice! s ov o (list index))
-                (code! s (comment msg))))
+              (slice-equiv! s "loop-out" a (list index) r))
              (else
               ;; If out-val is a scalar reference then we can just
               ;; copy it.
-              (code! s (array-assign o (list index) ov)))
-             
+              (code! s (assign-element a (list index) r)))
              ))
       
             
