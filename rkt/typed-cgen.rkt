@@ -70,13 +70,20 @@
          [code : (Listof Code)])
         #:transparent)
 
+(struct seq
+        ([code : (Listof Code)])
+        #:transparent)
+
 (struct comment
         ([msg : String])
         #:transparent)
 
+;; Ref (reference) is not a good name.  Value would be a better name,
+;; but that gives two v's again (var/value) to replace reg/ref.  So
+;; keep for now.
 (define-type Ref (U var array-ref Number))
 
-(define-type Code (U bind array assign assign-element loop comment))
+(define-type Code (U bind array assign assign-element loop seq comment))
 
 (struct slice ([parent : var]
                [coords : (Listof var)])
@@ -214,10 +221,10 @@
 ;; not updated.  State will be iteratively updated for each iteration
 ;; through that loop.
 
-(: enter-block!
+(: enter-loop-block!
    (-> cgen dim Boolean
        Void))
-(define (enter-block! s d is-time)
+(define (enter-loop-block! s d is-time)
   (let ((ds (cgen-dims s)))
     (if is-time
         (when (not (eq? ds '()))
@@ -225,17 +232,31 @@
           (error 'bad-timeloop-nesting))
         ;; Space dimensions (coords + sizes) get tracked.
         (set-cgen-dims! s (cons d ds))))
+  (enter-block! s))
+
+(: enter-block!
+   (-> cgen
+       Void))
+(define (enter-block! s)
   (set-cgen-stack! s (cons (cgen-code s) (cgen-stack s)))
   (set-cgen-code! s '()))
 
-(: leave-block!
+
+
+(: leave-loop-block!
    (-> cgen Boolean
        (Listof Code)))
-(define (leave-block! s is-time)
+(define (leave-loop-block! s is-time)
+  (when (not is-time)
+    (set-cgen-dims! s (cdr (cgen-dims s))))
+  (leave-block! s))
+
+(: leave-block!
+   (-> cgen
+       (Listof Code)))
+(define (leave-block! s)
   (let* ((code (cgen-code s))
          (stack (cgen-stack s)))
-    (when (not is-time)
-      (set-cgen-dims! s (cdr (cgen-dims s))))
     (set-cgen-stack! s (cdr stack))
     (set-cgen-code! s (car stack))
     (reverse code)))
@@ -501,7 +522,7 @@
                        (fmt-ref src)
                        assignment
                        ))
-                  (w "~a~a\n" (indent) assignment))))
+                  (w "~a~a\n;" (indent) assignment))))
 
            ((loop iter stop code)
             (begin
@@ -512,8 +533,18 @@
               (w-code code)
               (leave!)
               (w "~a}\n"
-                 (indent)))
-            ))))
+                 (indent))))
+
+          ((seq code)
+            (begin
+              (w "~a{\n" (indent))
+              (enter!)
+              (w-code code)
+              (leave!)
+              (w "~a}\n"
+                 (indent))))
+           
+          )))
   (w-code (function-code f))
   (w "}\n")
 
@@ -555,15 +586,53 @@
   (for/list ((_ (in-range nb-state)))
             (bind0! s 'l "zero")))
 
+;; FIXME: Solving the wrong problem. Reformulate. Bad assumption?
+;; Previously, arrays have always been slice aliases.  Does this work
+;; for state init as well?
+
+;; FIXME: A little more insight: due to juggling with slice
+;; equivalences a hidden problem is exposed: arrays need to be defined
+;; earlier.  This requires re-ordering statements.
 
 (: cgen-loop-state-from!
    (-> cgen
-       (Listof Ref) ;; Initializer exprssions
+       (-> cgen '() (Listof Ref))
        (Listof var)))
-(define (cgen-loop-state-from! s ref)
-  (code! s (comment "loop-state-from!"))
-  (for/list ((r ref))
-            (bind1! s 'l "copy" r)))
+(define (cgen-loop-state-from! s state-init)
+  (let* ((_ (enter-block! s))
+         (ref : (Listof Ref)
+              (state-init s '()))
+         (code (leave-block! s)))
+  
+  (for/list ((r : Ref ref))
+            (if (and (var? r)
+                     (> (length (var-dims r)) 0))
+                ;; Vector referene.  FIXME: Can this always be a slice
+                ;; equivalence?  More constraints are necessary.
+                ;; Let's evaluate loopstate example first.
+
+                ;; FIXME: Equivalences only work if the "host"
+                ;; variable is introduced before its alias is
+                ;; referenced.  This is getting com
+                
+                (let* ((statevar (make-array-var! s (var-dims r) 'l)))
+                  (code! s
+                         (seq
+                          (append
+                           (list
+                            (comment "loop-state-from! array")
+                            (array statevar))
+                           ;; FIXME: Code is duplicated for multiple vars
+                           code)))
+                  (slice-equiv! s "ls-from!" statevar '() r)
+                  statevar
+                  )
+                ;; Everything else is a scalar.
+                ;; FIXME: Check if this is correct for array-ref
+                (begin
+                  (code! s (comment (format "loop-state-from! scalar ~a" r)))
+                  (bind1! s 'l "copy" r)))))
+  )
 
 ;; Note that we can't constrain the return value of user-defined
 ;; functions, so this needs to be Ref.
@@ -605,18 +674,15 @@
                nb-state))
             (let* ((state-init state-init-or-nb-state)
                    (_ (code! s (comment "loop state initializer")))
-                   (state-ref : (Listof Ref)
-                              (state-init s '()))
-                   ;; Always make a copy, even if the input is a variable!
                    (state-var : (Listof var)
-                    (cgen-loop-state-from! s state-ref)))
+                    (cgen-loop-state-from! s state-init)))
               (values
                state-var
                (length state-var)))
             ))
        )
     ;; Enter a new code block.
-    (enter-block! s (dim index nb-iter) is-time)
+    (enter-loop-block! s (dim index nb-iter) is-time)
     
 
     (let*-values
@@ -683,7 +749,7 @@
             
       ;; Finalize basic block and insert the block into the parent
       ;; context.
-      (let ((code (leave-block! s is-time)))
+      (let ((code (leave-loop-block! s is-time)))
         ;; Compile output array declarations before the loop body.
         (for ((o out-arr)) (code! s (array o)))
         (code! s (loop index nb-iter code)))

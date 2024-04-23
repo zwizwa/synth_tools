@@ -109,8 +109,9 @@ static inline void loopinit_update(struct loopinit_state *s, const struct loopin
     // loop index init
     I n0 = zero();
     // loop state initializer
-    // loop-state-from!
+    // loop-state-from! scalar 123
     T l0 = copy(123);
+    // loop-state-from! scalar 456
     T l1 = copy(456);
     for(; n0 < 4; n0++) {
         // loop state snapshot
@@ -244,25 +245,28 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         // loop state update
         // loop output
         v5[n0] = v4
-    }
+;    }
     // loop index init
     I t0 = zero();
     // loop state initializer
-    // loop index init
-    I n1 = zero();
-    // loop state zero init
-    T v7[64];
-    for(; n1 < 64; n1++) {
-        // loop state snapshot
-        // loop body
-        // loop body output as var
-        T v6 = copy(i->i0[n1]);
-        // loop state update
-        // loop output
-        v7[n1] = v6
+    {
+        // loop-state-from! array
+        T l0[64];
+        // loop index init
+        I n1 = zero();
+        // loop state zero init
+        // omit slice definition: T v7[64]
+        for(; n1 < 64; n1++) {
+            // loop state snapshot
+            // loop body
+            // loop body output as var
+            T v6 = copy(i->i0[n1]);
+            // loop state update
+            // loop output
+            l0[n1] = v6; // expanded from: v7[n1] = v6
+        }
     }
-    // loop-state-from!
-    T l0 = copy(v7);
+    // ls-from!: treat assignment as equivalence: l0 == v7
     // omit slice definition: T v15[1024]
     for(; t0 < 1024; t0++) {
         // loop state snapshot
@@ -290,7 +294,7 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
             l1 = v12;
             // loop output
             v14[n2] = v13
-        }
+;        }
         // loop body output as var
         // loop state update
         l0 = v14;
@@ -308,37 +312,43 @@ struct loopstateinit_in {
     T i0[64];
 };
 struct loopstateinit_out {
-    T o0;
+    T o0[10];
 };
 static inline void loopstateinit_update(struct loopstateinit_state *s, const struct loopstateinit_in *i, struct loopstateinit_out *o) {
     // loop index init
     I n0 = zero();
     // loop state initializer
-    // loop index init
-    I n1 = zero();
-    // loop state zero init
-    T v1[64];
-    for(; n1 < 64; n1++) {
-        // loop state snapshot
-        // loop body
-        // loop body output as var
-        T v0 = copy(i->i0[n1]);
-        // loop state update
-        // loop output
-        v1[n1] = v0
+    {
+        // loop-state-from! array
+        T l0[64];
+        // loop index init
+        I n1 = zero();
+        // loop state zero init
+        // omit slice definition: T v1[64]
+        for(; n1 < 64; n1++) {
+            // loop state snapshot
+            // loop body
+            // loop body output as var
+            T v0 = copy(i->i0[n1]);
+            // loop state update
+            // loop output
+            l0[n1] = v0; // expanded from: v1[n1] = v0
+        }
     }
-    // loop-state-from!
-    T l0 = copy(v1);
+    // ls-from!: treat assignment as equivalence: l0 == v1
+    // omit slice definition: T v4[10]
     for(; n0 < 10; n0++) {
         // loop state snapshot
         T v2 = copy(l0);
         // loop body
         // loop body output as var
+        T v3 = copy(123);
         // loop state update
         l0 = v2;
         // loop output
+        o->o0[n0] = v3; // expanded from: v4[n0] = v3
     }
     // function body
     // function outputs
-    o->o0 = l0;
+    // top-out: treat assignment as equivalence: o->o0 == v4
 }

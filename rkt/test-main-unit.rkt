@@ -115,19 +115,22 @@
 
       ((loopstateinit)
        (lambda (osc_inc)
-         (loop 10
-               (lambda ()
-                 ;; FIXME: First fix the loop form, then the array form.
-                 ;osc_inc
-                 (loop (sizeof osc_inc)
-                       (lambda (i) (ref osc_inc i)))
-                 )
-               (lambda (i loopstate)
-                 ;;(loop (sizeof loopstate)
-                 ;;      (lambda (i) (+ 1 (ref loopstate i))))
-                 loopstate
-                 )
-               )))
+         (let*-values
+             (((_ out)
+               (loop 10
+                     (lambda ()
+                       ;; FIXME: First fix the loop form, then the array form.
+                                        ;osc_inc
+                       (loop (sizeof osc_inc)
+                             (lambda (i) (ref osc_inc i)))
+                       )
+                     (lambda (i loopstate)
+                       ;;(loop (sizeof loopstate)
+                       ;;      (lambda (i) (+ 1 (ref loopstate i))))
+                       (values loopstate 123)
+                       )
+                     )))
+           out)))
 
       ((interpol)
        ;; 1. control rate state machine ('D' operator used outside of time loop)
