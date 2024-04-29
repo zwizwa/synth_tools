@@ -120,6 +120,10 @@
    '() ;; meta
    ))
 
+(: non-scalar-var? (-> Ref Boolean))
+(define (non-scalar-var? ref)
+  (and (var? ref) (> (length (var-dims ref)) 0)))
+
 ;; Use a next-var for each variable tag (i o s l).  This makes it
 ;; easier to give predictable names to in/out/state structs, and makes
 ;; generated code easier to read.
@@ -213,13 +217,12 @@
 
 
 
-;; Blocks are always loops.  For spatial loops, entering a block
-;; introduces a new coordinate dimension.  When state is introduced,
-;; it is always indexed by the current coordinate because each
-;; iteration through a nested loop should have its own stream state.
-;; One outer loop can be a time loop, in which case the coordinate is
-;; not updated.  State will be iteratively updated for each iteration
-;; through that loop.
+;; For spatial loops, entering a block introduces a new coordinate
+;; dimension.  When state is introduced, it is always indexed by the
+;; current coordinate because each iteration through a nested loop
+;; should have its own stream state.  One outer loop can be a time
+;; loop, in which case the coordinate is not updated.  State will be
+;; iteratively updated for each iteration through that loop.
 
 (: enter-loop-block!
    (-> cgen dim Boolean
@@ -260,6 +263,29 @@
     (set-cgen-stack! s (cdr stack))
     (set-cgen-code! s (car stack))
     (reverse code)))
+
+(: compile-block! (-> cgen
+                      (-> cgen '() (Listof Ref))
+                      (Values
+                       (Listof Code)
+                       (Listof Ref))))
+;; Compile code in a fresh context.  Return the outputs of the block
+;; as (Listof Ref), and the code as (Listof Code).
+(define (compile-block! s block-thunk!)
+  (enter-block! s)
+  (let* ((ref
+          : (Listof Ref)
+          (block-thunk! s '()))
+         (code
+          : (Listof Code)
+          (leave-block! s)))
+    (values code ref)))
+
+          
+         
+            
+
+
 
 ;; For space loops, the current loop index / coordinate is saved such
 ;; that state can be constructed in the correct multiplicity,
@@ -357,8 +383,8 @@
 ;; Single-assignment arrays that are later copied into other arrays
 ;; can be elimiated by substituting the element-wise assignment in a
 ;; second pass.
-(: slice-equiv! (-> cgen String var (Listof var) var Void))
-(define (slice-equiv! s logtag ro array-index o)
+(: slice-equiv-code! (-> cgen String var (Listof var) var Code))
+(define (slice-equiv-code! s logtag ro array-index o)
   ;; Similar to loop outputs
   (let*
       ((equivalence
@@ -368,7 +394,14 @@
                 (fmt-ref o)))
        (msg (format "~a: treat assignment as equivalence: ~a" logtag equivalence)))
     (def-slice! s o ro array-index)
-    (code! s (comment msg))))
+    (comment msg)))
+
+(: slice-equiv! (-> cgen String var (Listof var) var Void))
+(define (slice-equiv! s logtag ro array-index o)
+  (code! s (slice-equiv-code! s logtag ro array-index o)))
+
+
+
 
 
 ;; The result of compiling a collection of nested stream processing
@@ -597,42 +630,49 @@
 (: cgen-loop-state-from!
    (-> cgen
        (-> cgen '() (Listof Ref))
-       (Listof var)))
+       (Values
+        (Listof Code)
+        (Listof var))))
 (define (cgen-loop-state-from! s state-init)
-  (let* ((_ (enter-block! s))
-         (ref : (Listof Ref)
-              (state-init s '()))
-         (code (leave-block! s)))
-  
-  (for/list ((r : Ref ref))
-            (if (and (var? r)
-                     (> (length (var-dims r)) 0))
-                ;; Vector referene.  FIXME: Can this always be a slice
-                ;; equivalence?  More constraints are necessary.
-                ;; Let's evaluate loopstate example first.
-
-                ;; FIXME: Equivalences only work if the "host"
-                ;; variable is introduced before its alias is
-                ;; referenced.  This is getting com
-                
-                (let* ((statevar (make-array-var! s (var-dims r) 'l)))
-                  (code! s
-                         (seq
-                          (append
-                           (list
-                            (comment "loop-state-from! array")
-                            (array statevar))
-                           ;; FIXME: Code is duplicated for multiple vars
-                           code)))
-                  (slice-equiv! s "ls-from!" statevar '() r)
-                  statevar
-                  )
-                ;; Everything else is a scalar.
-                ;; FIXME: Check if this is correct for array-ref
-                (begin
-                  (code! s (comment (format "loop-state-from! scalar ~a" r)))
-                  (bind1! s 'l "copy" r)))))
-  )
+  (let*-values
+      (;; Instantiate the state initialization code that goes before
+       ;; the loop body.  This gives us a list of refs to use to
+       ;; initialize the state variables.
+       (([code : (Listof Code)]
+         [ref : (Listof Ref)])
+        (compile-block! s state-init))
+       (([statevar : (Listof var)])
+        (for/list
+         ((r : Ref ref))
+         (make-generic-var!
+          s 'T
+          (if (var? r)
+              (var-dims r)
+              '()) ;; FIXME: Is non-var always a scalar?
+          'l)))
+       ;; There are few constraints on the initializer expressions,
+       ;; but we really need to make sure that slice equivalences are
+       ;; expressed such that the inner element-wise assigment is made
+       ;; to space allocated inside a state array.  For each of the
+       ;; state initializer expressions, determine if that is the
+       ;; case.
+       (([initcode : (Listof (Listof Code))])
+        (for/list
+         ((r : Ref ref)
+          (sv : var statevar))
+         ;; Can it just always do a slice equivalence?  I mean a
+         ;; scalar variable is just a degenerate case of a grid
+         ;; element variable.
+         (list
+          (comment "loop-state-from! array")
+          (if (var? r)
+              (slice-equiv-code! s "ls-from!" sv '() r)
+              ;; FIXME: Implement this path.  For now just let it pass.
+              (comment (format "FIXME: non-var initcode: ~a" r))))))
+       )
+    (values
+     (apply append initcode)
+     statevar)))
 
 ;; Note that we can't constrain the return value of user-defined
 ;; functions, so this needs to be Ref.
@@ -665,21 +705,27 @@
        ;; variables.  FIXME: Later separate const and non-const.
        ((_) (code! s (comment "loop index init")))
        ((index) (index! s (if is-time 't 'n)))
-       ((state nb-state)
+       ((init-code state)
         (if (number? state-init-or-nb-state)
             (let* ((nb-state state-init-or-nb-state))
-              (code! s (comment "loop state zero init"))
+              ;; FIXME: Catch the code geenrated in loop-state-zero!
+              ;; FIXME: It is probably easier to create a state-init
+              ;; function and use the same path.
               (values
-               (cgen-loop-state-zero! s nb-state)
-               nb-state))
-            (let* ((state-init state-init-or-nb-state)
-                   (_ (code! s (comment "loop state initializer")))
-                   (state-var : (Listof var)
-                    (cgen-loop-state-from! s state-init)))
+               (list (comment "loop state zero init"))
+               (cgen-loop-state-zero! s nb-state)))
+            (let*-values
+                ((([state-init : (-> cgen '() (Listof Ref))])
+                  state-init-or-nb-state)
+                 ((_) (code! s (comment "loop state initializer")))
+                 (([init-code : (Listof Code)]
+                   [state-var : (Listof var)])
+                  (cgen-loop-state-from! s state-init)))
               (values
-               state-var
-               (length state-var)))
+               init-code
+               state-var))
             ))
+       ((nb-state) (length state))
        )
     ;; Enter a new code block.
     (enter-loop-block! s (dim index nb-iter) is-time)
@@ -752,6 +798,12 @@
       (let ((code (leave-loop-block! s is-time)))
         ;; Compile output array declarations before the loop body.
         (for ((o out-arr)) (code! s (array o)))
+        ;; Compile state initialization code before the loop body (included in init-code)
+        ;; (for ((sv state)) (code! s (array sv)))
+        ;; Copile initializer code
+        (for ((c init-code)) (code! s c))
+        
+        ;; Loop body
         (code! s (loop index nb-iter code)))
       
       (append state out-arr)

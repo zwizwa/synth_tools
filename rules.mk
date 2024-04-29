@@ -84,6 +84,7 @@ STM_ELF_DIS := \
 HOST_ELF := \
 	linux/test_misc.dynamic.host.elf \
 	linux/test_pulse.dynamic.host.elf \
+	linux/test_cgen.dynamic.host.elf \
 	linux/test_synth_cgen.dynamic.host.elf \
 	linux/test_pdm.dynamic.host.elf \
 	linux/test_bl_midi.dynamic.host.elf \
@@ -160,7 +161,8 @@ LIB_HOST_A_OBJECTS := \
 GEN_DEPS_COMMON :=
 GEN := $(GEN_DEPS_COMMON)
 
-
+generic/cgen_test_out.h: $(shell find rkt -name '*.rkt')
+	cd rkt && racket test-cgen.rkt
 
 # FIXME: This is slow on NFS.  Maybe cache this into a file.
 # Use a script to list the .d files to make this easier to debug.
