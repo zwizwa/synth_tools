@@ -68,7 +68,7 @@
    (apply compile-example port example-spec)))
 
 
-(when #f
+(when #t
   ;; FIXME: For now the synth engine is defined together with all the
   ;; test programs, but it goes into a separate file to be included in
   ;; synth.c

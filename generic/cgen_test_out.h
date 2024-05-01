@@ -23,10 +23,10 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
     T v2 = div(v1, 64);
     // loop index init
     I t0 = zero();
-    T l0 = zero();
     // omit slice definition: T v10[64]
     // omit slice definition: T v11[64]
-    // loop state zero init
+    T l0;
+    l0 = 0;
     for(; t0 < 64; t0++) {
         // loop state snapshot
         T v3 = copy(l0);
@@ -70,14 +70,12 @@ static inline void matrix_update(struct matrix_state *s, const struct matrix_in 
     // loop index init
     I n0 = zero();
     // omit slice definition: T v2[3][4]
-    // loop state zero init
     for(; n0 < 3; n0++) {
         // loop state snapshot
         // loop body
         // loop index init
         I n1 = zero();
         // omit slice definition: T v1[4]
-        // loop state zero init
         for(; n1 < 4; n1++) {
             // loop state snapshot
             // loop body
@@ -108,11 +106,10 @@ struct loopinit_out {
 static inline void loopinit_update(struct loopinit_state *s, const struct loopinit_in *i, struct loopinit_out *o) {
     // loop index init
     I n0 = zero();
-    // loop state initializer
-    // loop-state-from! array
-    // FIXME: non-var initcode: 123
-    // loop-state-from! array
-    // FIXME: non-var initcode: 456
+    T l0;
+    T l1;
+    l0 = 123;
+    l1 = 456;
     for(; n0 < 4; n0++) {
         // loop state snapshot
         T v0 = copy(l0);
@@ -191,8 +188,8 @@ struct sumramp_out {
 static inline void sumramp_update(struct sumramp_state *s, const struct sumramp_in *i, struct sumramp_out *o) {
     // loop index init
     I n0 = zero();
-    T l0 = zero();
-    // loop state zero init
+    T l0;
+    l0 = 0;
     for(; n0 < 3; n0++) {
         // loop state snapshot
         T v0 = copy(l0);
@@ -229,7 +226,6 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
     // loop index init
     I n0 = zero();
     T v5[64];
-    // loop state zero init
     for(; n0 < 64; n0++) {
         // loop state snapshot
         // loop body
@@ -244,50 +240,61 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         // loop body output as var
         // loop state update
         // loop output
-        v5[n0] = v4
-;    }
+        v5[n0] = v4;
+    }
     // loop index init
     I t0 = zero();
-    // loop state initializer
-    // omit slice definition: T v15[1024]
-    // loop-state-from! array
+    // omit slice definition: T v17[1024]
+    T l0[64];
     // ls-from!: treat assignment as equivalence: l0 == v7
     for(; t0 < 1024; t0++) {
         // loop state snapshot
-        T v8 = copy(l0);
-        // loop body
         // loop index init
         I n2 = zero();
-        T l1 = zero();
-        T v14[64];
-        // loop state zero init
+        T v9[64];
         for(; n2 < 64; n2++) {
             // loop state snapshot
-            T v9 = copy(l1);
             // loop body
+            // loop body output as var
+            T v8 = copy(l0[n2]);
+            // loop state update
+            // loop output
+            v9[n2] = v8;
+        }
+        // loop body
+        // loop index init
+        I n3 = zero();
+        // omit slice definition: T v16[64]
+        T l1;
+        l1 = 0;
+        for(; n3 < 64; n3++) {
+            // loop state snapshot
+            T v10 = copy(l1);
+            // loop body
+            T v11 = copy(v9[n3]);
             // feedback state snapshot
-            T v10 = copy(s->s1[n2]);
+            T v12 = copy(s->s1[n3]);
             // feedback body
-            T v11 = add(v10, v8);
+            T v13 = add(v12, v11);
             // feedback state update
-            s->s1[n2] = v11;
-            T v12 = add(v9, v10);
-            T v13 = add(v8, v5[n2]);
+            s->s1[n3] = v13;
+            T v14 = add(v10, v12);
+            T v15 = add(v9[n3], v5[n3]);
             // loop body output as var
             // loop state update
-            l1 = v12;
+            l1 = v14;
             // loop output
-            v14[n2] = v13
-;        }
+            l0[n3] = v15; // expanded from: v16[n3] = v15
+        }
         // loop body output as var
         // loop state update
-        l0 = v14;
+        // loop-state-update: treat assignment as equivalence: l0 == v16
         // loop output
-        o->o0[t0] = l1; // expanded from: v15[t0] = l1
+        o->o0[t0] = l1; // expanded from: v17[t0] = l1
     }
     // function body
     // function outputs
-    // top-out: treat assignment as equivalence: o->o0 == v15
+    // top-out: treat assignment as equivalence: o->o0 == v17
 }
 #include "cgen_lib.h"
 struct loopstateinit_state {
@@ -300,23 +307,33 @@ struct loopstateinit_out {
 };
 static inline void loopstateinit_update(struct loopstateinit_state *s, const struct loopstateinit_in *i, struct loopstateinit_out *o) {
     // loop index init
-    I n0 = zero();
-    // loop state initializer
-    // omit slice definition: T v4[10]
-    // loop-state-from! array
+    I n1 = zero();
+    // omit slice definition: T v5[10]
+    T l0[64];
     // ls-from!: treat assignment as equivalence: l0 == v1
-    for(; n0 < 10; n0++) {
+    for(; n1 < 10; n1++) {
         // loop state snapshot
-        T v2 = copy(l0);
+        // loop index init
+        I n2 = zero();
+        // omit slice definition: T v3[64]
+        for(; n2 < 64; n2++) {
+            // loop state snapshot
+            // loop body
+            // loop body output as var
+            T v2 = copy(l0[n2]);
+            // loop state update
+            // loop output
+            l0[n2] = v2; // expanded from: v3[n2] = v2
+        }
         // loop body
         // loop body output as var
-        T v3 = copy(123);
+        T v4 = copy(123);
         // loop state update
-        l0 = v2;
+        // loop-state-update: treat assignment as equivalence: l0 == v3
         // loop output
-        o->o0[n0] = v3; // expanded from: v4[n0] = v3
+        o->o0[n1] = v4; // expanded from: v5[n1] = v4
     }
     // function body
     // function outputs
-    // top-out: treat assignment as equivalence: o->o0 == v4
+    // top-out: treat assignment as equivalence: o->o0 == v5
 }

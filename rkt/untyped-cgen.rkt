@@ -65,16 +65,17 @@
       list)))
 
 (define (loop* s is-time nb-iter maybe-state-init loop-body)
-  (let* ((state-init-or-nb-state
-          (if maybe-state-init
-              (m2l maybe-state-init)
-              (- (procedure-arity loop-body) 2)))
+  (let* ((state-init
+          (or maybe-state-init
+              (lambda (s)
+                (let ((nb-state (- (procedure-arity loop-body) 2)))
+                  (apply values (for/list ((i nb-state)) 0))))))
          (out
           (cgen-loop/list
            s
            is-time
            nb-iter
-           state-init-or-nb-state
+           (m2l state-init)
            (m2l-loop loop-body))))
              
     (apply values out)))

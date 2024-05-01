@@ -154,10 +154,11 @@
                           (* (- oi Doi) invn_t)))))
                ((_ out)
                 (time n_t
+                      ;; Loop state init
                       (lambda ()
                         ;; FIXME: First fix the loop form, then the array form.
                         ;;osc_inc
-                        (loop (sizeof osc_inc)
+                        (loop n_voices
                               (lambda (i) (ref osc_inc i)))
                         )
                       ;; FIXME: Iterate over all voices, accumulate output
@@ -167,10 +168,12 @@
                             (((out interp_inc_next)
                               (loop n_voices
                                     (lambda (i mix)
-                                      (values
-                                       (+ mix
-                                          (osc interp_inc))
-                                       (+ interp_inc (ref deltas i)))))))
+                                      (let ((interp_inc_i (ref interp_inc i))
+                                            (deltas_i     (ref deltas i)))
+                                        (values
+                                         (+ mix
+                                            (osc interp_inc_i))
+                                         (+ interp_inc_i deltas_i)))))))
                           (values interp_inc_next
                                   out)))
                       )))
