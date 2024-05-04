@@ -7,8 +7,7 @@ struct synth_in {
     T i0[64];
 };
 struct synth_out {
-    T o0[64];
-    T o1[1024];
+    T o0[1024];
 };
 static inline void synth_update(struct synth_state *s, const struct synth_in *i, struct synth_out *o) {
     I n0 = zero();
@@ -32,7 +31,7 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
     }
     I t0 = zero();
     // omit slice definition: T v18[1024]
-    // omit slice definition: T l0[64]
+    T l0[64];
     // ls-from!: treat assignment as equivalence: l0 == v7
     for(; t0 < 1024; t0++) {
         // loop state snapshot
@@ -70,16 +69,15 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
             // loop state update
             l1 = v15;
             // loop output
-            o->o0[n3] = v16; // expanded from: v17[n3] = v16
+            l0[n3] = v16; // expanded from: v17[n3] = v16
         }
         // loop body output as var
         // loop state update
         // loop-state-update: treat assignment as equivalence: l0 == v17
         // loop output
-        o->o1[t0] = l1; // expanded from: v18[t0] = l1
+        o->o0[t0] = l1; // expanded from: v18[t0] = l1
     }
     // function body
     // function outputs
-    // top-out: treat assignment as equivalence: o->o0 == l0
-    // top-out: treat assignment as equivalence: o->o1 == v18
+    // top-out: treat assignment as equivalence: o->o0 == v18
 }
