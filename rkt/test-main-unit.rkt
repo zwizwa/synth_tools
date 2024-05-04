@@ -41,7 +41,8 @@
   
   (define (synth osc_inc)
     (let* ((n 1024)
-           (ds (deltas osc_inc n)))
+           ;; (ds (deltas osc_inc n))
+           )
       (time n
             ;; FIXME: use deltas to update
             (lambda (t)
@@ -178,6 +179,7 @@
                                   out)))
                       )))
             out)))
+      ((synth) synth)
       ))
   )
 (provide main@)

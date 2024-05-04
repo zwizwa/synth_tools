@@ -707,7 +707,7 @@
          [state     : (Listof var)])
         (cgen-loop-state-from! s state-init))
        ((nb-state) (length state))
-       ((_) (code! s (comment "loop index init")))
+       ;;((_) (code! s (comment "loop index init"))) ;; This is self-evident
        ((index) (index! s (if is-time 't 'n)))
        )
     ;; Enter a new code block.

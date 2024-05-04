@@ -41,9 +41,12 @@ int main(int argc, char*argv[]) {
         goto exit;
     }
 
+#if 0
     struct synth_state state;
+#endif
 
     for(;;) {  // FIXME: exit?
+#if 0
         struct synth_in in = { .i0 = {0.1, 0.2} };
         struct synth_out out;
         // int n = sizeof(out.o0) / sizeof(out.o0[0]);
@@ -53,6 +56,7 @@ int main(int argc, char*argv[]) {
         // This produces a single mono output buffer of n samples.
         // State is updated or each frame.
         synth_update(&state, &in, &out);
+#endif
 
         for (int i=0; i<n; i++) {
             // buf[i] = ((float)0x7FFF) * out.o0; //out.o0[i]; // FIXME

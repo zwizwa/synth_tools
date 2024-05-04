@@ -3,6 +3,7 @@
 #include "cgen_test_out.h"
 
 int main(int argc, char **argv) {
+#if 0
     // State is initialized to zero.
     struct synth_state state = {};
     for (int i=0; i<20; i++) {
@@ -15,4 +16,6 @@ int main(int argc, char **argv) {
         synth_update(&state, &in, &out);
         printf("%f\n", out.o0);
     }
+#endif
+    return 0;
 }

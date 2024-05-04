@@ -87,7 +87,7 @@
               # does this have to be nativeBuildInputs?
               buildInputs = with pkgs; [
                 alsa-lib
-                pulseaudio-dev
+                pulseaudio
               ];
               nativeBuildInputs = with pkgs; [
                 pkg-config

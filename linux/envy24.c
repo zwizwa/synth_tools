@@ -86,9 +86,7 @@ static void internal_clock_set(
     }
 }
 
-void setup(snd_ctl_t *ctl,
-           const char *name,
-           int card_number) {
+void setup(snd_ctl_t *ctl, int syncval) {
 
     //ice1712_eeprom_t card_eeprom;
 
@@ -116,7 +114,9 @@ void setup(snd_ctl_t *ctl,
     if ((err = snd_ctl_elem_read(ctl, internal_clock)) < 0) {
         ERROR("Unable to read Internal Clock state: %s\n", snd_strerror(err));
     }
-    LOG("internal_clock = %d\n", snd_ctl_elem_value_get_enumerated(internal_clock, 0));
+    LOG("internal_clock, was %d, setting %d\n",
+        snd_ctl_elem_value_get_enumerated(internal_clock, 0),
+        syncval);
 
     ASSERT(0 == snd_ctl_elem_value_malloc(&word_clock_sync));
     snd_ctl_elem_value_set_interface(word_clock_sync, SND_CTL_ELEM_IFACE_MIXER);
@@ -125,37 +125,40 @@ void setup(snd_ctl_t *ctl,
     if (1) {
         /* Default in my setup seems to be 8 (44.1kHz internal).
            I want it to be 13 (S/PDIF in). */
-        internal_clock_set(ctl, word_clock_sync, internal_clock, 13);
+        internal_clock_set(ctl, word_clock_sync, internal_clock, syncval);
     }
 }
 
 int main(int argc, char **argv) {
 
-    /* probe cards */
-    /* FIXME: hardcoded max number of cards */
-    uint32_t nb_cards = 0;
-    for (int card_number = 0; card_number < 8; card_number++) {
-
-        static char cardname[8];
-        snd_ctl_card_info_t *hw_info;
-        snd_ctl_card_info_alloca(&hw_info);
-        sprintf(cardname, "hw:%d", card_number);
-
-        snd_ctl_t *ctl;
-        if (snd_ctl_open(&ctl, cardname, 0) < 0)
-            continue;
-        if (snd_ctl_card_info(ctl, hw_info) < 0 ||
-            strcmp(snd_ctl_card_info_get_driver(hw_info), "ICE1712")) {
-            snd_ctl_close(ctl);
-            continue;
-        }
-        /* found */
-        LOG("found %s\n", cardname);
-        setup(ctl, cardname, card_number);
-        nb_cards++;
+    if (argc != 3) {
+        ERROR("usage: %s <card> <syncval>\n", argv[0]);
     }
-    if (!nb_cards) {
-        ERROR("No ICE1712 cards found\n");
+    char cardname[8 + strlen(argv[1])];
+    strcpy(cardname, argv[1]);
+
+    int syncval = atoi(argv[2]);
+
+    snd_ctl_card_info_t *hw_info;
+    snd_ctl_card_info_alloca(&hw_info);
+
+    int index;
+    if ((index = snd_card_get_index(cardname)) >= 0) {
+        LOG("%s is hw:%d\n", cardname, index);
+        sprintf(cardname, "hw:%d", index);
     }
+
+    snd_ctl_t *ctl;
+    if (snd_ctl_open(&ctl, cardname, 0) < 0) {
+        ERROR("can't open %s\n", cardname);
+    }
+    if (snd_ctl_card_info(ctl, hw_info) < 0 ||
+        strcmp(snd_ctl_card_info_get_driver(hw_info), "ICE1712")) {
+        snd_ctl_close(ctl);
+        ERROR("%s is not an ICE1712\n", cardname);
+    }
+    /* found */
+    LOG("opened ICE1712 %s\n", cardname);
+    setup(ctl, syncval);
     return 0;
 }

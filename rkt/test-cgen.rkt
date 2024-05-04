@@ -62,7 +62,7 @@
        (sumramp       ,S)
        (interpol      ,V)
        (loopstateinit ,V)
-       ;; (synth  ,V)
+       ;;(synth  ,V)
        )))
    (pp (car example-spec))
    (apply compile-example port example-spec)))

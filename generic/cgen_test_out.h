@@ -21,7 +21,6 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
     s->s0 = i->i1;
     T v1 = sub(i->i1, v0);
     T v2 = div(v1, 64);
-    // loop index init
     I t0 = zero();
     // omit slice definition: T v10[64]
     // omit slice definition: T v11[64]
@@ -67,13 +66,11 @@ struct matrix_out {
     T o0[3][4];
 };
 static inline void matrix_update(struct matrix_state *s, const struct matrix_in *i, struct matrix_out *o) {
-    // loop index init
     I n0 = zero();
     // omit slice definition: T v2[3][4]
     for(; n0 < 3; n0++) {
         // loop state snapshot
         // loop body
-        // loop index init
         I n1 = zero();
         // omit slice definition: T v1[4]
         for(; n1 < 4; n1++) {
@@ -104,7 +101,6 @@ struct loopinit_out {
     T o1;
 };
 static inline void loopinit_update(struct loopinit_state *s, const struct loopinit_in *i, struct loopinit_out *o) {
-    // loop index init
     I n0 = zero();
     T l0;
     T l1;
@@ -186,7 +182,6 @@ struct sumramp_out {
     T o0;
 };
 static inline void sumramp_update(struct sumramp_state *s, const struct sumramp_in *i, struct sumramp_out *o) {
-    // loop index init
     I n0 = zero();
     T l0;
     l0 = 0;
@@ -223,7 +218,6 @@ struct interpol_out {
 };
 static inline void interpol_update(struct interpol_state *s, const struct interpol_in *i, struct interpol_out *o) {
     T v0 = div(1, 1024);
-    // loop index init
     I n0 = zero();
     T v5[64];
     for(; n0 < 64; n0++) {
@@ -242,14 +236,12 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         // loop output
         v5[n0] = v4;
     }
-    // loop index init
     I t0 = zero();
     // omit slice definition: T v17[1024]
     T l0[64];
     // ls-from!: treat assignment as equivalence: l0 == v7
     for(; t0 < 1024; t0++) {
         // loop state snapshot
-        // loop index init
         I n2 = zero();
         T v9[64];
         for(; n2 < 64; n2++) {
@@ -262,7 +254,6 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
             v9[n2] = v8;
         }
         // loop body
-        // loop index init
         I n3 = zero();
         // omit slice definition: T v16[64]
         T l1;
@@ -306,14 +297,12 @@ struct loopstateinit_out {
     T o0[10];
 };
 static inline void loopstateinit_update(struct loopstateinit_state *s, const struct loopstateinit_in *i, struct loopstateinit_out *o) {
-    // loop index init
     I n1 = zero();
     // omit slice definition: T v5[10]
     T l0[64];
     // ls-from!: treat assignment as equivalence: l0 == v1
     for(; n1 < 10; n1++) {
         // loop state snapshot
-        // loop index init
         I n2 = zero();
         // omit slice definition: T v3[64]
         for(; n2 < 64; n2++) {
