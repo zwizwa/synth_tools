@@ -38,33 +38,31 @@
 #define ICE1712_SUBDEVICE_DMX6FIRE      0x3b153811
 
 typedef struct {
-    unsigned int subvendor;	/* PCI[2c-2f] */
-    unsigned char size;	/* size of EEPROM image in bytes */
-    unsigned char version;	/* must be 1 */
-    unsigned char codec;	/* codec configuration PCI[60] */
-    unsigned char aclink;	/* ACLink configuration PCI[61] */
-    unsigned char i2sID;	/* PCI[62] */
-    unsigned char spdif;	/* S/PDIF configuration PCI[63] */
-    unsigned char gpiomask;	/* GPIO initial mask, 0 = write, 1 = don't */
+    unsigned int subvendor;  /* PCI[2c-2f] */
+    unsigned char size;      /* size of EEPROM image in bytes */
+    unsigned char version;   /* must be 1 */
+    unsigned char codec;     /* codec configuration PCI[60] */
+    unsigned char aclink;    /* ACLink configuration PCI[61] */
+    unsigned char i2sID;     /* PCI[62] */
+    unsigned char spdif;     /* S/PDIF configuration PCI[63] */
+    unsigned char gpiomask;  /* GPIO initial mask, 0 = write, 1 = don't */
     unsigned char gpiostate; /* GPIO initial state */
-    unsigned char gpiodir;	/* GPIO direction state */
+    unsigned char gpiodir;   /* GPIO direction state */
     unsigned short ac97main;
     unsigned short ac97pcm;
     unsigned short ac97rec;
     unsigned char ac97recsrc;
-    unsigned char dacID[4];	/* I2S IDs for DACs */
-    unsigned char adcID[4];	/* I2S IDs for ADCs */
+    unsigned char dacID[4];  /* I2S IDs for DACs */
+    unsigned char adcID[4];  /* I2S IDs for ADCs */
     unsigned char extra[4];
 } ice1712_eeprom_t;
-ice1712_eeprom_t card_eeprom;
-snd_ctl_t *ctl;
-
-static snd_ctl_elem_value_t *internal_clock;
-static snd_ctl_elem_value_t *word_clock_sync;
-int card_number;
 
 
-static void master_clock_word_select(int on) {
+static void master_clock_word_select(
+    snd_ctl_t *ctl,
+    snd_ctl_elem_value_t *word_clock_sync,
+    int on)
+{
     int err;
     /* Only works for ICE1712_SUBDEVICE_DELTA1010 and
        ICE1712_SUBDEVICE_DELTA1010LT. This tool does not read the
@@ -74,51 +72,43 @@ static void master_clock_word_select(int on) {
         ERROR("Unable to write word clock sync selection: %s\n", snd_strerror(err));
     }
 }
-static void internal_clock_set(int xrate) {
+static void internal_clock_set(
+    snd_ctl_t *ctl,
+    snd_ctl_elem_value_t *word_clock_sync,
+    snd_ctl_elem_value_t *internal_clock,
+    int xrate)
+{
     int err;
-    master_clock_word_select(0);
+    master_clock_word_select(ctl, word_clock_sync, 0);
     snd_ctl_elem_value_set_enumerated(internal_clock, 0, xrate);
     if ((err = snd_ctl_elem_write(ctl, internal_clock)) < 0) {
         ERROR("Unable to write internal clock rate: %s\n", snd_strerror(err));
     }
 }
-int main(int argc, char **argv) {
-    /* probe cards */
-    int err;
-    static char cardname[8];
-    char *name = NULL; // probe
-    snd_ctl_card_info_t *hw_info;
-    snd_ctl_card_info_alloca(&hw_info);
 
-    /* FIXME: hardcoded max number of cards */
-    for (card_number = 0; card_number < 8; card_number++) {
-        sprintf(cardname, "hw:%d", card_number);
-        if (snd_ctl_open(&ctl, cardname, 0) < 0)
-            continue;
-        if (snd_ctl_card_info(ctl, hw_info) < 0 ||
-            strcmp(snd_ctl_card_info_get_driver(hw_info), "ICE1712")) {
-            snd_ctl_close(ctl);
-            continue;
-        }
-        /* found */
-        name = cardname;
-        LOG("found %s\n", cardname);
-        break;
-    }
-    if (! name) {
-        ERROR("No ICE1712 cards found\n");
-    }
+void setup(snd_ctl_t *ctl,
+           const char *name,
+           int card_number) {
+
+    //ice1712_eeprom_t card_eeprom;
+
+    static snd_ctl_elem_value_t *internal_clock;
+    static snd_ctl_elem_value_t *word_clock_sync;
+
+
     /* FIXME: It seems possible to change the default state.
        See original envy24control source. */
 
     /* Mixer elements are accessed by name.  See kernel source:
 
        ~/git/linux/sound$ grep -re "Multi Track Internal Clock" *
-       pci/ice1712/ice1712.c:	.name = "Multi Track Internal Clock",
+       pci/ice1712/ice1712.c: .name = "Multi Track Internal Clock",
 
        ~/git/linux/sound/pci$ grep -re 'Word Clock Sync' *
        ice1712/delta.c:ICE1712_GPIO(SNDRV_CTL_ELEM_IFACE_MIXER, "Word Clock Sync", 0, ICE1712_DELTA_WORD_CLOCK_SELECT, 1, 0);
     */
+
+    int err;
 
     ASSERT(0 == snd_ctl_elem_value_malloc(&internal_clock));
     snd_ctl_elem_value_set_interface(internal_clock, SND_CTL_ELEM_IFACE_MIXER);
@@ -135,7 +125,37 @@ int main(int argc, char **argv) {
     if (1) {
         /* Default in my setup seems to be 8 (44.1kHz internal).
            I want it to be 13 (S/PDIF in). */
-        internal_clock_set(13);
+        internal_clock_set(ctl, word_clock_sync, internal_clock, 13);
+    }
+}
+
+int main(int argc, char **argv) {
+
+    /* probe cards */
+    /* FIXME: hardcoded max number of cards */
+    uint32_t nb_cards = 0;
+    for (int card_number = 0; card_number < 8; card_number++) {
+
+        static char cardname[8];
+        snd_ctl_card_info_t *hw_info;
+        snd_ctl_card_info_alloca(&hw_info);
+        sprintf(cardname, "hw:%d", card_number);
+
+        snd_ctl_t *ctl;
+        if (snd_ctl_open(&ctl, cardname, 0) < 0)
+            continue;
+        if (snd_ctl_card_info(ctl, hw_info) < 0 ||
+            strcmp(snd_ctl_card_info_get_driver(hw_info), "ICE1712")) {
+            snd_ctl_close(ctl);
+            continue;
+        }
+        /* found */
+        LOG("found %s\n", cardname);
+        setup(ctl, cardname, card_number);
+        nb_cards++;
+    }
+    if (!nb_cards) {
+        ERROR("No ICE1712 cards found\n");
     }
     return 0;
 }
