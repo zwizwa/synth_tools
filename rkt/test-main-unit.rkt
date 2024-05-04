@@ -40,14 +40,44 @@
               (* (- oi Doi) invn)))))
   
   (define (synth osc_inc)
-    (let* ((n 1024)
-           ;; (ds (deltas osc_inc n))
+    (let* ((n_t 1024) ;; Number of time instances to compute.
+           (n_voices (sizeof osc_inc))
+           (osc_inc_delta (deltas osc_inc n_t))
+           ;; Oscillator
+           (osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s))))
            )
-      (time n
-            ;; FIXME: use deltas to update
-            (lambda (t)
-              (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))
-                (map/sum osc osc_inc))))))
+      ;; Outer loop is a time loop producing n_t time samples.
+      (time n_t
+            ;; Initialize the loop state = interpolated oscillator
+            ;; increments.
+            (lambda ()
+              (loop n_voices
+                    (lambda (i) (ref osc_inc i))))
+
+            ;; Inner loop is the voice loop, calculating each
+            ;; oscillator and summing it together.  The loop state is
+            ;; the mix value, which is implicitly initialized to 0 due
+            ;; to lack of initializer form.
+            (lambda (t interp_inc)
+              (let*-values
+                  (((out interp_inc_next)
+                    (loop n_voices
+                          (lambda (voice_nb mix)
+                            (let* ((inc (ref interp_inc voice_nb)))
+                              (values
+                               ;; State update = accumulate voice output.
+                               (+ mix (osc inc))
+                               ;; Additional output = increment of
+                               ;; voice interpolator used as outer
+                               ;; loop state.
+                               (+ inc (ref osc_inc_delta voice_nb))))))))
+                (values interp_inc_next
+                        out)))
+
+            ;; (map/sum osc osc_inc)
+
+            )))
+
 
   ;;(define (synth osc_inc)
   ;;  (let* ((osc (close 1 (lambda (s inc) (values (frac (+ s inc)) s)))))

@@ -1,4 +1,6 @@
 // Adapted by Tom Schouten, from alsa-tools/envy24control
+// This can also be done using alsactl:
+// http://linux-audio.com/ice1712multi.html
 
 /*****************************************************************************
    hardware.c - Hardware Settings
