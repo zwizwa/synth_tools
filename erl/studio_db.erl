@@ -1,4 +1,5 @@
-%% FIXME: No longer used. Config is now hardcoded in studio_cfg.erl
+%% See studio_cfg.erl
+%% There is some indirection now.
 
 -module(studio_db).
 -export([midiclock_mask/0,

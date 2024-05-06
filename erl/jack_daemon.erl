@@ -31,7 +31,13 @@ do_start(State) ->
     Port = open_port({spawn, SH}, Opts),
     %% FIXME: sync?
     timer:send_after(1000, need_clients),
-    maps:put(port, Port, State).
+    studio_db:db_init(), %% FIXME: parameterize
+    DB = exo:db_local(), %% FIXME: inject dependency?
+    maps:merge(
+      #{ port => Port,
+         notify => fun(Evt) -> exo_midi:jack_notify(DB, Evt) end
+       },
+      State).
 
 start_link(Init = #{ }) ->
     {ok, serv:start(
@@ -150,6 +156,7 @@ need_clients(State) ->
          || Name <- [hub       %% synth_tools hub.c (MIDI / Erlang hub)
                     ,a2jmidid  %% upstream alsa to jack midi bridge
                     ,clock     %% synth_tools clock.c
+                    %% ,pd  %% Introduces too many issues
                     ]]),
       State).
 

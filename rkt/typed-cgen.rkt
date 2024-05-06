@@ -657,6 +657,11 @@
 ;; writes, so in all cases the state inputs are copied into an
 ;; immutable variable before being passed to the body of a function.
 ;; For arrays this needs to insert a loop. FIXME
+
+
+;; FIXME: There is a bug here still.  If RHS contains a slice
+;; alias it needs to be expanded.
+
 (: snapshot! (-> cgen (Listof var)
                  (Listof var)))
 (define (snapshot! s state)
@@ -664,6 +669,8 @@
   (for/list
       ((si state))
     (if (= (length (var-dims si)) 0)
+
+
         (bind1! s 'v "copy" si)
         ;; FIXME: Make it work for multidim also.
         ;; FIXME: Make it work tout court.

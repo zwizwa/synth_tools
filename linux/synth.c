@@ -190,7 +190,6 @@ void synth_note_off(struct synth *x, int note) {
 // FIXME: replace voice with cproc
 float sum_tick_osc(struct synth *x) {
     unsigned int v;
-#if 0
     int sum = 0;
     FOR_IN(v, x->voice) {
         if (x->voice[v].note_inc) {
@@ -201,13 +200,6 @@ float sum_tick_osc(struct synth *x) {
         }
     }
     return (1.0 / PHASOR_PERIOD) * ((float)sum);
-#else
-    struct synth_in in = {};
-    FOR_IN(v, x->voice) { in.i0[v] = ((T)(x->voice[v].note_inc)) / 0xFFFFFFFF; };
-    struct synth_out out;
-    synth_update(&x->state, &in, &out);
-    return (1.0 / PHASOR_PERIOD) * out.o0[0]; // FIXME: This is a block now
-#endif
 }
 #if 0
 float sum_tick_square(struct synth *x) {
@@ -228,10 +220,20 @@ float sum_tick_square(struct synth *x) {
 
 void synth_run(struct synth *x, float *vec, int n) {
     // FIXME: update parameters
-    int i;
-    for (i=0; i<n; i++) {
+#if 0
+    for (int i=0; i<n; i++) {
         vec[i] = sum_tick_osc(x);
     }
+#else
+    struct synth_in in = {};
+    unsigned int v;
+    FOR_IN(v, x->voice) { in.i0[v] = ((T)(x->voice[v].note_inc)) / 0xFFFFFFFF; };
+    struct synth_out out;
+    synth_update(&x->state, &in, &out);
+    for(int i=0; i<n; i++) {
+        vec[i] = (1.0 / PHASOR_PERIOD) * out.o0[i];
+    }
+#endif
 }
 
 void synth_init(struct synth *x) {

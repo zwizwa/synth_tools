@@ -10,6 +10,8 @@
 */
 #include <jack/jack.h>
 #include <jack/midiport.h>
+#include <poll.h>
+
 #include "tcp_tools.h"
 #include "assert_write.h"
 #include "assert_read.h"
@@ -17,6 +19,9 @@
 #include "uct_byteswap.h"
 
 #define CLOCK_OUT 0
+
+/* Erl */
+int erl_fd = 0;
 
 /* Pd */
 int pd_fd = -1;
@@ -159,14 +164,12 @@ static int process (jack_nframes_t nframes, void *arg) {
 
 
 
-
 static inline ssize_t erl_read(void *vbuf, size_t nb) {
-    int fd = 0;
     unsigned char *buf = vbuf;
     if (nb == 0) return 0;
     ssize_t rv;
     do {
-        rv = read(fd, buf, nb);
+        rv = read(erl_fd, buf, nb);
     } while(rv == -1 && errno == EINTR); // Haskell uses signals
     if (rv > 0) {
         //LOG("%2d: rv=%d\n", fd, rv);
@@ -181,7 +184,7 @@ static inline ssize_t erl_read(void *vbuf, size_t nb) {
     }
     else if (rv < 0) {
         int e = errno;
-        LOG("fd %2d: errno=%d\n", fd, e);
+        LOG("fd %2d: errno=%d\n", erl_fd, e);
     }
     ASSERT(rv > 0);
     return rv;
@@ -208,7 +211,18 @@ static inline ssize_t erl_read_msg(void *vbuf) {
 
 int main(int argc, char **argv) {
 
-    int rv = system("i.pd.exo");
+    int rv;
+
+    // FIXME: Keep track of the pid of the previous instance and kill
+    // it here, just in case we lost connection and weren't able to
+    // stop it.
+
+    // Make sure previous Pd is terminated.
+    rv = system("sleep .5");
+    // Start a new one in the background.
+    rv = system("~/.result/synth_tools/pd/bin/pd exo.pd &");
+    // Make sure the socket is up before we connect.
+    rv = system("sleep .5");
     (void)rv;
 
     /* Pd midi is problematic, so solve it in this adapter. */
@@ -237,9 +251,29 @@ int main(int argc, char **argv) {
 
     /* Start Pd in the background, open the exo patch. */
     for(;;) {
-        uint8_t buf[1024]; // FIXME overflow
-        /* FIXME: Add 2 protocols to uc_tools: Pd FUDI and framed MIDI */
-        erl_read_msg(buf);
+        /* Wait */
+        struct pollfd pfd = {
+                .events = POLLIN | POLLERR,
+                .fd = erl_fd
+        };
+        int rv;
+        int timeout_ms = 1000;
+        ASSERT_ERRNO(rv = poll(&pfd, 1, timeout_ms));
+
+        /* Just bail on error. */
+        ASSERT(!(pfd.revents & POLLERR));
+
+        if(pfd.revents & POLLIN) {
+            uint8_t buf[1024]; // FIXME overflow
+            /* FIXME: Add 2 protocols to uc_tools: Pd FUDI and framed MIDI */
+            erl_read_msg(buf);
+            pfd.revents &= ~POLLIN;
+        }
+        else {
+            /* Send a message to make sure the connection is ok. */
+            PD_WRITE("idle;\n");
+            // LOG("pd_io -> pd: idle\n");
+        }
     }
     return 0;
 }

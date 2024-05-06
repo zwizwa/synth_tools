@@ -83,7 +83,7 @@ STM_ELF_DIS := \
 
 HOST_ELF := \
 	linux/test_misc.dynamic.host.elf \
-	linux/test_cgen.dynamic.host.elf \
+	linux/test_cgen.dynamic.host.so \
 	linux/test_pdm.dynamic.host.elf \
 	linux/test_bl_midi.dynamic.host.elf \
 	linux/test_cproc.dynamic.host.elf \
@@ -408,6 +408,8 @@ BEAM := \
 	ebin/studio_db.beam \
 	ebin/studio_rs.beam \
 	ebin/studio_seq.beam \
+	ebin/exo_midi.beam \
+	ebin/s.beam \
 
 # FIXME: export_all warning
 BEAM_TEST: \
