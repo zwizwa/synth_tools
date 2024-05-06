@@ -522,7 +522,8 @@
                            (fmt-var r)
                            (fmt-array-size (map dim-size (var-dims r))))))
               (if (maybe-slice s r)
-                  (w "~a// omit slice definition: ~a\n" (indent) slicedef)
+                  (w "~a// omit slice definition: ~a\n"
+                     (indent) slicedef)
                   (w "~a~a;\n"
                      (indent) slicedef))))
 
@@ -648,7 +649,7 @@
               ))))
        )
     (values
-     (apply append initcode)
+     (append code (apply append initcode))
      statevar)))
 
 

@@ -32,6 +32,17 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
     I t0 = zero();
     // omit slice definition: T v18[1024]
     T l0[64];
+    I n1 = zero();
+    // omit slice definition: T v7[64]
+    for(; n1 < 64; n1++) {
+        // loop state snapshot
+        // loop body
+        // loop body output as var
+        T v6 = copy(i->i0[n1]);
+        // loop state update
+        // loop output
+        l0[n1] = v6; // expanded from: v7[n1] = v6
+    }
     // ls-from!: treat assignment as equivalence: l0 == v7
     for(; t0 < 1024; t0++) {
         // loop state snapshot

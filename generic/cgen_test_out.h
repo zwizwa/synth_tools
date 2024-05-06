@@ -239,6 +239,17 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
     I t0 = zero();
     // omit slice definition: T v17[1024]
     T l0[64];
+    I n1 = zero();
+    // omit slice definition: T v7[64]
+    for(; n1 < 64; n1++) {
+        // loop state snapshot
+        // loop body
+        // loop body output as var
+        T v6 = copy(i->i0[n1]);
+        // loop state update
+        // loop output
+        l0[n1] = v6; // expanded from: v7[n1] = v6
+    }
     // ls-from!: treat assignment as equivalence: l0 == v7
     for(; t0 < 1024; t0++) {
         // loop state snapshot
@@ -300,6 +311,17 @@ static inline void loopstateinit_update(struct loopstateinit_state *s, const str
     I n1 = zero();
     // omit slice definition: T v5[10]
     T l0[64];
+    I n0 = zero();
+    // omit slice definition: T v1[64]
+    for(; n0 < 64; n0++) {
+        // loop state snapshot
+        // loop body
+        // loop body output as var
+        T v0 = copy(i->i0[n0]);
+        // loop state update
+        // loop output
+        l0[n0] = v0; // expanded from: v1[n0] = v0
+    }
     // ls-from!: treat assignment as equivalence: l0 == v1
     for(; n1 < 10; n1++) {
         // loop state snapshot
