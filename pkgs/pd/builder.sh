@@ -19,9 +19,6 @@ cat <<EOF >$out/bin/pd
 
 ## FIXME: Move the sleep statements elsewhere.
 
-# Wait for previous pd to shut down before we start to make sure TCP socket is free.
-# sleep 2
-
 export LD_PRELOAD=$LIBMVEC
 export PATH=$out/pd/bin:\$PATH
 
@@ -30,8 +27,6 @@ export PATH=$out/pd/bin:\$PATH
 # Add an indirection in /tmp for the dependencies.  This allows them
 # to be changed while Pd is running, e.g. to switch to "developer
 # mode".
-# FIXME: Package the pd abstractions.
-# FIXME: Don't make /tmp private for exo_vm
 # FIXME: There is a back-reference to synth_tools here. Smell?
 
 # If /i/tom/pd is needed then it needs to be added manually.  The main
@@ -50,7 +45,7 @@ mkdir -p /tmp/pd
  ln -sf /home/tom/.result/synth_tools  synth_tools
 )
 
-$pd/bin/pd \
+exec $pd/bin/pd \
 -lib  /tmp/pd/creb/bin/creb \
 -path /tmp/pd/creb/abs \
 -path /tmp/pd/creb/doc \
@@ -62,8 +57,6 @@ $pd/bin/pd \
 -rt -jack -r 44100 -inchannels 16 -outchannels 16 \
 "\$@"
 
-# Wait for pd to start so that synth_tools/linux/pd.c can connect to it via TCP.
-# sleep .5
 
 EOF
 chmod +x $out/bin/pd

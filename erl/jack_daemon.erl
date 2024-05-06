@@ -120,7 +120,7 @@ handle(_Msg = {jack_control, ControlMsg}, State = #{notify := Notify}) ->
     State;
 %% As sent by Notify explained above.
 handle(Msg = {connect,_,_}, State) ->
-    {Hub, State1} = hub_client(State),
+    {Hub, State1} = control_client(State),
     Hub ! Msg,
     State1;
 
@@ -128,10 +128,10 @@ handle(Msg={_,dump}, State) ->
     obj:handle(Msg, State).
 
 %% We only need the hub client.
-hub_client(State) ->
+control_client(State) ->
     State1 = need_clients(State),
     Clients = maps:get(clients, State1),
-    {maps:get(hub, Clients), State1}.
+    {maps:get(control, Clients), State1}.
 
 
 %% Clients are started on demand, to ensure it happens when daemon is
@@ -153,7 +153,8 @@ need_clients(State) ->
       clients,
       maps:from_list(
         [{Name,start_client(Name, State)}
-         || Name <- [hub       %% synth_tools hub.c (MIDI / Erlang hub)
+         || Name <- [control   %% non-real time connectivity
+                    ,hub       %% synth_tools hub.c (MIDI / Erlang hub)
                     ,a2jmidid  %% upstream alsa to jack midi bridge
                     ,clock     %% synth_tools clock.c
                     %% ,pd  %% Introduces too many issues

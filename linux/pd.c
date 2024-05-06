@@ -162,7 +162,16 @@ static int process (jack_nframes_t nframes, void *arg) {
     return 0;
 }
 
-
+/* Erlang side closed the pipe, which means we need to shut down.
+   Send a message to Pd then shut down this wrapper. */
+static void eof_shutdown(void) {
+    LOG("EOF on Erlang port (stdin)\n");
+    LOG("Sending shutdown to Pd and exiting.\n");
+    PD_WRITE("shutdown;\n");
+    sleep(1);
+    close(pd_fd);
+    exit(0);
+}
 
 static inline ssize_t erl_read(void *vbuf, size_t nb) {
     unsigned char *buf = vbuf;
@@ -175,12 +184,7 @@ static inline ssize_t erl_read(void *vbuf, size_t nb) {
         //LOG("%2d: rv=%d\n", fd, rv);
     }
     else if (rv == 0) {
-        /* Erlang side closed the pipe, which means we need to shut
-           down.  Send a message to Pd then shut down this wrapper. */
-        LOG("EOF on stdin. Sending shutdown to Pd.\n");
-        PD_WRITE("shutdown;\n");
-        close(pd_fd);
-        exit(0);
+        eof_shutdown();
     }
     else if (rv < 0) {
         int e = errno;
@@ -222,7 +226,7 @@ int main(int argc, char **argv) {
     // Start a new one in the background.
     rv = system("~/.result/synth_tools/pd/bin/pd exo.pd &");
     // Make sure the socket is up before we connect.
-    rv = system("sleep .5");
+    rv = system("sleep 1");
     (void)rv;
 
     /* Pd midi is problematic, so solve it in this adapter. */
@@ -253,7 +257,7 @@ int main(int argc, char **argv) {
     for(;;) {
         /* Wait */
         struct pollfd pfd = {
-                .events = POLLIN | POLLERR,
+                .events = POLLIN | POLLERR | POLLHUP,
                 .fd = erl_fd
         };
         int rv;
@@ -261,18 +265,21 @@ int main(int argc, char **argv) {
         ASSERT_ERRNO(rv = poll(&pfd, 1, timeout_ms));
 
         /* Just bail on error. */
-        ASSERT(!(pfd.revents & POLLERR));
+        if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            //LOG("pd_io shutdown\n");
+            eof_shutdown();
+        }
 
         if(pfd.revents & POLLIN) {
             uint8_t buf[1024]; // FIXME overflow
             /* FIXME: Add 2 protocols to uc_tools: Pd FUDI and framed MIDI */
+            //LOG("pd_io read\n");
             erl_read_msg(buf);
-            pfd.revents &= ~POLLIN;
         }
         else {
             /* Send a message to make sure the connection is ok. */
+            //LOG("pd_io -> pd: idle  (revents = 0x%x)\n", pfd.revents);
             PD_WRITE("idle;\n");
-            // LOG("pd_io -> pd: idle\n");
         }
     }
     return 0;

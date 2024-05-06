@@ -22,7 +22,9 @@ init('exo@hyperion.zoo') -> pd();
 init(_) -> error.
 
 %% Idemptotent start of exo processes.
-jack() -> exo:need(jack_daemon).
+jack() ->
+    application:ensure_all_started(exo),
+    exo:need(jack_daemon).
 
 %% Daemon shortcuts without redo.
 

@@ -19,14 +19,15 @@
 
 #include "macros.h"
 #include "jack_tools.h"
-#include "erl_port.h"
 #include "assert_read.h"
-#include "assert_write.h"
 #include "tag_u32.h"
 
 #include "mod_sequencer.c"
 #include "mod_akai_fire.c"
 #include "mod_novation_remote.c"
+
+#include "mod_to_erl.c"
+
 
 void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
     uint8_t len_buf[4];
@@ -111,72 +112,6 @@ static inline void send_start(void *out_buf) { send_control_byte(out_buf, 0xFA);
 static inline void send_stop(void *out_buf)  { send_control_byte(out_buf, 0xFC); }
 
 
-/* Erlang */
-#define TO_ERL_SIZE_LOG 16
-#define TO_ERL_SIZE (1 << TO_ERL_SIZE_LOG)
-static uint8_t to_erl_buf[TO_ERL_SIZE];
-static size_t to_erl_buf_bytes = 0;
-//static uint32_t to_erl_room(void) {
-//    uint32_t free_bytes = sizeof(to_erl_buf) - to_erl_buf_bytes;
-//    if (free_bytes >= 6) return free_bytes - 6;
-//    return 0;
-//}
-static uint8_t *to_erl_hole_8(int nb, uint16_t port) {
-    size_t msg_size = 8 + nb;
-    if (to_erl_buf_bytes + msg_size > sizeof(to_erl_buf)) {
-        LOG("erl buffer overflow\n");
-        return NULL;
-    }
-    uint8_t *msg = &to_erl_buf[to_erl_buf_bytes];
-    /* Midi is mapped into generic stream tag.  Maybe this should have
-       its own tag?  We do need to guarantee single midi messages
-       here. */
-    set_u32be(msg, msg_size - 4); // {packet,4}
-    set_u16be(msg+4, 0xFFFB); // TAG_STREAM
-    set_u16be(msg+6, port);
-    to_erl_buf_bytes += msg_size;
-    return &msg[8];
-}
-static uint8_t *to_erl_hole_6(int nb) {
-    size_t msg_size = 6 + nb;
-    if (to_erl_buf_bytes + msg_size > sizeof(to_erl_buf)) {
-        LOG("erl buffer overflow\n");
-        return NULL;
-    }
-    uint8_t *msg = &to_erl_buf[to_erl_buf_bytes];
-    set_u32be(msg, msg_size - 4); // {packet,4}
-    set_u16be(msg+4, 0xFFEE); // TAG_PTERM
-    to_erl_buf_bytes += msg_size;
-    return &msg[6];
-}
-static void to_erl_pterm(const char *pterm) {
-    int nb = strlen(pterm);
-    uint8_t *hole = to_erl_hole_6(nb);
-    if (hole) {
-        LOG("sending pterm %s\n", pterm);
-        memcpy(hole, pterm, nb);
-    }
-    else {
-        LOG("WARNING: not sending pterm %s\n", pterm);
-    }
-}
-static void to_erl_ptermvf(const char *fmt, va_list ap) {
-    char *pterm = NULL;
-    ASSERT(-1 != vasprintf(&pterm, fmt, ap));
-    to_erl_pterm(pterm);
-}
-// FIXME: This is so common it deserves a macro in uc_tools
-static void to_erl_ptermf(const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    to_erl_ptermvf(fmt, ap);
-    va_end(ap);
-}
-
-static void to_erl_midi(const uint8_t *buf, int nb, uint8_t port) {
-    uint8_t *hole = to_erl_hole_8(nb, port);
-    if (hole) { memcpy(hole, buf, nb); }
-}
 
 static inline void process_z_debug(struct app *app) {
     FOR_MIDI_EVENTS(iter, z_debug, app->nframes) {
@@ -609,11 +544,7 @@ static inline void process_erl_out(struct app *app) {
 
     */
 
-    if (to_erl_buf_bytes) {
-        //LOG("buf_bytes = %d\n", (int)to_erl_buf_bytes);
-        assert_write(1, to_erl_buf, to_erl_buf_bytes);
-        to_erl_buf_bytes = 0;
-    }
+    to_erl_flush();
 
 }
 
@@ -860,37 +791,6 @@ int handle_tag_u32(struct tag_u32 *req) {
     return 0;
 }
 
-/* Take over this functionality from jack_control.c
-   I've added one level of {jack_control,...} wrapping to make Erlang code simpler. */
-static void port_register(jack_port_id_t port_id, int reg, void *arg) {
-    jack_port_t *port = jack_port_by_id(client, port_id);
-    int flags = jack_port_flags(port);
-    const char *port_name = jack_port_name(port);
-    to_erl_ptermf("{jack_control,{port,%s,%s,\"%s\"}}",
-                  reg ? "reg" : "unreg",
-                  flags & JackPortIsInput ? "in" : "out",
-                  port_name);
-    char alias0[jack_port_name_size()];
-    char alias1[jack_port_name_size()];
-    char *const alias[2] = {alias0, alias1};
-    int nb_alias = jack_port_get_aliases(port, alias);
-    for (int i = 0; i<nb_alias; i++) {
-        to_erl_ptermf("{jack_control,{alias,\"%s\",\"%s\"}}", port_name, alias[i]);
-    }
-}
-static void port_connect(jack_port_id_t a, jack_port_id_t b, int connect, void *arg) {
-    jack_port_t *pa = jack_port_by_id(client, a);
-    jack_port_t *pb = jack_port_by_id(client, b);
-    const char *na = jack_port_name(pa);
-    const char *nb = jack_port_name(pb);
-    to_erl_ptermf("{jack_control,{connect,%s,\"%s\",\"%s\"}}",
-                  connect  ? "true" : "false", na, nb);
-
-}
-static void client_registration(const char *name, int reg, void *arg) {
-    to_erl_ptermf("{jack,{client,%s,\"%s\"}}", reg ? "reg" : "unreg", name);
-}
-
 /* Cross-link */
 #define DEF_FIELD_TO_PARENT(function_name, parent_type, field_type, field_name) \
     static inline parent_type *function_name(field_type *field_ptr) {   \
@@ -969,10 +869,6 @@ int main(int argc, char **argv) {
     jack_status_t status = 0;
     client = jack_client_open (client_name, JackNullOption, &status);
     ASSERT(client);
-
-    ASSERT(0 == jack_set_port_registration_callback(client, port_register, NULL));
-    ASSERT(0 == jack_set_port_connect_callback(client, port_connect, NULL));
-    ASSERT(0 == jack_set_client_registration_callback(client, client_registration, NULL));
 
     FOR_MIDI_IN(REGISTER_JACK_MIDI_IN);
     FOR_MIDI_OUT(REGISTER_JACK_MIDI_OUT);

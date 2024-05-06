@@ -93,6 +93,7 @@ HOST_ELF := \
 	linux/jack_control.dynamic.host.elf \
 	linux/jack_snapshot.dynamic.host.elf \
 	linux/synth.dynamic.host.elf \
+	linux/control.dynamic.host.elf \
 	linux/hub.dynamic.host.elf \
 	linux/akai_fire.dynamic.host.elf \
 	linux/clock.dynamic.host.elf \
