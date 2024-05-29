@@ -7,7 +7,7 @@ struct synth_in {
     T i0[64];
 };
 struct synth_out {
-    T o0[1024];
+    T o0[64];
 };
 static inline void synth_update(struct synth_state *s, const struct synth_in *i, struct synth_out *o) {
     I n0 = zero();
@@ -15,7 +15,7 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
     for(; n0 < 64; n0++) {
         // loop state snapshot
         // loop body
-        T v0 = div(1, 1024);
+        T v0 = div(1, 64);
         T v1 = copy(i->i0[n0]);
         // feedback state snapshot
         T v2 = copy(s->s0[n0]);
@@ -30,7 +30,7 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
         v5[n0] = v4;
     }
     I t0 = zero();
-    // omit slice definition: T v18[1024]
+    // omit slice definition: T v18[64]
     T l0[64];
     I n1 = zero();
     // omit slice definition: T v7[64]
@@ -44,7 +44,7 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
         l0[n1] = v6; // expanded from: v7[n1] = v6
     }
     // ls-from!: treat assignment as equivalence: l0 == v7
-    for(; t0 < 1024; t0++) {
+    for(; t0 < 64; t0++) {
         // loop state snapshot
         I n2 = zero();
         T v9[64];

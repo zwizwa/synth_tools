@@ -2,7 +2,10 @@
 HERE=$(readlink -f $(dirname "$0"))
 
 if [ -z "$MIDI" ]; then
-MIDI=$(ls /dev/midi* | head -n1)
+    # Don't guess.
+    # MIDI=$(ls /dev/midi* | head -n1)
+    echo "Set MIDI environment variable to point to the /dev/midiX\n"
+    exit 1
 fi
 # echo "MIDI=$MIDI" 2>&1
 CMD="$HERE/tether_bl_midi.dynamic.host.elf $MIDI"

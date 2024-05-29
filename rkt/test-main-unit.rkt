@@ -41,7 +41,7 @@
   
   (define (synth osc_inc)
     (let*-values
-        (((n_t) 1024) ;; Number of time instances to compute.
+        (((n_t) 64) ;; Number of time instances to compute.
          ((n_voices) (sizeof osc_inc))
          ((osc_inc_delta) (deltas osc_inc n_t))
          ;; Oscillator

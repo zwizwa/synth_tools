@@ -231,7 +231,7 @@ void synth_run(struct synth *x, float *vec, int n) {
     struct synth_out out;
     synth_update(&x->state, &in, &out);
     for(int i=0; i<n; i++) {
-        vec[i] = (1.0 / PHASOR_PERIOD) * out.o0[i];
+        vec[i] = 0.1 * out.o0[i];
     }
 #endif
 }
