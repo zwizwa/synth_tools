@@ -70,15 +70,15 @@ STUDIO_ELF := \
 STM_ELF := \
 	stm32f103/bl_midi_bp.core.f103.elf \
 	stm32f103/bl_midi_bp_usbpullup.core.f103.elf \
-	stm32f103/synth.x8.f103.elf \
-	stm32f103/synth.x8.f103.bin \
-	stm32f103/pixi.x8.f103.elf \
-	stm32f103/pixi.x8.f103.bin \
-	stm32f103/pixi.x8.f103.dasm \
+	stm32f103/synth.128.f103.elf \
+	stm32f103/synth.128.f103.bin \
+	stm32f103/pixi.128.f103.elf \
+	stm32f103/pixi.128.f103.bin \
+	stm32f103/pixi.128.f103.dasm \
 
 STM_ELF_DIS := \
-	stm32f103/bp2.x8.f103.elf \
-	stm32f103/console.x8.f103.bin \
+	stm32f103/bp2.128.f103.elf \
+	stm32f103/console.128.f103.bin \
 	$(UC_TOOLS)/gdb/test_3if.x8ram.f103.bin \
 
 HOST_ELF := \
@@ -231,10 +231,10 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 
 A_STM := stm32f103/lib.f103.a $(RS_A_STM)
 
-%.x8.f103.elf: \
+%.128.f103.elf: \
 	%.f103.o \
 	$(A_STM) \
-	stm32f103/x8.f103.ld \
+	stm32f103/128.f103.ld \
 	$(UC_TOOLS)/gdb/registers_stm32f103.f103.o \
 
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
@@ -242,7 +242,7 @@ A_STM := stm32f103/lib.f103.a $(RS_A_STM)
 	export ARCH=f103 ; \
 	export BUILD=stm32f103/build.sh ; \
 	export ELF=$@ ; \
-	export LD=stm32f103/x8.f103.ld ; \
+	export LD=stm32f103/128.f103.ld ; \
 	export MAP=$(patsubst %.elf,%.map,$@) ; \
 	export O=$< ; \
 	export TYPE=elf ; \

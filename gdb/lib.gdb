@@ -33,13 +33,19 @@ define file_check
   file $arg0
 end
 
-# All images rely on the MIDI SYSEX bootloader.
-# Tis assumes cwd is set to synth_tools/stm32f103
+# These assume cwd is set to synth_tools/stm32f103
+
+# All images rely on the MIDI SYSEX bootloader configured for USB
+# handshake hack without pullup resistor on B5.
+#
 define bl
   file_check bl_midi_bp.core.f103.elf
 end
 define pixi
-  file_check pixi.x8.f103.elf
+  file_check pixi.128.f103.elf
+end
+define synth
+  file_check synth.128.f103.elf
 end
 
 define startup
