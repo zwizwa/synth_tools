@@ -1,3 +1,9 @@
+/* TODO:
+   RTT:
+   - convert
+*/
+
+
 /* Euro PIXI firmware.
 
    Currently this is just a playground to further develop the "state
@@ -37,6 +43,8 @@
 #include "registers_stm32f103.h"
 
 #include "mod_sequencer.c"
+
+#include "mod_telnet.c"
 
 #define NOINLINE __attribute__((__noinline__))
 
@@ -79,6 +87,7 @@ struct app {
     uint16_t pixi_devid;
     uint8_t started:1;
     struct sequencer sequencer;
+    struct telnet telnet;
 };
 struct app app_;
 
@@ -560,13 +569,27 @@ uint32_t midi_read(uint8_t *buf, uint32_t room) {
     return 0;
 }
 
+/* Important details:
+   1. Data coming from telnet state machine should always be sent verbatim.
+   2. Log data needs LF -> CR,LF conversion because it always uses only LF
+*/
+void telnet_write_output(struct telnet *t, const uint8_t *bytes, uintptr_t len) {
+    //info_write((uint8_t*)bytes, len); // DONT
+    rtt_target_up_write(&rtt.hdr, 0, bytes, len);
+}
+void rtt_put(uint8_t byte) {
+    rtt_target_up_write(&rtt.hdr, 0, &byte, 1);
+}
 void rtt_info_poll(struct app *app) {
     uint32_t n = info_bytes();
     if (n > 0) {
 	uint8_t buf[n];
         /* Payload. */
         uint32_t nb = info_read(buf, n);
-	rtt_target_up_write(&rtt.hdr, 0, buf, nb);
+        for(uint32_t i=0; i<nb; i++) {
+            if (buf[i] == '\n') { rtt_put('\r'); } // LF->CR,LF
+            rtt_put(buf[i]);
+        }
     }
 }
 void rtt_command_poll(struct app *app) {
@@ -575,8 +598,17 @@ void rtt_command_poll(struct app *app) {
     if (n > 0) {
         uint8_t buf[n];
         uint32_t nb = rtt_buf_read(down, buf, n);
+#if 0
+        /* Basic idea here is to do command parsing in mainloop and
+           then have it set lock-free config, or send a SWI command to
+           the kernel. */
         infof("received %d\n", nb);
         swi_from_mainloop(app, ISR_EVENT_CONSOLE + nb);
+#else
+        /* Use the telnet protocol.  This is easier to use on the RTT
+           TCP socket. */
+        telnet_write_input(&app->telnet, buf, nb);
+#endif
     }
 }
 
@@ -627,6 +659,11 @@ void pattern_start(struct sequencer *s) {
 void synth_tools_rs_init(void);
 uint32_t test_synth_tools_rs_add1(uint32_t);
 
+void interrupt(struct telnet *t) {
+    __asm__("BKPT");
+}
+
+
 void start(void) {
     hw_app_init();
     infof("pixi: start\n");
@@ -638,6 +675,8 @@ void start(void) {
     /* App struct init */
     CBUF_INIT(app_.out);
     pattern_init(&app_.sequencer);
+    telnet_init(&app_.telnet, telnet_write_output);
+    app_.telnet.interrupt = interrupt;
     app_.started = 1;
 
 #if 1

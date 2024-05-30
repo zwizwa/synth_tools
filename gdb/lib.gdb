@@ -5,13 +5,16 @@ set pagination off
 # "The program being debugged was signaled while in a function called from GDB."
 set unwindonsignal on
 
+define source-lib
+  source ../gdb/lib.gdb
+end
 
 # See OpenOCD manual
 # Note that RAM needs to be initialized for this to work.
 # E.g. auto-start via USB, or "p _config.start()" at (gdb) prompt
 define rtt_init
-  mon rtt server stop 9090
-  mon rtt stop
+  ## mon rtt server stop 9090
+  ## mon rtt stop
   # Note that we start looking in the application RAM segment.
   # I can't explain why, but I've found he magic marker in the
   # bootloader RAM segment.

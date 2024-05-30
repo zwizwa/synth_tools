@@ -105,6 +105,7 @@ HOST_ELF := \
 	linux/tether_bl_midi.dynamic.host.elf \
 	linux/a2jmidid.dynamic.host.elf \
 	linux/synth_tools.dynamic.host.so \
+	$(UC_TOOLS)/linux/test_telnet.dynamic.host.elf \
 
 
 HOST_CRUST_ELF := \
@@ -426,7 +427,7 @@ ALL_PRODUCTS := \
 	$(STM_ELF) \
 	$(HOST_ELF) \
 	$(HOST_CRUST_ELF) \
-	stm32f103/x8.f103.ld \
+	stm32f103/128.f103.ld \
 	stm32f103/lib.f103.a \
 	linux/lib.host.a \
 	$(BEAM) \
