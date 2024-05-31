@@ -44,6 +44,9 @@ end
 define bl
   file_check bl_midi_bp.core.f103.elf
 end
+define bl_usbpullup
+  file_check bl_midi_bp_usbpullup.core.f103.elf
+end
 define pixi
   file_check pixi.128.f103.elf
 end

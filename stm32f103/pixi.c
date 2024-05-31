@@ -44,6 +44,7 @@
 
 #include "mod_sequencer.c"
 
+#define TELNET_LOG(...)
 #include "mod_telnet.c"
 
 #define NOINLINE __attribute__((__noinline__))
@@ -60,7 +61,7 @@
    a buffer size large enough.  This is the first data definition to
    reduce the change that it will move in memory between
    recompilations, which makes it possible to keep RTT alive across
-   reboots. */
+   reboots (FIXME: Use a separate section). */
 #define RTT_BUF_SIZE 256
 
 uint8_t rtt_up[RTT_BUF_SIZE];
@@ -659,8 +660,22 @@ void pattern_start(struct sequencer *s) {
 void synth_tools_rs_init(void);
 uint32_t test_synth_tools_rs_add1(uint32_t);
 
-void interrupt(struct telnet *t) {
-    __asm__("BKPT");
+void telnet_event(struct telnet *t, uintptr_t event) {
+    switch(event) {
+    case TELNET_EVENT_INTERRUPT:
+        __asm__("BKPT");
+        break;
+    case TELNET_EVENT_ESCAPE:
+        LOG("<ESC:");
+        for(uint32_t i=0; i<t->nb_esc; i++) {
+            LOG("%c", t->esc[i]);
+        }
+        LOG(">");
+        break;
+    default:
+        LOG("<EVENT:%d>", event);
+        break;
+    }
 }
 
 
@@ -675,8 +690,7 @@ void start(void) {
     /* App struct init */
     CBUF_INIT(app_.out);
     pattern_init(&app_.sequencer);
-    telnet_init(&app_.telnet, telnet_write_output);
-    app_.telnet.interrupt = interrupt;
+    telnet_init(&app_.telnet, telnet_write_output, telnet_event);
     app_.started = 1;
 
 #if 1
