@@ -316,7 +316,6 @@ static int process (jack_nframes_t nframes, void *arg) {
     return 0;
 }
 
-
 int main(int argc, char **argv) {
 
     /* Jack client setup */
@@ -335,7 +334,6 @@ int main(int argc, char **argv) {
 
     synth_init(&synth);
 
-
     /* Input loop. */
     for(;;) {
         // FIXME: only used to signal exit
@@ -343,6 +341,7 @@ int main(int argc, char **argv) {
         assert_read(0, buf, sizeof(buf));
         exit(1);
     }
+
     return 0;
 }
 
