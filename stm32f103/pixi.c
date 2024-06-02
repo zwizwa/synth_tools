@@ -45,6 +45,8 @@
 #include "mod_sequencer.c"
 
 #define TELNET_LOG(...)
+//#define TELNET_LOG LOG
+#define TELNET_WORD_MODE
 #include "mod_telnet.c"
 
 #define NOINLINE __attribute__((__noinline__))
@@ -660,21 +662,45 @@ void pattern_start(struct sequencer *s) {
 void synth_tools_rs_init(void);
 uint32_t test_synth_tools_rs_add1(uint32_t);
 
+void f1(struct telnet *t) { LOG("f1\n"); }
+void f2(struct telnet *t) { LOG("f2\n"); }
+void f3(struct telnet *t) { LOG("f3\n"); }
+void f4(struct telnet *t) { LOG("f4\n"); }
+
+const struct telnet_escapes escapes[] = {
+    {"[11~",f1},
+    {"[12~",f2},
+    {"[13~",f3},
+    {"[14~",f4},
+    {},
+};
+
 void telnet_event(struct telnet *t, uintptr_t event) {
+    uint8_t byte = event;
+    event &= ~0xff;
     switch(event) {
     case TELNET_EVENT_INTERRUPT:
         __asm__("BKPT");
         break;
+    case TELNET_EVENT_PROMPT:
+        TELNET_WRITE_OUTPUT(t, ":");
+        break;
+    case TELNET_EVENT_FLUSH:
+        rtt_info_poll(&app_);
+        break;
     case TELNET_EVENT_ESCAPE:
-        LOG("<ESC:");
-        for(uint32_t i=0; i<t->nb_esc; i++) {
-            LOG("%c", t->esc[i]);
+        telnet_escape(t, &escapes[0]);
+        break;
+    case TELNET_EVENT_LINE:
+        /* The line buffer contains a single word.  Pass it to the
+           stack machine. */
+        // LOG("ok");
+        break;
+    case TELNET_EVENT_CONTROL:
+        switch(byte) {
+        //case 4: goto *((void*)0); CTRL-D
+        case 12: telnet_clear(t); break;
         }
-        LOG(">");
-        break;
-    default:
-        LOG("<EVENT:%d>", event);
-        break;
     }
 }
 
@@ -690,7 +716,6 @@ void start(void) {
     /* App struct init */
     CBUF_INIT(app_.out);
     pattern_init(&app_.sequencer);
-    telnet_init(&app_.telnet, telnet_write_output, telnet_event);
     app_.started = 1;
 
 #if 1
@@ -742,6 +767,13 @@ void start(void) {
     /* The PWM/ADC/DAC interrupt needs to pre-empt those. */
     uint32_t hi_pri = 0;
     NVIC_IPR(hw_tim_pwm.irq) = hi_pri;
+
+    /* Do this after startup logs. This prints prompt.  Note that when
+       connecting telnet to RTT, make sure to reboot the controller so
+       that the telnet client gets initialized to character mode.  The
+       telnet client can stay up across reboots as long as the RTT
+       layout doesn't change. */
+    telnet_init(&app_.telnet, telnet_write_output, telnet_event);
 
     /* Main loop background. */
     _service.add(pixi_poll);
