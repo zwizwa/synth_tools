@@ -5,6 +5,8 @@
 #include "erl_port.h"
 #include <stdarg.h>
 
+
+
 /* Erlang */
 #define TO_ERL_SIZE_LOG 16
 
@@ -44,7 +46,7 @@ static uint8_t *to_erl_hole_6(int nb) {
     to_erl_buf_bytes += msg_size;
     return &msg[6];
 }
-static void to_erl_pterm(const char *pterm) {
+void to_erl_pterm(const char *pterm) {
     int nb = strlen(pterm);
     uint8_t *hole = to_erl_hole_6(nb);
     if (hole) {
@@ -69,7 +71,7 @@ static void to_erl_ptermf(const char *fmt, ...) {
 }
 
 
-inline static void to_erl_midi(const uint8_t *buf, int nb, uint8_t port) {
+void to_erl_midi(const uint8_t *buf, int nb, uint8_t port) {
     uint8_t *hole = to_erl_hole_8(nb, port);
     if (hole) { memcpy(hole, buf, nb); }
 }

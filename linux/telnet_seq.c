@@ -99,8 +99,10 @@ static inline void process_midi(jack_nframes_t nframes) {
         jack_midi_event_get(&event, midi_in_buf, i);
         // const uint8_t *msg = event.buffer;
         // LOG_HEX("seq:", msg, event.size);
-        LOG(" seq: %d\r", count++);
-        // ...
+        if ((event.size == 1) && (event.buffer[0] == 0xf8)) {
+            LOG(" seq: %d\r", count++);
+            sequencer_tick(&app.sequencer);
+        }
     }
 }
 static int process (jack_nframes_t nframes, void *arg) {
@@ -118,16 +120,12 @@ void telnet_write_output(struct telnet *, const uint8_t *bytes, uintptr_t len) {
 }
 
 /* Map escape codes to command. */
-struct escapes {
-    const char *esc;
-    void (*op)(struct telnet *);
-};
 void f1(struct telnet *t) { LOG("f1\n"); }
 void f2(struct telnet *t) { LOG("f2\n"); }
 void f3(struct telnet *t) { LOG("f3\n"); }
 void f4(struct telnet *t) { LOG("f4\n"); }
 
-const struct escapes escapes[] = {
+const struct telnet_escapes escapes[] = {
     {"[11~",f1},
     {"[12~",f2},
     {"[13~",f3},
@@ -149,24 +147,9 @@ void telnet_event(struct telnet *t, uintptr_t event) {
         if (byte == 4) { /* CTRL-D */ LOG("exiting\n"); exit(0); }
         else if (byte == 12) { telnet_clear(t); }
         break;
-    case TELNET_EVENT_ESCAPE: {
-        char e0[t->nb_esc+1];
-        memcpy(e0, t->esc, t->nb_esc);
-        e0[t->nb_esc] = 0;
-        for (const struct escapes *e = &escapes[0]; e->esc; e++) {
-            if (!strcmp(e0, e->esc)) {
-                LOG("ESC %s %p\n", e0, e->op);
-                e->op(t);
-                return;
-            }
-        }
-        LOG("<ESC:");
-        for(uint32_t i=0; i<t->nb_esc; i++) {
-            LOG("%c", t->esc[i]);
-        }
-        LOG(">\n");
+    case TELNET_EVENT_ESCAPE:
+        telnet_escape(t, &escapes[0]);
         break;
-    }
     case TELNET_EVENT_LINE:
         LOG("<LINE:");
         for(uint32_t i=0; i<t->nb_char; i++) {

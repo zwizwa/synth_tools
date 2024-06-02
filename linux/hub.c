@@ -67,15 +67,25 @@ FOR_MIDI_OUT(DEF_JACK_PORT)
 
 static jack_client_t *client = NULL;
 
+// phantom types
+struct pd { };
+struct mmc { };
+
+// figure out how to map struct to parent
+
+
+
 struct app {
     struct sequencer sequencer;
     uint32_t running;
     jack_nframes_t nframes;
     uint8_t stamp;
 
-    /* stateful processors */
-    struct remote remote;
+    /* message handler state */
+    struct novation_remote remote;
     struct akai_fire fire;
+    struct pd pd;
+    struct mmc mmc;
 
     /* midi out ports */
     void *pd_out_buf;
@@ -87,6 +97,35 @@ struct app {
 
 } app_state = {};
 
+
+
+/* Cross-link */
+#define DEF_FIELD_TO_PARENT(function_name, parent_type, field_type, field_name) \
+    static inline parent_type *function_name(field_type *field_ptr) {   \
+        uint8_t *u8 = ((uint8_t *)field_ptr) - OFFSETOF(parent_type,field_name); \
+        return (parent_type *)u8;                                       \
+    }
+
+DEF_FIELD_TO_PARENT(sequencer_to_app,
+                    struct app,
+                    struct sequencer,
+                    sequencer);
+DEF_FIELD_TO_PARENT(fire_to_app,
+                    struct app,
+                    struct akai_fire,
+                    fire);
+DEF_FIELD_TO_PARENT(pd_to_app,
+                    struct app,
+                    struct pd,
+                    pd);
+DEF_FIELD_TO_PARENT(mmc_to_app,
+                    struct app,
+                    struct mmc,
+                    mmc);
+
+
+
+
 #define BPM_TO_PERIOD(sr,bpm) ((sr*60)/(bpm*24))
 
 static inline void *midi_out_buf_cleared(jack_port_t *port, jack_nframes_t nframes) {
@@ -94,6 +133,17 @@ static inline void *midi_out_buf_cleared(jack_port_t *port, jack_nframes_t nfram
     jack_midi_clear_buffer(buf);
     return buf;
 }
+
+
+
+static inline void process_z_debug(struct app *app) {
+    FOR_MIDI_EVENTS(iter, z_debug, app->nframes) {
+        const uint8_t *msg = iter.event.buffer;
+        int n = iter.event.size;
+        LOG_HEX("z_debug:", msg, n);
+    }
+}
+
 // Send midi data out over a jack port.
 static inline void send_midi(void *out_buf, jack_nframes_t time,
                              const void *data_buf, size_t nb_bytes) {
@@ -113,14 +163,6 @@ static inline void send_stop(void *out_buf)  { send_control_byte(out_buf, 0xFC);
 
 
 
-static inline void process_z_debug(struct app *app) {
-    FOR_MIDI_EVENTS(iter, z_debug, app->nframes) {
-        const uint8_t *msg = iter.event.buffer;
-        int n = iter.event.size;
-        LOG_HEX("z_debug:", msg, n);
-    }
-}
-
 void app_sequencer_tick(struct sequencer *seq, const union pattern_event *ev) {
     struct app *app = (void*)seq;
     const uint8_t *msg = ev->u8;
@@ -135,39 +177,59 @@ void app_sequencer_tick(struct sequencer *seq, const union pattern_event *ev) {
     }
 }
 
-static inline void app_play(struct app *app) {
-    LOG("app_play %d->1\n", app->running);
+
+
+
+void mmc_play(struct mmc *mmc) {
+    struct app *app = mmc_to_app(mmc);
+    LOG("mmc_play %d->1\n", app->running);
     app->running = 1;
+    send_start(app->transport_buf);
 }
-static inline void app_continue(struct app *app) {
+static inline void mmc_continue(struct mmc *mmc) {
+    struct app *app = mmc_to_app(mmc);
     LOG("app_continue\n");
     app->running = 1;
+    // FIXME: send_continue
 }
-static inline void app_pause(struct app *app) {
+static inline void mmc_pause(struct mmc *mmc) {
+    struct app *app = mmc_to_app(mmc);
     LOG("app_pause\n");
     app->running = 0;
+    // FIXME: send_pause
 }
-static inline void app_stop(struct app *app) {
+void mmc_stop(struct mmc *mmc) {
+    struct app *app = mmc_to_app(mmc);
     LOG("app_stop %d->0\n", app->running);
     app->running = 0;
+    send_stop(app->transport_buf);
     sequencer_restart(&app->sequencer);
+}
+void mmc_reset_time(struct mmc *mmc) {
+    struct app *app = mmc_to_app(mmc);
+    app->time = 0;
+}
+int mmc_running(struct mmc *mmc) {
+    struct app *app = mmc_to_app(mmc);
+    return app->running;
 }
 
 
 static inline void process_clock_in(struct app *app) {
+    struct mmc *mmc = &app->mmc;
     FOR_MIDI_EVENTS(iter, clock_in, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
         if (iter.event.size == 1) {
             switch(msg[0]) {
             case 0xFA: // start
                 LOG("clock_in start->app_play\n");
-                app_play(app);
+                mmc_play(mmc);
                 break;
             case 0xFB: // continue
-                app_continue(app);
+                mmc_continue(mmc);
                 break;
             case 0xFC: // stop
-                app_stop(app);
+                mmc_stop(mmc);
                 break;
             case 0xF8: { // clock
                 // LOG("tick, running=%d\n", app->running);
@@ -226,6 +288,7 @@ static inline void process_keystation_in1(struct app *app) {
     }
 }
 static inline void process_keystation_in2(struct app *app) {
+    struct mmc *mmc = &app->mmc;
     FOR_MIDI_EVENTS(iter, keystation_in2, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
@@ -240,14 +303,12 @@ static inline void process_keystation_in2(struct app *app) {
                     case 0x5e:
                         /* Play press. */
                         LOG("keystation: start\n");
-                        send_start(app->transport_buf);
-                        app_play(app);
+                        mmc_play(mmc);
                         break;
                     case 0x5d:
                         /* Stop press. */
                         LOG("keystation: stop\n");
-                        send_stop(app->transport_buf);
-                        app_stop(app);
+                        mmc_stop(mmc);
                         break;
                 }
                 break;
@@ -257,23 +318,27 @@ static inline void process_keystation_in2(struct app *app) {
     }
 }
 
-void pd_midi(struct app *app, const uint8_t *msg, size_t len) {
+void pd_midi(struct pd *pd, const uint8_t *msg, size_t len) {
+    struct app *app = pd_to_app(pd);
     /* Jack midi port connected to pd_io object, which takes jack midi
      * in and converts it to netsend into Pd. */
     send_midi(app->pd_out_buf, 0, msg, len);
     /* Send a copy to Erlang. */
     to_erl_midi(msg, len, 4 /* midi port */);
 }
-void pd_cc(struct app *app, uint8_t ctrl, uint8_t val) {
+void pd_cc(struct pd *pd, uint8_t ctrl, uint8_t val) {
+    struct app *app = pd_to_app(pd);
+
     // Map it back to a CC after stateful processing
     uint8_t msg[] = {
         0xB0 + (app->remote.sel & 0x0F),
         ctrl & 0x7F,
         val & 0x7F
     };
-    pd_midi(app, msg, sizeof(msg));
+    pd_midi(pd, msg, sizeof(msg));
 }
-void pd_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
+void pd_note(struct pd *pd, uint8_t on_off, uint8_t note, uint8_t vel) {
+    struct app *app = pd_to_app(pd);
     // Route it to the proper channel
     union pattern_event ev = {
         .u8 = {
@@ -285,7 +350,7 @@ void pd_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
     };
     struct sequencer *s = &app->sequencer;
     const uint8_t *msg = &ev.u8[1];
-    pd_midi(app, msg, 3);
+    pd_midi(pd, msg, 3);
 
     // Recording
     if (app->remote.record) {
@@ -312,161 +377,12 @@ void pd_note(struct app *app, uint8_t on_off, uint8_t note, uint8_t vel) {
 
 }
 
-/* TODO: Wrap this in an abstract MIDI api. */
-
-static inline void process_remote_in(struct app *app) {
-    struct remote *r = &app->remote;
-    struct sequencer *s = &app->sequencer;
-    FOR_MIDI_EVENTS(iter, remote_in, app->nframes) {
-        const uint8_t *msg = iter.event.buffer;
-        int n = iter.event.size;
-        /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        uint8_t tag = msg[0];
-        if (n == 3) {
-            switch(tag) {
-            case 0x80:
-            case 0x90: {
-                /* Route it to the current track. */
-                uint8_t note = msg[1];
-                uint8_t vel = msg[2];
-                pd_note(app, tag, note, vel);
-                break;
-            }
-            case 0xB0: {
-                /* Template 64 Zwizwa Exo has all knobs, sliders,
-                   encoders mapped to CC in a linear fashion. */
-                uint8_t cc = msg[1];
-                uint8_t val = msg[2];
-                if (cc <= 7) {
-                    uint8_t slider = cc;
-                    r->sel = slider;
-                    pd_cc(app, 0, val);
-                }
-                else if (cc <= 15) {
-                    uint8_t slider_but = cc - 8;
-                    r->sel = slider_but;
-                    pd_cc(app, 1, val);
-                }
-                else if (cc <= 23) {
-                    uint8_t knob = cc - 16;
-                    r->sel = knob;
-                    pd_cc(app, 2, val);
-                }
-                else if (cc <= 31) {
-                    uint8_t knob_but = cc - 24;
-                    r->sel = knob_but;
-                    pd_cc(app, 3, val);
-                }
-                else if (cc <= 39) {
-                    uint8_t rotary = cc - 32;
-                    // local to r->sel
-                    // FIXME: do rotary processing
-                    pd_cc(app, 4 + rotary, val);
-                }
-                else if (cc <= 47) {
-                    uint8_t rotary_but = cc - 40;
-                    // local to r->sel
-                    pd_cc(app, 4 + 8 + rotary_but, val);
-                }
-                else if (cc == 0x32) {
-                    // stop
-                    if (val == 0) {
-                        if (app->remote.record) {
-                            /* This is a special case for the
-                               remote25, because pressing stop also
-                               turns off recording. */
-                            if (app->running) {
-                                LOG("live recorder stop (record->off)\n");
-                                sequencer_cursor_close(s);
-                            }
-                            else {
-                                to_erl_pterm("{record,stop}");
-                            }
-                            app->remote.record = 0;
-                            app_stop(app);
-                        }
-                        else {
-                            send_stop(app->transport_buf);
-                            app_stop(app);
-                        }
-                    }
-                }
-                else if (cc == 0x33) {
-                    if (val == 0) {
-                        // play
-                        if (app->remote.record) {
-                            to_erl_pterm("{record,play}}");
-                        }
-                        else {
-                            send_start(app->transport_buf);
-                            LOG("remote play->app_play\n");
-                            app_play(app);
-                        }
-                    }
-                }
-                else if (cc == 0x34) {
-                    // rec
-                    /* This is tricky.  What we really want to do is
-                       to track the state of the record LED, which
-                       toggles when the button is pressed, and turns
-                       off when stop is pressed.  Assume that the
-                       initial state is off.  It's not sending the LED
-                       state. */
-                    to_erl_midi(msg, n, 3 /*midi port*/);
-                    if (val == 0) {
-                        app->remote.record = !app->remote.record;
-                        if (app->running) {
-                            /* If the player is on, we use the online
-                               recorder. */
-                            if (app->remote.record) {
-                                dtime_t pat_len = 48; // FIXME
-                                LOG("live recorder start, pat_len = %d\n", pat_len);
-                                sequencer_cursor_open(s, pat_len);
-                            }
-                            else {
-                                LOG("live recorder stop (record->off)\n");
-                                sequencer_cursor_close(s);
-                            }
-                        }
-                        else {
-                            /* When recording is on but the playback
-                               isn't, we send the events upstream for
-                               processing and tempo + pattern
-                               config. */
-                            if (app->remote.record) {
-                                app->time = 0;
-                                to_erl_pterm("{record,start}");
-                            }
-                            else {
-                                to_erl_pterm("{record,stop}");
-                            }
-                        }
-                    }
-                    else {
-                        /* Button is configured as momentary to allow
-                           for later use of the release event. */
-                    }
-                }
-                else {
-                    to_erl_midi(msg, n, 3 /*midi port*/);
-                }
-                break;
-            }
-            default: {
-                to_erl_midi(msg, n, 3 /*midi port*/);
-                break;
-            }
-            }
-        }
-        else {
-            to_erl_midi(msg, n, 3 /*midi port*/);
-        }
-    }
-}
-
 static inline void process_uma_in(struct app *app) {
     // Just reuse the remote25 struct. Never used together.
-    struct remote *r = &app->remote;
+    struct novation_remote *r = &app->remote;
+    struct pd *pd = &app->pd;
+    struct mmc *mmc = &app->mmc;
+
     FOR_MIDI_EVENTS(iter, uma_in, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
@@ -481,7 +397,7 @@ static inline void process_uma_in(struct app *app) {
                 uint8_t note = msg[1];
                 uint8_t vel = msg[2];
                 LOG("note %d %d\n", note, vel);
-                pd_note(app, tag, note, vel);
+                pd_note(pd, tag, note, vel);
                 break;
             }
             case 0xB0: {
@@ -490,13 +406,13 @@ static inline void process_uma_in(struct app *app) {
                 uint8_t cc = msg[1];
                 uint8_t val = msg[2];
                 if (cc == 25) {
-                    app_stop(app);
+                    mmc_stop(mmc);
                 }
                 else if (cc == 26) {
-                    app_pause(app);
+                    mmc_pause(mmc);
                 }
                 else if (cc == 27) {
-                    app_play(app);
+                    mmc_play(mmc);
                 }
                 else if (cc == 28) {
                     if (val == 0) {
@@ -546,6 +462,25 @@ static inline void process_erl_out(struct app *app) {
 
     to_erl_flush();
 
+}
+
+
+/* The "linker" for the Novation Remote driver.
+   The 'app' struct is not known to the driver.
+   This function acts as module instantiation. */
+
+static inline void process_remote_in(struct app *app) {
+    process_novation_remote(
+        /* State */
+        &app->remote,
+        /* Jack MIDI port with messages coming from Novation Remote */
+        remote_in, app->nframes,
+        /* Stateful local objects */
+        &app->mmc,
+        &app->sequencer,
+        /* Remote uni-directional message targets. */
+        &app->pd
+        );
 }
 
 static void app_process(struct app *app) {
@@ -791,21 +726,6 @@ int handle_tag_u32(struct tag_u32 *req) {
     return 0;
 }
 
-/* Cross-link */
-#define DEF_FIELD_TO_PARENT(function_name, parent_type, field_type, field_name) \
-    static inline parent_type *function_name(field_type *field_ptr) {   \
-        uint8_t *u8 = ((uint8_t *)field_ptr) - OFFSETOF(parent_type,field_name); \
-        return (parent_type *)u8;                                       \
-    }
-
-DEF_FIELD_TO_PARENT(sequencer_to_app,
-                    struct app,
-                    struct sequencer,
-                    sequencer);
-DEF_FIELD_TO_PARENT(fire_to_app,
-                    struct app,
-                    struct akai_fire,
-                    fire);
 
 /* Create/delete pattern turns on the LED on/off */
 void app_pattern_state(struct sequencer *s, pattern_t pat, int state) {
