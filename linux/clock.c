@@ -38,22 +38,7 @@ static jack_port_t *audio_out = NULL;
 static jack_port_t *midi_out = NULL;
 static jack_port_t *midi_in = NULL;
 static jack_client_t *client = NULL;
-int nb_midi_drop = 0;
 jack_nframes_t clock_hperiod = 0;
-
-// Send midi data out over a jack port.
-static inline void send_midi(void *out_buf, jack_nframes_t time,
-                             const void *data_buf, size_t nb_bytes) {
-    //LOG("%d %d %d\n", frames, time, (int)nb_bytes);
-    void *buf = jack_midi_event_reserve(out_buf, time, nb_bytes);
-    if (buf) {
-        memcpy(buf, data_buf, nb_bytes);
-    }
-    else {
-        // Nothing to do but drop.
-        nb_midi_drop++;
-    }
-}
 
 #define BPM_TO_HPERIOD(sr,bpm) ((sr*5)/(bpm*4))
 

@@ -14,6 +14,27 @@
 
 */
 
+/* Some general notes about structure
+
+   There are two kinds of "state" here:
+
+   - External state that is manipulated by sending messages,
+     i.e. synths and drum machines audio algorithm state, controller
+     UI state.
+
+   - Internal state that needs to be _queried_ to perform certain
+     actions.  E.g. sequencer, mmc state.
+
+   It feels cleaner if the state is read inside the private methods
+   only, but this is not always possible, and is an indication that
+   structure is not ideal, i.e. tight interaction is needed between
+   objects.
+
+
+
+*/
+
+
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 1
 
@@ -25,6 +46,7 @@
 #include "mod_sequencer.c"
 #include "mod_akai_fire.c"
 #include "mod_novation_remote.c"
+#include "mod_arturia_minilab.c"
 
 #include "mod_to_erl.c"
 
@@ -41,11 +63,12 @@ void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
 /* JACK */
 #define FOR_MIDI_IN(m) \
     m(clock_in)        \
-    m(fire_in)         \
+    m(akai_fire_in)    \
     m(easycontrol)     \
+    m(arturia_minilab_in)      \
     m(keystation_in1)  \
     m(keystation_in2)  \
-    m(remote_in)       \
+    m(novation_remote_in) \
     m(uma_in)          \
     m(z_debug)         \
 
@@ -57,7 +80,7 @@ void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
     m(volca_keys)   \
     m(volca_bass)   \
     m(volca_beats)  \
-    m(synth)        \
+    m(synth_out)    \
     m(pd_out)       \
     m(transport)    \
 
@@ -67,8 +90,9 @@ FOR_MIDI_OUT(DEF_JACK_PORT)
 
 static jack_client_t *client = NULL;
 
-// phantom types
+struct route { };
 struct pd { };
+struct synth { };
 struct mmc {
     uint32_t running;
     uint32_t time;     /* rolling time */
@@ -77,22 +101,25 @@ struct mmc {
 // figure out how to map struct to parent
 
 
-
 struct app {
     struct sequencer sequencer;
     jack_nframes_t nframes;
     uint8_t stamp;
 
     /* message handler state */
-    struct novation_remote remote;
-    struct akai_fire fire;
+    struct route route;
+    struct novation_remote novation_remote;
+    struct arturia_minilab arturia_minilab;
+    struct akai_fire akai_fire;
     struct pd pd;
     struct mmc mmc;
+    struct synth synth;
 
     /* midi out ports */
     void *pd_out_buf;
     void *transport_buf;
     void *fire_out_buf;
+    void *synth_out_buf;
 
 
 } app_state = {};
@@ -102,22 +129,18 @@ struct app {
 /* Cross-link */
 #include "uct_offsetof.h"
 
-DEF_FIELD_TO_PARENT(sequencer_to_app,
-                    struct app,
-                    struct sequencer,
-                    sequencer);
-DEF_FIELD_TO_PARENT(fire_to_app,
-                    struct app,
-                    struct akai_fire,
-                    fire);
-DEF_FIELD_TO_PARENT(pd_to_app,
-                    struct app,
-                    struct pd,
-                    pd);
-DEF_FIELD_TO_PARENT(mmc_to_app,
-                    struct app,
-                    struct mmc,
-                    mmc);
+#define DEF_TO_APP(substruct)                   \
+    DEF_FIELD_TO_PARENT(                        \
+        substruct##_to_app,                     \
+        struct app,                             \
+        struct substruct,                       \
+        substruct)                              \
+
+DEF_TO_APP(sequencer)
+DEF_TO_APP(akai_fire)
+DEF_TO_APP(mmc)
+DEF_TO_APP(pd)
+DEF_TO_APP(route)
 
 
 
@@ -140,23 +163,6 @@ static inline void process_z_debug(struct app *app) {
     }
 }
 
-// Send midi data out over a jack port.
-static inline void send_midi(void *out_buf, jack_nframes_t time,
-                             const void *data_buf, size_t nb_bytes) {
-    //LOG("%d %d %d\n", frames, time, (int)nb_bytes);
-    void *buf = jack_midi_event_reserve(out_buf, time, nb_bytes);
-    if (buf) memcpy(buf, data_buf, nb_bytes);
-}
-static inline void send_cc(void *out_buf, int chan, int cc, int val) {
-    const uint8_t midi[] = {0xB0 + (chan & 0x0F), cc & 0x7F, val & 0x7F};
-    send_midi(out_buf, 0, midi, sizeof(midi));
-}
-static inline void send_control_byte(void *out_buf, uint8_t byte) {
-    send_midi(out_buf, 0, &byte, 1);
-}
-static inline void send_start(void *out_buf) { send_control_byte(out_buf, 0xFA); }
-static inline void send_continue(void *out_buf) { send_control_byte(out_buf, 0xFB); }
-static inline void send_stop(void *out_buf)  { send_control_byte(out_buf, 0xFC); }
 
 
 
@@ -307,43 +313,72 @@ static inline void process_keystation_in2(struct app *app) {
     }
 }
 
-void pd_midi(struct pd *pd, const uint8_t *msg, size_t len) {
-    struct app *app = pd_to_app(pd);
-    /* Jack midi port connected to pd_io object, which takes jack midi
-     * in and converts it to netsend into Pd. */
-    send_midi(app->pd_out_buf, 0, msg, len);
-    /* Send a copy to Erlang. */
-    to_erl_midi(msg, len, 4 /* midi port */);
-}
-void pd_cc(struct pd *pd, uint8_t ctrl, uint8_t val) {
-    struct app *app = pd_to_app(pd);
+/* Data flow:  FIXME TODO
 
-    // Map it back to a CC after stateful processing
-    uint8_t msg[] = {
-        0xB0 + (app->remote.sel & 0x0F),
-        ctrl & 0x7F,
-        val & 0x7F
-    };
-    pd_midi(pd, msg, sizeof(msg));
+   - The midi drivers think in terms of midi messages and 'selectors',
+     which are like channels but have a larger span.
+
+   - We convert that data to pattern_event
+
+   - It is the pattern_event data that is routed
+
+*/
+
+
+/* Map selector to port/channel. */
+void route_pattern_event(struct route *route, union pattern_event *ev) {
+
+    const uint8_t *msg = &ev->u8[1];
+    int len = 3; // FIXME: Depends on the contents of the event.  Currently only note, cc.
+
+    struct app *app = route_to_app(route);
+    int port = ev->u8[0] & 0x0F; // FIXME: Assumes midi
+    switch(port) {
+    /* Jack midi port connected to pd_io object, which takes jack
+       midi in and converts it to netsend into Pd. */
+    case 0: send_midi(app->pd_out_buf, 0, msg, len); break;
+    /* synth.c */
+    case 1: send_midi(app->synth_out_buf, 0, msg, len); break;
+    }
+
+    /* Send a copy to Erlang. */
+    to_erl_midi(msg, len, port);
 }
-void pd_note(struct pd *pd, uint8_t on_off, uint8_t note, uint8_t vel) {
-    struct app *app = pd_to_app(pd);
-    // Route it to the proper channel
+
+
+/* These are used by device drivers to send midi to a specific device.
+   The 'sel' here is not a midi port or channel, but a unique id that
+   is later mapped to port/channel. */
+
+void route_cc(struct route *route, uintptr_t sel, uint8_t ctrl, uint8_t val) {
     union pattern_event ev = {
         .u8 = {
-            PAT_MIDI_TAG(0 /* port: FIXME */),
-            (on_off & 0xF0) + (app->remote.sel & 0xF),
+            PAT_MIDI_TAG(sel >> 4),
+            0xB0 + (sel & 0xF),
+            ctrl & 0x7f,
+            val & 0x7f
+        }
+    };
+    route_pattern_event(route, &ev);
+    // FIXME: Record CC as well
+}
+void route_note(struct route *route, uintptr_t sel, uint8_t on_off, uint8_t note, uint8_t vel) {
+    union pattern_event ev = {
+        .u8 = {
+            PAT_MIDI_TAG(sel >> 4),
+            (on_off & 0xF0) + (sel & 0xF),
             note & 0x7f,
             vel & 0x7f
         }
     };
+    route_pattern_event(route, &ev);
+
+    struct app *app = route_to_app(route);
     struct mmc *mmc = &app->mmc;
     struct sequencer *s = &app->sequencer;
-    const uint8_t *msg = &ev.u8[1];
-    pd_midi(pd, msg, 3);
 
     // Recording
-    if (app->remote.record) {
+    if (app->novation_remote.record) {  // FIXME: move to mmc
         /* The recorder is implemented in Erlang.
 
            Since traffic is one-way only, let's use a protocol that is
@@ -360,8 +395,10 @@ void pd_note(struct pd *pd, uint8_t on_off, uint8_t note, uint8_t vel) {
             to_erl_ptermf(
                 "{record,{%d,<<%d,%d,%d,%d>>}}",
                 mmc->time,
-                PAT_MIDI_TAG(0), // FIXME: ports
-                msg[0], msg[1], msg[2]);
+                ev.u8[0],
+                ev.u8[1],
+                ev.u8[2],
+                ev.u8[3]);
         }
     }
 
@@ -369,8 +406,8 @@ void pd_note(struct pd *pd, uint8_t on_off, uint8_t note, uint8_t vel) {
 
 static inline void process_uma_in(struct app *app) {
     // Just reuse the remote25 struct. Never used together.
-    struct novation_remote *r = &app->remote;
-    struct pd *pd = &app->pd;
+    struct novation_remote *r = &app->novation_remote;
+    struct route *route = &app->route;
     struct mmc *mmc = &app->mmc;
 
     FOR_MIDI_EVENTS(iter, uma_in, app->nframes) {
@@ -387,7 +424,7 @@ static inline void process_uma_in(struct app *app) {
                 uint8_t note = msg[1];
                 uint8_t vel = msg[2];
                 LOG("note %d %d\n", note, vel);
-                pd_note(pd, tag, note, vel);
+                route_note(route, r->sel, tag, note, vel);
                 break;
             }
             case 0xB0: {
@@ -458,22 +495,34 @@ static inline void process_erl_out(struct app *app) {
 }
 
 
-/* The "linker" for the Novation Remote driver.
-   The 'app' struct is not known to the driver.
-   This function acts as module instantiation. */
 
-static inline void process_remote_in(struct app *app) {
-    struct midi_cursor cur = midi_cursor_init(remote_in, app->nframes);
+static inline void process_novation_remote_in(struct app *app) {
+    struct midi_cursor cur = midi_cursor_init(novation_remote_in, app->nframes);
     process_novation_remote(
         /* State */
-        &app->remote,
+        &app->novation_remote,
         /* Cursor into MIDI in buffer, MIDI from Novation Remote */
         &cur,
         /* Stateful local objects */
         &app->mmc,
         &app->sequencer,
         /* Remote uni-directional message targets. */
-        &app->pd
+        &app->route
+        );
+}
+
+static inline void process_arturia_minilab_in(struct app *app) {
+    struct midi_cursor cur = midi_cursor_init(arturia_minilab_in, app->nframes);
+    process_arturia_minilab(
+        /* State */
+        &app->arturia_minilab,
+        /* Cursor into MIDI in buffer, MIDI from Novation Remote */
+        &cur,
+        /* Stateful local objects */
+        &app->mmc,
+        &app->sequencer,
+        /* Remote uni-directional message targets. */
+        &app->route
         );
 }
 
@@ -488,13 +537,14 @@ static void app_process(struct app *app) {
     process_easycontrol_in(app);
     process_keystation_in1(app);
     process_keystation_in2(app);
-    process_remote_in(app);
+    process_novation_remote_in(app);
+    process_arturia_minilab_in(app);
     process_uma_in(app);
     process_erl_out(app);
 
     /* FIXME: Normalize this. */
-    void *fire_in_buf = jack_port_get_buffer(fire_in, app->nframes);
-    akai_fire_process(&app->fire, app->fire_out_buf, fire_in_buf);
+    void *akai_fire_in_buf = jack_port_get_buffer(akai_fire_in, app->nframes);
+    akai_fire_process(&app->akai_fire, app->fire_out_buf, akai_fire_in_buf);
 
     process_z_debug(app);
 
@@ -506,6 +556,7 @@ static int process (jack_nframes_t nframes, void *arg) {
     app->pd_out_buf    = midi_out_buf_cleared(pd_out, nframes);
     app->transport_buf = midi_out_buf_cleared(transport, nframes);
     app->fire_out_buf  = midi_out_buf_cleared(fire_out, nframes);
+    app->synth_out_buf = midi_out_buf_cleared(synth_out, nframes);
     app_process(app);
     app->mmc.time += nframes;
     return 0;
@@ -680,13 +731,13 @@ int handle_load_pattern(struct tag_u32 *req) {
 
 int handle_fire_update(struct tag_u32 *req) {
     struct app *app = req->context;
-    app->fire.need_update = 1;
+    app->akai_fire.need_update = 1;
     return reply_ok(req);
 }
 int handle_fire_button(struct tag_u32 *req) {
     TAG_U32_UNPACK(req, 0, m, row, col) {
         struct app *app = req->context;
-        akai_fire_pad_event(&app->fire, m->row, m->col);
+        akai_fire_pad_event(&app->akai_fire, m->row, m->col);
         return reply_ok(req);
     }
     return -1;
@@ -727,8 +778,8 @@ void app_pattern_state(struct sequencer *s, pattern_t pat, int state) {
     struct app *app = sequencer_to_app(s);
     int row = pat / 16;
     int col = pat % 16;
-    app->fire.pads[row][col] = state;
-    app->fire.need_update = 1;
+    app->akai_fire.pads[row][col] = state;
+    app->akai_fire.need_update = 1;
 }
 void app_pattern_alloc_notify(struct sequencer *s, pattern_t pat) {
     app_pattern_state(s, pat, 1);
@@ -742,7 +793,7 @@ void app_pattern_free_notify(struct sequencer *s, pattern_t pat) {
 void app_fire_button_notify(struct akai_fire *fire, int row, int col) {
     pattern_t pat = row * 16 + col;
     LOG("pattern %d mute toggle\n", pat);
-    struct app *app = fire_to_app(fire);
+    struct app *app = akai_fire_to_app(fire);
     struct pattern_phase *pp = sequencer_pattern(&app->sequencer, pat);
     if (pattern_phase_used == pattern_phase_lifecycle(pp)) {
         pp->mute ^= 1;
@@ -752,19 +803,75 @@ void app_fire_button_notify(struct akai_fire *fire, int row, int col) {
 
 void app_init(struct app *app) {
     /* Initialize the components. */
-    akai_fire_init(&app->fire);
+    akai_fire_init(&app->akai_fire);
     sequencer_init(&app->sequencer, app_sequencer_tick);
     sequencer_restart(&app->sequencer);
 
     /* Cross-link */
     app->sequencer.pattern_alloc_notify = app_pattern_alloc_notify;
     app->sequencer.pattern_free_notify = app_pattern_free_notify;
-    app->fire.button_notify = app_fire_button_notify;
+    app->akai_fire.button_notify = app_fire_button_notify;
 
 }
 
 void synth_tools_rs_init(void);
 void synth_tools_zig_init(void);
+
+#include "mod_telnet.c"
+#include "tcp_tools.h"
+int telnet_fd = -1;
+void telnet_write_output(struct telnet *, const uint8_t *bytes, uintptr_t len) {
+    assert_write(telnet_fd, bytes, len);
+}
+void telnet_event(struct telnet *t, uintptr_t event) {
+    uint8_t byte = event & 0xFF;
+    event &= ~0xff;
+    switch(event) {
+    case TELNET_EVENT_INTERRUPT:
+        LOG("<INTERRUPT>\n");
+        break;
+    case TELNET_EVENT_CONTROL:
+        LOG("<CONTROL:%d>\n", byte);
+        if (byte == 4) { /* CTRL-D */ exit(0); }
+        else if (byte == 12) { telnet_clear(t); }
+        break;
+    case TELNET_EVENT_ESCAPE:
+        LOG("<ESC:");
+        for(uint32_t i=0; i<t->nb_esc; i++) {
+            LOG("%c", t->esc[i]);
+        }
+        LOG(">\n");
+        break;
+    case TELNET_EVENT_LINE:
+        LOG("<LINE:");
+        for(uint32_t i=0; i<t->nb_char; i++) {
+            LOG("%c", t->line[i]);
+        }
+        LOG(">\n");
+        break;
+    case TELNET_EVENT_FLUSH:
+        break;
+    case TELNET_EVENT_PROMPT:
+        t->write_output(t, (const uint8_t*)"> ", 2);
+        break;
+    }
+}
+void *telnet_main(void *arg) {
+    int listen_fd = assert_tcp_listen(12345);
+    for (;;) {
+        telnet_fd = assert_accept(listen_fd);
+        struct telnet t;
+        telnet_init(&t, telnet_write_output, telnet_event);
+        for(;;) {
+            uint8_t buf[2048];
+            ssize_t rv = read(telnet_fd, buf, sizeof(buf));
+            if (rv == 0) break;
+            ASSERT(rv >= 0);
+            telnet_write_input(&t, buf, rv);
+        }
+    }
+    return NULL;
+}
 
 int main(int argc, char **argv) {
 
@@ -791,7 +898,9 @@ int main(int argc, char **argv) {
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
     ASSERT(!jack_activate(client));
 
-
+    /* Run a telnet server in the background. */
+    pthread_t telnet_thread;
+    pthread_create(&telnet_thread, NULL, telnet_main, NULL);
 
     /* Use the generic {packet,4} + tag protocol on stdin, since hub.c
        might be hosting a lot of in-image functionality later. */

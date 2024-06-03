@@ -298,16 +298,14 @@ static inline void process_audio(jack_nframes_t nframes) {
     float sig = 0;
     (void)sig;
 
-    jack_default_audio_sample_t *dst =
-        jack_port_get_buffer(audio_out, nframes);
-#if 1
-    synth_run(&synth, dst, nframes);
-#else
-    for (int t=0; t<nframes; t++) {
-        dst[t] = sig;
-        sig += 0.01;  // quick and dirty buzz
+    jack_nframes_t block_size = 64;  // FIXME: Hardcoded in the rkt file
+    jack_default_audio_sample_t *dst = jack_port_get_buffer(audio_out, nframes);
+
+    while (nframes > 0) { // FIXME: assuming it is a multiple of block_size
+        synth_run(&synth, dst, nframes);
+        nframes -= block_size;
+        dst += block_size;
     }
-#endif
 }
 static int process (jack_nframes_t nframes, void *arg) {
     /* Order is important. */

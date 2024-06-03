@@ -34,22 +34,7 @@ struct app {
 };
 struct app app;
 
-// Send midi data out over a jack port.
-static inline void send_midi(void *out_buf, jack_nframes_t time,
-                             const void *data_buf, size_t nb_bytes) {
-    //LOG("%d %d %d\n", frames, time, (int)nb_bytes);
-    void *buf = jack_midi_event_reserve(out_buf, time, nb_bytes);
-    if (buf) memcpy(buf, data_buf, nb_bytes);
-}
-static inline void send_cc(void *out_buf, int chan, int cc, int val) {
-    const uint8_t midi[] = {0xB0 + (chan & 0x0F), cc & 0x7F, val & 0x7F};
-    send_midi(out_buf, 0, midi, sizeof(midi));
-}
-static inline void send_control_byte(void *out_buf, uint8_t byte) {
-    send_midi(out_buf, 0, &byte, 1);
-}
-static inline void send_start(void *out_buf) { send_control_byte(out_buf, 0xFA); }
-static inline void send_stop(void *out_buf)  { send_control_byte(out_buf, 0xFC); }
+
 void app_sequencer_tick(struct sequencer *seq, const union pattern_event *ev) {
     struct app *app = (void*)seq;
     const uint8_t *msg = ev->u8;

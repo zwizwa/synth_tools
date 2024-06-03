@@ -14,6 +14,15 @@
 %%    whatever the application needs.
 
 
+%% DEV MOD:
+%%
+%% It's a pain to have to nix.build.sh on every change.  It is
+%% possible to set the project directory so it can fish the binary
+%% from the current dev build, e.g.
+%% s:synth() ! {set_dir, "/i/exo/synth_tools/linux"}.
+%% jack_client:restart(s:synth()).  
+
+
 -module(jack_client).
 -export([%% run_udp/1, handle_udp/2,
          proc/1, handle_proc/2,

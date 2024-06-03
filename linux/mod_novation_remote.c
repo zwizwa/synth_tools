@@ -3,6 +3,12 @@
 
 /* Novation Remote 25 filter for recorder. */
 
+/* The physical device is configured to address 8 different midi
+   channels.  The mapping is performed by the code that glues this
+   driver to the sequencer (which uses absolute addresses). */
+
+
+
 /* Filter state. */
 struct novation_remote {
     uint8_t sel;
@@ -43,9 +49,9 @@ int mmc_running(struct mmc *mmc);
 /* All the other entitites are more abstract in that all
    methods are unidirectional. */
 
-struct pd;
-void pd_cc(struct pd *pd, uint8_t ctrl, uint8_t val);
-void pd_note(struct pd *pd, uint8_t on_off, uint8_t note, uint8_t vel);
+struct route;
+void route_cc  (struct route *, uintptr_t sel, uint8_t ctrl,   uint8_t val);
+void route_note(struct route *, uintptr_t sel, uint8_t on_off, uint8_t note, uint8_t vel);
 
 void to_erl_midi(const uint8_t *buf, int nb, uint8_t port);
 void to_erl_pterm(const char *pterm);
@@ -61,7 +67,7 @@ static void process_novation_remote(
     struct mmc *mmc,
     struct sequencer *seq,
     /* Remote uni-directional message targets. */
-    struct pd *pd
+    struct route *route
 
 ) {
 
@@ -77,7 +83,7 @@ static void process_novation_remote(
                 /* Route it to the current track. */
                 uint8_t note = msg[1];
                 uint8_t vel = msg[2];
-                pd_note(pd, tag, note, vel);
+                route_note(route, s->sel, tag, note, vel);
                 break;
             }
             case 0xB0: {
@@ -88,33 +94,33 @@ static void process_novation_remote(
                 if (cc <= 7) {
                     uint8_t slider = cc;
                     s->sel = slider;
-                    pd_cc(pd, 0, val);
+                    route_cc(route, s->sel, 0, val);
                 }
                 else if (cc <= 15) {
                     uint8_t slider_but = cc - 8;
                     s->sel = slider_but;
-                    pd_cc(pd, 1, val);
+                    route_cc(route, s->sel, 1, val);
                 }
                 else if (cc <= 23) {
                     uint8_t knob = cc - 16;
                     s->sel = knob;
-                    pd_cc(pd, 2, val);
+                    route_cc(route, s->sel, 2, val);
                 }
                 else if (cc <= 31) {
                     uint8_t knob_but = cc - 24;
                     s->sel = knob_but;
-                    pd_cc(pd, 3, val);
+                    route_cc(route, s->sel, 3, val);
                 }
                 else if (cc <= 39) {
                     uint8_t rotary = cc - 32;
                     // local to s->sel
                     // FIXME: do rotary processing
-                    pd_cc(pd, 4 + rotary, val);
+                    route_cc(route, s->sel, 4 + rotary, val);
                 }
                 else if (cc <= 47) {
                     uint8_t rotary_but = cc - 40;
                     // local to s->sel
-                    pd_cc(pd, 4 + 8 + rotary_but, val);
+                    route_cc(route, s->sel, 4 + 8 + rotary_but, val);
                 }
                 else if (cc == 0x32) {
                     // stop
