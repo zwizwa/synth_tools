@@ -69,7 +69,10 @@ static jack_client_t *client = NULL;
 
 // phantom types
 struct pd { };
-struct mmc { };
+struct mmc {
+    uint32_t running;
+    uint32_t time;     /* rolling time */
+};
 
 // figure out how to map struct to parent
 
@@ -77,7 +80,6 @@ struct mmc { };
 
 struct app {
     struct sequencer sequencer;
-    uint32_t running;
     jack_nframes_t nframes;
     uint8_t stamp;
 
@@ -92,19 +94,13 @@ struct app {
     void *transport_buf;
     void *fire_out_buf;
 
-    /* rolling time */
-    uint32_t time;
 
 } app_state = {};
 
 
 
 /* Cross-link */
-#define DEF_FIELD_TO_PARENT(function_name, parent_type, field_type, field_name) \
-    static inline parent_type *function_name(field_type *field_ptr) {   \
-        uint8_t *u8 = ((uint8_t *)field_ptr) - OFFSETOF(parent_type,field_name); \
-        return (parent_type *)u8;                                       \
-    }
+#include "uct_offsetof.h"
 
 DEF_FIELD_TO_PARENT(sequencer_to_app,
                     struct app,
@@ -159,6 +155,7 @@ static inline void send_control_byte(void *out_buf, uint8_t byte) {
     send_midi(out_buf, 0, &byte, 1);
 }
 static inline void send_start(void *out_buf) { send_control_byte(out_buf, 0xFA); }
+static inline void send_continue(void *out_buf) { send_control_byte(out_buf, 0xFB); }
 static inline void send_stop(void *out_buf)  { send_control_byte(out_buf, 0xFC); }
 
 
@@ -181,37 +178,29 @@ void app_sequencer_tick(struct sequencer *seq, const union pattern_event *ev) {
 
 
 void mmc_play(struct mmc *mmc) {
+    LOG("mmc_play %d->1\n", mmc->running);
+    mmc->running = 1;
     struct app *app = mmc_to_app(mmc);
-    LOG("mmc_play %d->1\n", app->running);
-    app->running = 1;
     send_start(app->transport_buf);
 }
-static inline void mmc_continue(struct mmc *mmc) {
+void mmc_continue(struct mmc *mmc) {
+    LOG("mmc_continue\n");
+    mmc->running = 1;
     struct app *app = mmc_to_app(mmc);
-    LOG("app_continue\n");
-    app->running = 1;
-    // FIXME: send_continue
-}
-static inline void mmc_pause(struct mmc *mmc) {
-    struct app *app = mmc_to_app(mmc);
-    LOG("app_pause\n");
-    app->running = 0;
-    // FIXME: send_pause
+    send_continue(app->transport_buf);
 }
 void mmc_stop(struct mmc *mmc) {
+    LOG("app_stop %d->0\n", mmc->running);
+    mmc->running = 0;
     struct app *app = mmc_to_app(mmc);
-    LOG("app_stop %d->0\n", app->running);
-    app->running = 0;
     send_stop(app->transport_buf);
     sequencer_restart(&app->sequencer);
 }
 void mmc_reset_time(struct mmc *mmc) {
-    struct app *app = mmc_to_app(mmc);
-    app->time = 0;
+    mmc->time = 0;
 }
 int mmc_running(struct mmc *mmc) {
-    struct app *app = mmc_to_app(mmc);
-    return app->running;
+    return mmc->running;
 }
 
 
@@ -233,7 +222,7 @@ static inline void process_clock_in(struct app *app) {
                 break;
             case 0xF8: { // clock
                 // LOG("tick, running=%d\n", app->running);
-                if (app->running) {
+                if (mmc->running) {
                     sequencer_tick(&app->sequencer);
                 }
                 break;
@@ -348,6 +337,7 @@ void pd_note(struct pd *pd, uint8_t on_off, uint8_t note, uint8_t vel) {
             vel & 0x7f
         }
     };
+    struct mmc *mmc = &app->mmc;
     struct sequencer *s = &app->sequencer;
     const uint8_t *msg = &ev.u8[1];
     pd_midi(pd, msg, 3);
@@ -361,7 +351,7 @@ void pd_note(struct pd *pd, uint8_t on_off, uint8_t note, uint8_t vel) {
            here: printed terms.  Is also easy to embed in sysex as
            ASCII. */
 
-        if (app->running) {
+        if (mmc->running) {
             /* Send the event to the online recorder. */
             sequencer_cursor_write(s, &ev);
         }
@@ -369,7 +359,7 @@ void pd_note(struct pd *pd, uint8_t on_off, uint8_t note, uint8_t vel) {
             /* If the player is off, we send the events upstream. */
             to_erl_ptermf(
                 "{record,{%d,<<%d,%d,%d,%d>>}}",
-                app->time,
+                mmc->time,
                 PAT_MIDI_TAG(0), // FIXME: ports
                 msg[0], msg[1], msg[2]);
         }
@@ -408,9 +398,12 @@ static inline void process_uma_in(struct app *app) {
                 if (cc == 25) {
                     mmc_stop(mmc);
                 }
+#if 0
                 else if (cc == 26) {
-                    mmc_pause(mmc);
+                    // FIXME: what should this do?  Maybe just ignore
+                    // because midi play/continue/stop is different.
                 }
+#endif
                 else if (cc == 27) {
                     mmc_play(mmc);
                 }
@@ -470,11 +463,12 @@ static inline void process_erl_out(struct app *app) {
    This function acts as module instantiation. */
 
 static inline void process_remote_in(struct app *app) {
+    struct midi_cursor cur = midi_cursor_init(remote_in, app->nframes);
     process_novation_remote(
         /* State */
         &app->remote,
-        /* Jack MIDI port with messages coming from Novation Remote */
-        remote_in, app->nframes,
+        /* Cursor into MIDI in buffer, MIDI from Novation Remote */
+        &cur,
         /* Stateful local objects */
         &app->mmc,
         &app->sequencer,
@@ -513,7 +507,7 @@ static int process (jack_nframes_t nframes, void *arg) {
     app->transport_buf = midi_out_buf_cleared(transport, nframes);
     app->fire_out_buf  = midi_out_buf_cleared(fire_out, nframes);
     app_process(app);
-    app->time += nframes;
+    app->mmc.time += nframes;
     return 0;
 }
 

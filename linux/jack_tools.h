@@ -52,6 +52,29 @@ void midi_cursor_update(struct midi_cursor *cur) {
         midi_cursor_test(&cur); \
         midi_cursor_update(&cur))
 
+/* Different approach: use the event pointer as a proxy for the
+   cursor, and let the cursor size + port be initialized elswehere. */
+
+#include "uct_offsetof.h"
+DEF_FIELD_TO_PARENT(jack_midi_event_to_midi_cursor,
+                    struct midi_cursor,
+                    jack_midi_event_t,
+                    event);
+
+static inline __attribute__((always_inline))
+jack_midi_event_t *midi_cursor_reset(struct midi_cursor *c) {
+    c->i = 0;
+    return &c->event;
+}
+
+#define FOR_MIDI(ev, cur) \
+    for(jack_midi_event_t *ev = midi_cursor_reset(cur); \
+        midi_cursor_test(cur); \
+        midi_cursor_update(cur))
+
+
+
+
 
 /* Some default is necessary for apps that have a main thread and a
    jack thread.  To keep it simple, standarize on a pipe each way.

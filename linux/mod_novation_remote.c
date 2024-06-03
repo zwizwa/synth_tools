@@ -25,6 +25,12 @@ struct novation_remote {
    be hidden or renamed, use a macro to redefine it before including
    the module file. */
 
+
+/* This can be generalized.  Code below only uses FOR_MIDI and
+   ->buffer, ->size dereferences. */
+
+struct midi_cursor;
+
 /* This is an "object" in the sense that it has a method that returns
    a result. */
 
@@ -48,9 +54,9 @@ void to_erl_pterm(const char *pterm);
 static void process_novation_remote(
     /* Private state data */
     struct novation_remote *s,
-    /* MIDI in data is provided in a Jack port.  This should probably
-       be generalized later. */
-    jack_port_t *remote_in, jack_nframes_t nframes,
+    /* MIDI in data is provided in a slightly general way.  This
+       should be generalized more. */
+    struct midi_cursor *events,
     /* Stateful local objects. */
     struct mmc *mmc,
     struct sequencer *seq,
@@ -59,9 +65,9 @@ static void process_novation_remote(
 
 ) {
 
-    FOR_MIDI_EVENTS(iter, remote_in, nframes) {
-        const uint8_t *msg = iter.event.buffer;
-        int n = iter.event.size;
+    FOR_MIDI(event, events) {
+        const uint8_t *msg = event->buffer;
+        int n = event->size;
         /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
         uint8_t tag = msg[0];
         if (n == 3) {
