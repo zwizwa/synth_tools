@@ -667,7 +667,7 @@ void f2(struct telnet *t) { LOG("f2\n"); }
 void f3(struct telnet *t) { LOG("f3\n"); }
 void f4(struct telnet *t) { LOG("f4\n"); }
 
-const struct telnet_escapes escapes[] = {
+const struct telnet_cmd escapes[] = {
     {"[11~",f1},
     {"[12~",f2},
     {"[13~",f3},
@@ -688,9 +688,10 @@ void telnet_event(struct telnet *t, uintptr_t event) {
     case TELNET_EVENT_FLUSH:
         rtt_info_poll(&app_);
         break;
-    case TELNET_EVENT_ESCAPE:
+    case TELNET_EVENT_ESCAPE: {
         telnet_escape(t, &escapes[0]);
         break;
+    }
     case TELNET_EVENT_LINE:
         /* The line buffer contains a single word.  Pass it to the
            stack machine. */

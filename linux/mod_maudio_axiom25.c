@@ -3,6 +3,10 @@
 
 /* Novation Remote 25 filter for recorder. */
 
+/* Note that this should probably work differently from the novation,
+   which has a record light that we are trying to track.  The axiom
+   does not so might be better to make it dumber. */
+
 /* Filter state. */
 struct maudio_axiom25 {
     uint8_t sel;
@@ -89,6 +93,7 @@ static void process_maudio_axiom25(
                 }
                 route_cc(route, sel, cc, val);
                 break;
+            }
             case 0xBF: {
                 uint8_t cc = msg[1];
                 uint8_t val = msg[2];
@@ -96,9 +101,11 @@ static void process_maudio_axiom25(
                     switch(cc) {
                     case 0x74:
                         LOG("stop\n");
+                        mmc_stop(mmc);
                         break;
                     case 0x75:
                         LOG("play\n");
+                        mmc_play(mmc);
                         break;
                     case 0x76:
                         LOG("record\n");
@@ -106,7 +113,6 @@ static void process_maudio_axiom25(
                     }
                 }
             }
-          }
             default: {
                 to_erl_midi(msg, n, 3 /*midi port*/);
                 break;

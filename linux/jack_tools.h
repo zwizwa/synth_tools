@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <jack/jack.h>
 #include <jack/midiport.h>
+#include <jack/ringbuffer.h>
 #include "macros.h"
 
 #define DEF_JACK_PORT(name) \
