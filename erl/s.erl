@@ -1,6 +1,7 @@
 %% Command line shortcuts for synth tools.
 
-%% Think of this as a configuration file / startup script.
+%% Think of this as a configuration file / startup script / terminal
+%% user interface for all synth_tools code.
 
 %% In an ideal world, redo could be used to make a dependency-based
 %% startup that can do partial restarts but in practice, the effort
@@ -8,13 +9,24 @@
 %% dumb thing: idempotent startup, no shutdown.  This models an
 %% always-on embedded system.
 
+%% issues are in synth_job.org
+%% time tracker is in synth_job.txt
+
 
 -module(s).
 -compile([export_all]).
 
-%% For live reload.
-load() ->
-    exo:load_erl("/i/exo/synth_tools/erl/s.erl").
+%% Switch to dev mode.
+dev() ->
+    exo:load_erl("/i/exo/synth_tools/erl/s.erl"),
+    lists:foreach(
+      fun(Client) ->
+              s:Client() ! {set_dir, "/i/exo/synth_tools/linux"}
+      end,
+      [hub]).
+         
+         
+         
 
 %% Startup.
 init() -> init(erlang:node()).
@@ -25,6 +37,9 @@ init(_) -> error.
 jack() ->
     application:ensure_all_started(exo),
     exo:need(jack_daemon).
+control() ->
+    Jack = jack(),
+    maps:get(control, obj:get(Jack, clients)).
 
 %% Daemon shortcuts without redo.
 

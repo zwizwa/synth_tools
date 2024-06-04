@@ -47,8 +47,13 @@
 #include "mod_akai_fire.c"
 #include "mod_novation_remote.c"
 #include "mod_arturia_minilab.c"
+#include "mod_maudio_axiom25.c"
 
 #include "mod_to_erl.c"
+
+#define TELNET_WORD_MODE
+#include "mod_telnet.c"
+
 
 
 void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
@@ -64,6 +69,7 @@ void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
 #define FOR_MIDI_IN(m) \
     m(clock_in)        \
     m(akai_fire_in)    \
+    m(maudio_axiom25_in)        \
     m(easycontrol)     \
     m(arturia_minilab_in)      \
     m(keystation_in1)  \
@@ -110,6 +116,7 @@ struct app {
     struct route route;
     struct novation_remote novation_remote;
     struct arturia_minilab arturia_minilab;
+    struct maudio_axiom25 maudio_axiom25;
     struct akai_fire akai_fire;
     struct pd pd;
     struct mmc mmc;
@@ -121,6 +128,11 @@ struct app {
     void *fire_out_buf;
     void *synth_out_buf;
 
+    /* telnet control port */
+    struct telnet telnet;
+    int telnet_fd;
+    //void (*telnet_op)(struct app *app);
+    //uintptr_t telnet_lit;
 
 } app_state = {};
 
@@ -141,6 +153,7 @@ DEF_TO_APP(akai_fire)
 DEF_TO_APP(mmc)
 DEF_TO_APP(pd)
 DEF_TO_APP(route)
+DEF_TO_APP(telnet)
 
 
 
@@ -526,6 +539,21 @@ static inline void process_arturia_minilab_in(struct app *app) {
         );
 }
 
+static inline void process_maudio_axiom25_in(struct app *app) {
+    struct midi_cursor cur = midi_cursor_init(maudio_axiom25_in, app->nframes);
+    process_maudio_axiom25(
+        /* State */
+        &app->maudio_axiom25,
+        /* Cursor into MIDI in buffer, MIDI from Novation Remote */
+        &cur,
+        /* Stateful local objects */
+        &app->mmc,
+        &app->sequencer,
+        /* Remote uni-directional message targets. */
+        &app->route
+        );
+}
+
 static void app_process(struct app *app) {
 
     /* Erlang out is tagged with a rolling time stamp. */
@@ -539,6 +567,7 @@ static void app_process(struct app *app) {
     process_keystation_in2(app);
     process_novation_remote_in(app);
     process_arturia_minilab_in(app);
+    process_maudio_axiom25_in(app);
     process_uma_in(app);
     process_erl_out(app);
 
@@ -812,18 +841,20 @@ void app_init(struct app *app) {
     app->sequencer.pattern_free_notify = app_pattern_free_notify;
     app->akai_fire.button_notify = app_fire_button_notify;
 
+    app->telnet_fd = -1;
+
 }
 
 void synth_tools_rs_init(void);
 void synth_tools_zig_init(void);
 
-#include "mod_telnet.c"
 #include "tcp_tools.h"
-int telnet_fd = -1;
-void telnet_write_output(struct telnet *, const uint8_t *bytes, uintptr_t len) {
-    assert_write(telnet_fd, bytes, len);
+void telnet_write_output(struct telnet *t, const uint8_t *bytes, uintptr_t len) {
+    struct app *app = telnet_to_app(t);
+    assert_write(app->telnet_fd, bytes, len);
 }
 void telnet_event(struct telnet *t, uintptr_t event) {
+    //struct app *app = telnet_to_app(t);
     uint8_t byte = event & 0xFF;
     event &= ~0xff;
     switch(event) {
@@ -832,7 +863,11 @@ void telnet_event(struct telnet *t, uintptr_t event) {
         break;
     case TELNET_EVENT_CONTROL:
         LOG("<CONTROL:%d>\n", byte);
-        if (byte == 4) { /* CTRL-D */ exit(0); }
+        if (byte == 4) {
+            /* CTRL-D */
+            /* Ignore for now. Figure out how to close the socket
+             * without daemon restart. */
+        }
         else if (byte == 12) { telnet_clear(t); }
         break;
     case TELNET_EVENT_ESCAPE:
@@ -852,22 +887,22 @@ void telnet_event(struct telnet *t, uintptr_t event) {
     case TELNET_EVENT_FLUSH:
         break;
     case TELNET_EVENT_PROMPT:
-        t->write_output(t, (const uint8_t*)"> ", 2);
+        t->write_output(t, (const uint8_t*)":", 2);
         break;
     }
 }
 void *telnet_main(void *arg) {
+    struct app *app = arg;
     int listen_fd = assert_tcp_listen(12345);
     for (;;) {
-        telnet_fd = assert_accept(listen_fd);
-        struct telnet t;
-        telnet_init(&t, telnet_write_output, telnet_event);
+        app->telnet_fd = assert_accept(listen_fd);
+        telnet_init(&app->telnet, telnet_write_output, telnet_event);
         for(;;) {
             uint8_t buf[2048];
-            ssize_t rv = read(telnet_fd, buf, sizeof(buf));
+            ssize_t rv = read(app->telnet_fd, buf, sizeof(buf));
             if (rv == 0) break;
             ASSERT(rv >= 0);
-            telnet_write_input(&t, buf, rv);
+            telnet_write_input(&app->telnet, buf, rv);
         }
     }
     return NULL;
@@ -898,9 +933,9 @@ int main(int argc, char **argv) {
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
     ASSERT(!jack_activate(client));
 
-    /* Run a telnet server in the background. */
+    /* Run a telnet server in the bac kground. */
     pthread_t telnet_thread;
-    pthread_create(&telnet_thread, NULL, telnet_main, NULL);
+    pthread_create(&telnet_thread, NULL, telnet_main, app);
 
     /* Use the generic {packet,4} + tag protocol on stdin, since hub.c
        might be hosting a lot of in-image functionality later. */
