@@ -12,7 +12,6 @@
 /* Filter state. */
 struct novation_remote {
     uint8_t sel;
-    uint8_t record;
 };
 
 
@@ -45,6 +44,8 @@ void mmc_play(struct mmc *mmc);
 void mmc_stop(struct mmc *mmc);
 void mmc_reset_time(struct mmc *mmc);
 int mmc_running(struct mmc *mmc);
+int mmc_record(struct mmc *mmc);
+void mmc_set_record(struct mmc *mmc, int record);
 
 /* All the other entitites are more abstract in that all
    methods are unidirectional. */
@@ -125,7 +126,7 @@ static void process_novation_remote(
                 else if (cc == 0x32) {
                     // stop
                     if (val == 0) {
-                        if (s->record) {
+                        if (mmc_record(mmc)) {
                             /* This is a special case for the
                                remote25, because pressing stop also
                                turns off recording. */
@@ -136,7 +137,7 @@ static void process_novation_remote(
                             else {
                                 to_erl_pterm("{record,stop}");
                             }
-                            s->record = 0;
+                            mmc_set_record(mmc, 0);
                             mmc_stop(mmc);
                         }
                         else {
@@ -147,7 +148,7 @@ static void process_novation_remote(
                 else if (cc == 0x33) {
                     if (val == 0) {
                         // play
-                        if (s->record) {
+                        if (mmc_record(mmc)) {
                             to_erl_pterm("{record,play}}");
                         }
                         else {
@@ -166,11 +167,11 @@ static void process_novation_remote(
                        state. */
                     to_erl_midi(msg, n, 3 /*midi port*/);
                     if (val == 0) {
-                        s->record = !s->record;
+                        mmc_set_record(mmc, !mmc_record(mmc));
                         if (mmc_running(mmc)) {
                             /* If the player is on, we use the online
                                recorder. */
-                            if (s->record) {
+                            if (mmc_record(mmc)) {
                                 dtime_t pat_len = 48; // FIXME
                                 LOG("live recorder start, pat_len = %d\n", pat_len);
                                 sequencer_cursor_open(seq, pat_len);
@@ -185,7 +186,7 @@ static void process_novation_remote(
                                isn't, we send the events upstream for
                                processing and tempo + pattern
                                config. */
-                            if (s->record) {
+                            if (mmc_record(mmc)) {
                                 mmc_reset_time(mmc);
                                 to_erl_pterm("{record,start}");
                             }

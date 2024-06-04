@@ -10,7 +10,6 @@
 /* Filter state. */
 struct maudio_axiom25 {
     uint8_t sel;
-    uint8_t record;
 };
 
 
@@ -102,6 +101,10 @@ static void process_maudio_axiom25(
                     case 0x74:
                         LOG("stop\n");
                         mmc_stop(mmc);
+                        if (mmc_record(mmc)) {
+                            mmc_set_record(mmc, 0);
+                            to_erl_pterm("{record,stop}");
+                        }
                         break;
                     case 0x75:
                         LOG("play\n");
@@ -109,6 +112,10 @@ static void process_maudio_axiom25(
                         break;
                     case 0x76:
                         LOG("record\n");
+                        if (!mmc_record(mmc)) {
+                            mmc_set_record(mmc, 1);
+                            to_erl_pterm("{record,start}");
+                        }
                         break;
                     }
                 }

@@ -100,8 +100,9 @@ struct route { };
 struct pd { };
 struct synth { };
 struct mmc {
-    uint32_t running;
-    uint32_t time;     /* rolling time */
+    uint32_t time;      /* rolling time */
+    uint32_t running:1;
+    uint32_t record:1;
 };
 
 // figure out how to map struct to parent
@@ -178,24 +179,6 @@ static inline void process_z_debug(struct app *app) {
 }
 
 
-
-
-void app_sequencer_tick(struct sequencer *seq, const union pattern_event *ev) {
-    struct app *app = (void*)seq;
-    const uint8_t *msg = ev->u8;
-    LOG("tick %02x %02x %02x %02x\n", msg[0], msg[1], msg[2], msg[3]);
-
-    if (msg[0] < 16) {
-        // FIXME: msg[0] is midi port, make numerical mapping
-        send_midi(app->pd_out_buf, 0, msg + 1, 3);
-    }
-    else {
-        LOG("unsupported event tag %d\n", msg[0]);
-    }
-}
-
-
-
 void mmc_play(struct mmc *mmc) {
     LOG("mmc_play %d->1\n", mmc->running);
     mmc->running = 1;
@@ -222,6 +205,15 @@ void mmc_toggle(struct mmc *mmc) {
     else {
         mmc_play(mmc);
     }
+}
+int mmc_record(struct mmc *mmc) {
+    return mmc->record;
+}
+void mmc_set_record(struct mmc *mmc, int record) {
+    mmc->record = !!record;
+}
+void mmc_toggle_record(struct mmc *mmc) {
+    mmc->record = !mmc->record;
 }
 
 void mmc_reset_time(struct mmc *mmc) {
@@ -348,7 +340,7 @@ static inline void process_keystation_in2(struct app *app) {
 
 
 /* Map selector to port/channel. */
-void route_pattern_event(struct route *route, union pattern_event *ev) {
+void route_pattern_event(struct route *route, const union pattern_event *ev) {
 
     const uint8_t *msg = &ev->u8[1];
     int len = 3; // FIXME: Depends on the contents of the event.  Currently only note, cc.
@@ -366,6 +358,11 @@ void route_pattern_event(struct route *route, union pattern_event *ev) {
     /* Send a copy to Erlang. */
     to_erl_midi(msg, len, port);
 }
+void app_sequencer_tick(struct sequencer *seq, const union pattern_event *ev) {
+    struct app *app = (void*)seq;
+    route_pattern_event(&app->route, ev);
+}
+
 
 
 /* These are used by device drivers to send midi to a specific device.
@@ -400,7 +397,7 @@ void route_note(struct route *route, uintptr_t sel, uint8_t on_off, uint8_t note
     struct sequencer *s = &app->sequencer;
 
     // Recording
-    if (app->novation_remote.record) {  // FIXME: move to mmc
+    if (mmc_record(mmc)) {
         /* The recorder is implemented in Erlang.
 
            Since traffic is one-way only, let's use a protocol that is
@@ -470,12 +467,12 @@ static inline void process_uma_in(struct app *app) {
                     if (val == 0) {
                         LOG("rec on\n");
                         to_erl_pterm("{record,start}");
-                        r->record = 1;
+                        mmc_set_record(mmc, 1);
                     }
                     else {
                         LOG("rec off\n");
                         to_erl_pterm("{record,stop}");
-                        r->record = 0;
+                        mmc_set_record(mmc, 0);
                     }
 
                     // app_play(app);
@@ -928,7 +925,6 @@ void telnet_ringbuffer_write(struct telnet *t, const struct telnet_cmd *c) {
             app->telnet_ringbuffer,
             (void*)&cmd,
             sizeof(cmd))) {
-        // FIXME: needs test
         LOG("dropping telnet command\n");
     }
 }
