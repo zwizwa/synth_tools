@@ -35,10 +35,9 @@ struct midi_cursor;
    a result. */
 
 struct mmc;
-void mmc_play(struct mmc *mmc);
-void mmc_stop(struct mmc *mmc);
-void mmc_reset_time(struct mmc *mmc);
-int mmc_running(struct mmc *mmc);
+void mmc_press_play(struct mmc *mmc);
+void mmc_press_stop(struct mmc *mmc);
+void mmc_press_record(struct mmc *mmc);
 
 /* All the other entitites are more abstract in that all
    methods are unidirectional. */

@@ -201,7 +201,7 @@ handle_proc({Port,{data,<<?TAG_PTERM:16,Pterm/binary>>}},
 
 handle_proc({Port,{data,<<?TAG_STREAM:16,MidiPort:16,Midi/binary>>}},
             State = #{port := Port}) ->
-    log:info("jack_client: midi_to_erl: ~p ~s~n", [MidiPort, tools:hex(Midi)]),
+    %% log:info("jack_client: midi_to_erl: ~p ~s~n", [MidiPort, tools:hex(Midi)]),
     case MidiPort of
         _ ->
             ok

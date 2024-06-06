@@ -294,8 +294,16 @@ struct sequencer {
     sequencer_pattern_event_fn pattern_free_notify;
     uint8_t verbose:1;
 };
+
+void error_bad_pattern_nb(pattern_t nb) {
+    ERROR("sequencer_pattern: bad pattern nb %d\n", nb);
+}
+
 struct pattern_phase *sequencer_pattern(struct sequencer *s, pattern_t nb) {
-    ASSERT(nb < PATTERN_POOL_SIZE);
+    // ASSERT(nb < PATTERN_POOL_SIZE);
+    if (nb >= PATTERN_POOL_SIZE) {
+        error_bad_pattern_nb(nb);
+    }
     return &s->pattern_pool.pattern[nb];
 }
 struct pattern_step *sequencer_step(struct sequencer *s, step_t nb) {
@@ -647,7 +655,7 @@ void sequencer_cursor_close(struct sequencer *s) {
     ASSERT(c->pattern != PATTERN_NONE);
 
     if (sequencer_pattern_is_empty(s, c->pattern)) {
-        /* Don't accumulate empty pattens.  Drops the header here.
+        /* Don't accumulate empty patterns.  Drops the header here.
            Pattern will be collected once timer expires. */
         LOG("clear pattern %d\n", c->pattern);
         sequencer_clear_pattern(s, c->pattern);
@@ -667,6 +675,10 @@ pattern_t sequencer_cursor_dup(struct sequencer *s) {
 }
 void sequencer_cursor_write(struct sequencer *s, const union pattern_event *ev) {
     struct sequencer_cursor *c = &s->cursor;
+    if (c->pattern == PATTERN_NONE) {
+        LOG("sequencer_cursor_write without active pattern, dropping event\n");
+        return;
+    }
     struct pattern_phase *pp = sequencer_pattern(s, c->pattern);
     struct pattern_step *last = sequencer_step(s, pp->last);
     dtime_t time_left = last->delay - c->delay;

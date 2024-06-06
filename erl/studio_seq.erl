@@ -12,6 +12,8 @@
 
 %% Sequences are [{Timestamp, Stuff}].
 %% Normalize to T=0, average timestamp, pick first payload.
+split_loop([]) -> {0,[]};
+split_loop([_]) -> {0,[]};
 split_loop(Seq) ->
     N = length(Seq),
     {F,S} = lists:split(N div 2, Seq),
@@ -51,6 +53,7 @@ pattern_unpack(Bin) ->
     [{{A,B,C,D},Delay} || <<A,B,C,D,Delay:16/little>> <= Bin].
 
 %% Convert back to binary.
+pattern_pack({Len,Seq=[]}) -> [];
 pattern_pack({Len,Seq=[{0,_}|_]}) ->
     iolist_to_binary(
       lists:zipwith(

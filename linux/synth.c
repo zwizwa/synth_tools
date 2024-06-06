@@ -140,7 +140,7 @@ phasor_t note_to_inc(int note) {
     int octave = octave_note >> 4;
     int n = octave_note & 15;
     phasor_t p = note_tab[n] >> octave;
-    LOG("%d -> (%d,%d,%d,%d)\n", note, octave, n, note_tab[n], p);
+    // LOG("note to inc %d -> (%d,%d,%d,%d)\n", note, octave, n, note_tab[n], p);
     return p;
 }
 
@@ -267,7 +267,7 @@ static inline void process_midi(jack_nframes_t nframes) {
         jack_midi_event_t event;
         jack_midi_event_get(&event, midi_in_buf, i);
         const uint8_t *msg = event.buffer;
-        LOG_HEX("synth:", msg, event.size);
+        // LOG_HEX("synth:", msg, event.size);
         if (event.size == 3 &&
             msg[0] == 0xB0 && // CC channel 0
             (msg[1] >= 23) && // CC num on Easycontrol 9

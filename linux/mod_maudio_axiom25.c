@@ -38,10 +38,10 @@ struct midi_cursor;
    a result. */
 
 struct mmc;
-void mmc_play(struct mmc *mmc);
-void mmc_stop(struct mmc *mmc);
-void mmc_reset_time(struct mmc *mmc);
-int mmc_running(struct mmc *mmc);
+void mmc_press_stop(struct mmc *mmc);
+void mmc_press_play(struct mmc *mmc);
+void mmc_press_record(struct mmc *mmc);
+
 
 /* All the other entitites are more abstract in that all
    methods are unidirectional. */
@@ -100,22 +100,16 @@ static void process_maudio_axiom25(
                     switch(cc) {
                     case 0x74:
                         LOG("stop\n");
-                        mmc_stop(mmc);
-                        if (mmc_record(mmc)) {
-                            mmc_set_record(mmc, 0);
-                            to_erl_pterm("{record,stop}");
-                        }
+                        mmc_press_stop(mmc);
                         break;
                     case 0x75:
                         LOG("play\n");
-                        mmc_play(mmc);
+                        mmc_press_play(mmc);
                         break;
                     case 0x76:
                         LOG("record\n");
-                        if (!mmc_record(mmc)) {
-                            mmc_set_record(mmc, 1);
-                            to_erl_pterm("{record,start}");
-                        }
+                        mmc_press_record(mmc);
+                       
                         break;
                     }
                 }

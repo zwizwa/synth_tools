@@ -52,11 +52,6 @@ static void print_connection(const char *src, const char *dst) {
 }
 
 int main (int argc, char *argv[]) {
-    jack_client_t *client;
-    jack_status_t status;
-    jack_options_t options = JackNoStartServer;
-    const char **ports, **connections;
-    char *server_name = NULL;
 
     my_name = strrchr(argv[0], '/');
     if (my_name == 0) {
@@ -65,9 +60,11 @@ int main (int argc, char *argv[]) {
         my_name ++;
     }
 
-    /* Open a client connection to the JACK server.  Starting a new
-     * server only to list its ports seems pointless, so we specify
-     * JackNoStartServer. */
+    /* Open a client connection to the JACK server. */
+    jack_options_t options = JackNoStartServer;
+    jack_status_t status;
+    jack_client_t *client;
+    char *server_name = NULL;
     if ((client = jack_client_open ("jack_snapshot", options, &status, server_name)) == 0) {
         fprintf (stderr, "Error: cannot connect to JACK, ");
         if (status & JackServerFailed) {
@@ -78,8 +75,8 @@ int main (int argc, char *argv[]) {
         return 1;
     }
 
+    const char **ports, **connections;
     ports = jack_get_ports (client, NULL, NULL, 0);
-
     printf("src_client,src_port,dst_client,dst_port\n");
     for (int i = 0; ports && ports[i]; ++i) {
 
@@ -88,7 +85,7 @@ int main (int argc, char *argv[]) {
         int flags = jack_port_flags(port);
         if (flags & JackPortIsInput) continue;
 
-        if ((connections = jack_port_get_all_connections (client, jack_port_by_name(client, ports[i]))) != 0) {
+        if ((connections = jack_port_get_all_connections(client, jack_port_by_name(client, ports[i]))) != 0) {
             for (int j = 0; connections[j]; j++) {
                 print_connection(ports[i], connections[j]);
             }

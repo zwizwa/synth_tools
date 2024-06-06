@@ -23,7 +23,7 @@ dev() ->
       fun(Client) ->
               s:Client() ! {set_dir, "/i/exo/synth_tools/linux"}
       end,
-      [hub]).
+      [hub,synth]).
          
          
          

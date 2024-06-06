@@ -45,11 +45,15 @@
 
 #include "mod_sequencer.c"
 #include "mod_akai_fire.c"
-#include "mod_novation_remote.c"
 #include "mod_arturia_minilab.c"
 #include "mod_maudio_axiom25.c"
 
+// FIXME: This needs to be rebuilt completely, so disable it for now.
+// #include "mod_novation_remote.c"
+
+
 #include "mod_to_erl.c"
+
 
 #define TELNET_WORD_MODE
 #include "mod_telnet.c"
@@ -72,13 +76,14 @@ void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
     m(maudio_axiom25_in)        \
     m(easycontrol)     \
     m(arturia_minilab_in)      \
-    m(keystation_in1)  \
-    m(keystation_in2)  \
-    m(novation_remote_in) \
-    m(uma_in)          \
     m(z_debug)         \
 
-#define FOR_MIDI_IN_DIS(m) \
+#define FOR_MIDI_IN_DISABLED(m) \
+    m(uma_in)          \
+    m(novation_remote_in)          \
+    m(keystation_in1)  \
+    m(keystation_in2)  \
+
 
 #define FOR_MIDI_OUT(m) \
     m(tb03)         \
@@ -96,14 +101,48 @@ FOR_MIDI_OUT(DEF_JACK_PORT)
 
 static jack_client_t *client = NULL;
 
-struct route { };
-struct pd { };
-struct synth { };
 struct mmc {
     uint32_t time;      /* rolling time */
-    uint32_t running:1;
-    uint32_t record:1;
+    uint32_t mode:2;
 };
+
+struct route {
+    /* We keep track of the notes we turned on so they can be turned
+       off on stop.  Use a bit vector: 16 ports x 16 channels x 128
+       notes is 32k bits is 4k bytes. */
+    uintptr_t bitvec[4096 / sizeof(uintptr_t)];
+};
+#define BITSIZEOF(thing) (8*sizeof(thing))
+static inline void route_set_bit(struct route *r, uintptr_t bit_nb) {
+    uintptr_t byte_nb = bit_nb / BITSIZEOF(r->bitvec[0]);
+    bit_nb %= BITSIZEOF(r->bitvec[0]);
+    ASSERT(byte_nb < ARRAY_SIZE(r->bitvec));
+    r->bitvec[byte_nb] |= (1 << bit_nb);
+}
+static inline void route_clear_bit(struct route *r, uintptr_t bit_nb) {
+    uintptr_t byte_nb = bit_nb / BITSIZEOF(r->bitvec[0]);
+    bit_nb %= BITSIZEOF(r->bitvec[0]);
+    ASSERT(byte_nb < ARRAY_SIZE(r->bitvec));
+    r->bitvec[byte_nb] &= ~(1 << bit_nb);
+}
+static inline int route_read_bit(struct route *r, uintptr_t bit_nb) {
+    uintptr_t byte_nb = bit_nb / BITSIZEOF(r->bitvec[0]);
+    bit_nb %= BITSIZEOF(r->bitvec[0]);
+    ASSERT(byte_nb < ARRAY_SIZE(r->bitvec));
+    return !!(r->bitvec[byte_nb] & (1 << bit_nb));
+}
+static inline uintptr_t pattern_event_bit_nb(const union pattern_event *ev) {
+    // Precondition: this is a midi event.
+    uintptr_t port = ev->u8[0] & 0x0F;
+    uintptr_t chan = ev->u8[1] & 0x0F;
+    uintptr_t note = ev->u8[2] & 0x7F;
+    uintptr_t bit_nb = (((port << 4) + chan) << 7) + note;
+    return bit_nb;
+}
+
+
+struct pd { };
+struct synth { };
 
 // figure out how to map struct to parent
 
@@ -115,7 +154,7 @@ struct app {
 
     /* message handler state */
     struct route route;
-    struct novation_remote novation_remote;
+    // struct novation_remote novation_remote;
     struct arturia_minilab arturia_minilab;
     struct maudio_axiom25 maudio_axiom25;
     struct akai_fire akai_fire;
@@ -140,6 +179,11 @@ struct app {
 
 
 
+
+
+
+
+
 /* Cross-link */
 #include "uct_offsetof.h"
 
@@ -160,6 +204,158 @@ DEF_TO_APP(telnet)
 
 
 
+/* This defines the main start/stop/record state machine such that
+   drivers for the individual midi controllers just need to map
+   keypresses to actions.
+
+   There are essentially two recording modes:
+
+   1. Live record mode, where the sequencer is playing back events,
+      and additional events are recorded in additional patterns.
+
+   2. Offline record mode, where the sequencer is not playing back
+      events, and an initial rhythm is sent upstream to Erlang code
+      where it is processed and converted to temp + initial pattern.
+
+   In addition, there is full off and playback.
+
+   playing x recording
+
+   0         0           off
+   1         0           playback
+   1         1           live record
+   0         1           offline record
+
+   It seems simplest to represent the code as handling transitions
+   between these 4 states, instead of the product of playing and
+   recording.
+*/
+
+#define MMC_MODE_OFF         0
+#define MMC_MODE_PLAY        1
+#define MMC_MODE_OFFLINE_REC 2
+#define MMC_MODE_LIVE_REC    3
+
+
+void mmc_reset_time(struct mmc *mmc) {
+    mmc->time = 0;
+}
+int mmc_running(struct mmc *mmc) {
+    return mmc->mode & 1;
+}
+
+void route_pattern_event(struct route *route, const union pattern_event *ev);
+
+
+/* Provide only the 3 transition functions, ignoring sequences that
+   make no sense. */
+void mmc_press_stop(struct mmc *mmc) {
+    uintptr_t prev_mode = mmc->mode;
+    struct app *app = mmc_to_app(mmc);
+    struct route *r = &app->route;
+    switch(mmc->mode) {
+    case MMC_MODE_OFF:
+        /* Already off. Ignore. */
+        break;
+    case MMC_MODE_PLAY:
+        /* Turn off any slave devices and stop sequencer. */
+        send_stop(app->transport_buf);
+        sequencer_restart(&app->sequencer);
+        mmc->mode = MMC_MODE_OFF;
+        /* Send note off events for all notes that are still on. */
+        for (uintptr_t port = 0; port< 16; port++) {
+        for (uintptr_t chan = 0; chan< 16; chan++) {
+        for (uintptr_t note = 0; note<128; note++) {
+            union pattern_event ev = {
+                .u8 = { PAT_MIDI_TAG(port), 0x80 + chan, note, 0 }
+            };
+            if (route_read_bit(r, pattern_event_bit_nb(&ev))) {
+                LOG("STOP: port=%d chan=%d note=%d OFF\n", port, chan, note);
+                route_pattern_event(r, &ev);
+            }
+        }}}
+        memset(r->bitvec, 0, sizeof(r->bitvec));
+        break;
+    case MMC_MODE_OFFLINE_REC:
+        /* Stop upstream recorder. */
+        to_erl_pterm("{record,stop}");
+        mmc->mode = MMC_MODE_OFF;
+        break;
+    case MMC_MODE_LIVE_REC:
+        /* Turn off both recording and playback. */
+        sequencer_cursor_close(&app->sequencer);
+        mmc->mode = MMC_MODE_OFF;
+        break;
+    }
+    LOG("STOP: mode: %d->%d\n", prev_mode, mmc->mode);
+
+    /* FIXME: Iterate over all notes that are left on and turn them
+       off. */
+
+}
+void mmc_press_play(struct mmc *mmc) {
+    uintptr_t prev_mode = mmc->mode;
+    switch(mmc->mode) {
+    case MMC_MODE_OFF:
+        /* Enable sequencer. */
+        mmc->mode = MMC_MODE_PLAY;
+        break;
+    case MMC_MODE_PLAY:
+        /* Already playing. Ignore */
+        break;
+    case MMC_MODE_OFFLINE_REC:
+        /* Doesn't make sense in offline recording, so ignore. */
+        break;
+    case MMC_MODE_LIVE_REC:
+        /* Doesn't make sense in live recording, so ignore. */
+        break;
+    }
+    LOG("PLAY: mode: %d->%d\n", prev_mode, mmc->mode);
+}
+void mmc_press_record(struct mmc *mmc) {
+    uintptr_t prev_mode = mmc->mode;
+    struct app *app = mmc_to_app(mmc);
+    switch(mmc->mode) {
+    case MMC_MODE_OFF:
+        /* Start offline recorder. */
+        mmc_reset_time(mmc);
+        to_erl_pterm("{record,start}");
+        mmc->mode = MMC_MODE_OFFLINE_REC;
+        break;
+    case MMC_MODE_PLAY: {
+        /* Start live recorder. */
+        dtime_t pat_len = 48; // FIXME
+        LOG("live recorder start, pat_len = %d\n", pat_len);
+        sequencer_cursor_open(&app->sequencer, pat_len);
+        mmc->mode = MMC_MODE_LIVE_REC;
+        break;
+    }
+    case MMC_MODE_OFFLINE_REC:
+        /* Turn off offline recording mode. */
+        to_erl_pterm("{record,stop}");
+        mmc->mode = MMC_MODE_OFF;
+        break;
+    case MMC_MODE_LIVE_REC:
+        /* Turn off live recording mode.  Note that this really needs
+           to be a separate button because stop button will stop the
+           playback as well. */
+        sequencer_cursor_close(&app->sequencer);
+        mmc->mode = MMC_MODE_PLAY;
+        break;
+    }
+    LOG("RECORD: mode: %d->%d\n", prev_mode, mmc->mode);
+
+}
+
+
+
+
+
+
+
+
+
+
 #define BPM_TO_PERIOD(sr,bpm) ((sr*60)/(bpm*24))
 
 static inline void *midi_out_buf_cleared(jack_port_t *port, jack_nframes_t nframes) {
@@ -172,56 +368,14 @@ static inline void *midi_out_buf_cleared(jack_port_t *port, jack_nframes_t nfram
 
 static inline void process_z_debug(struct app *app) {
     FOR_MIDI_EVENTS(iter, z_debug, app->nframes) {
+#if 0
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         LOG_HEX("z_debug:", msg, n);
+#endif
     }
 }
 
-
-void mmc_play(struct mmc *mmc) {
-    LOG("mmc_play %d->1\n", mmc->running);
-    mmc->running = 1;
-    struct app *app = mmc_to_app(mmc);
-    send_start(app->transport_buf);
-}
-void mmc_continue(struct mmc *mmc) {
-    LOG("mmc_continue\n");
-    mmc->running = 1;
-    struct app *app = mmc_to_app(mmc);
-    send_continue(app->transport_buf);
-}
-void mmc_stop(struct mmc *mmc) {
-    LOG("mmc_stop %d->0\n", mmc->running);
-    mmc->running = 0;
-    struct app *app = mmc_to_app(mmc);
-    send_stop(app->transport_buf);
-    sequencer_restart(&app->sequencer);
-}
-void mmc_toggle(struct mmc *mmc) {
-    if (mmc->running) {
-        mmc_stop(mmc);
-    }
-    else {
-        mmc_play(mmc);
-    }
-}
-int mmc_record(struct mmc *mmc) {
-    return mmc->record;
-}
-void mmc_set_record(struct mmc *mmc, int record) {
-    mmc->record = !!record;
-}
-void mmc_toggle_record(struct mmc *mmc) {
-    mmc->record = !mmc->record;
-}
-
-void mmc_reset_time(struct mmc *mmc) {
-    mmc->time = 0;
-}
-int mmc_running(struct mmc *mmc) {
-    return mmc->running;
-}
 
 
 static inline void process_clock_in(struct app *app) {
@@ -230,19 +384,17 @@ static inline void process_clock_in(struct app *app) {
         const uint8_t *msg = iter.event.buffer;
         if (iter.event.size == 1) {
             switch(msg[0]) {
+            case 0xFB: // continue FIXME: This is wrong
             case 0xFA: // start
                 LOG("clock_in start->app_play\n");
-                mmc_play(mmc);
-                break;
-            case 0xFB: // continue
-                mmc_continue(mmc);
+                mmc_press_play(mmc);
                 break;
             case 0xFC: // stop
-                mmc_stop(mmc);
+                mmc_press_stop(mmc);
                 break;
             case 0xF8: { // clock
                 // LOG("tick, running=%d\n", app->running);
-                if (mmc->running) {
+                if (mmc_running(mmc)) {
                     sequencer_tick(&app->sequencer);
                 }
                 break;
@@ -288,44 +440,6 @@ static inline void process_easycontrol_in(struct app *app) {
     }
 }
 
-static inline void process_keystation_in1(struct app *app) {
-    FOR_MIDI_EVENTS(iter, keystation_in1, app->nframes) {
-        const uint8_t *msg = iter.event.buffer;
-        int n = iter.event.size;
-        /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        to_erl_midi(msg, n, 1 /*midi port*/);
-    }
-}
-static inline void process_keystation_in2(struct app *app) {
-    struct mmc *mmc = &app->mmc;
-    FOR_MIDI_EVENTS(iter, keystation_in2, app->nframes) {
-        const uint8_t *msg = iter.event.buffer;
-        int n = iter.event.size;
-        /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        to_erl_midi(msg, n, 2 /*midi port*/);
-        if (n == 3) {
-            switch(msg[0]) {
-            case 0x90: { /* Note on */
-                uint8_t note = msg[1];
-                // uint8_t vel  = msg[2];
-                switch(note) {
-                    case 0x5e:
-                        /* Play press. */
-                        LOG("keystation: start\n");
-                        mmc_play(mmc);
-                        break;
-                    case 0x5d:
-                        /* Stop press. */
-                        LOG("keystation: stop\n");
-                        mmc_stop(mmc);
-                        break;
-                }
-                break;
-            }
-            }
-        }
-    }
-}
 
 /* Data flow:  FIXME TODO
 
@@ -347,6 +461,23 @@ void route_pattern_event(struct route *route, const union pattern_event *ev) {
 
     struct app *app = route_to_app(route);
     int port = ev->u8[0] & 0x0F; // FIXME: Assumes midi
+
+    /* Below is only for MIDI */
+
+    /* Keep track of what we turned on and off. */
+    uint8_t midi_cmd = ev->u8[1] & 0xF0;
+    if ((midi_cmd == 0x90) || (midi_cmd == 0x80)) {
+        uintptr_t bit_nb = pattern_event_bit_nb(ev);
+        if (midi_cmd == 0x90) {
+            route_set_bit(route, bit_nb);
+        }
+        else {
+            /* Not clearing these makes it a little more robust in
+               case we missed recording a note off event. */
+            // route_clear_bit(route, bit_nb);
+        }
+    }
+
     switch(port) {
     /* Jack midi port connected to pd_io object, which takes jack
        midi in and converts it to netsend into Pd. */
@@ -396,99 +527,21 @@ void route_note(struct route *route, uintptr_t sel, uint8_t on_off, uint8_t note
     struct mmc *mmc = &app->mmc;
     struct sequencer *s = &app->sequencer;
 
+
     // Recording
-    if (mmc_record(mmc)) {
-        /* The recorder is implemented in Erlang.
-
-           Since traffic is one-way only, let's use a protocol that is
-           convenient to parse at the Erlang side and easy to generate
-           here: printed terms.  Is also easy to embed in sysex as
-           ASCII. */
-
-        if (mmc->running) {
-            /* Send the event to the online recorder. */
-            sequencer_cursor_write(s, &ev);
-        }
-        else {
-            /* If the player is off, we send the events upstream. */
-            to_erl_ptermf(
-                "{record,{%d,<<%d,%d,%d,%d>>}}",
-                mmc->time,
-                ev.u8[0],
-                ev.u8[1],
-                ev.u8[2],
-                ev.u8[3]);
-        }
-    }
-
-}
-
-static inline void process_uma_in(struct app *app) {
-    // Just reuse the remote25 struct. Never used together.
-    struct novation_remote *r = &app->novation_remote;
-    struct route *route = &app->route;
-    struct mmc *mmc = &app->mmc;
-
-    FOR_MIDI_EVENTS(iter, uma_in, app->nframes) {
-        const uint8_t *msg = iter.event.buffer;
-        int n = iter.event.size;
-        /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-
-        uint8_t tag = msg[0];
-        if (n == 3) {
-            switch(tag) {
-            case 0x80:
-            case 0x90: {
-                /* Route it to the current track. */
-                uint8_t note = msg[1];
-                uint8_t vel = msg[2];
-                LOG("note %d %d\n", note, vel);
-                route_note(route, r->sel, tag, note, vel);
-                break;
-            }
-            case 0xB0: {
-                /* Template 64 Zwizwa Exo has all knobs, sliders,
-                   encoders mapped to CC in a linear fashion. */
-                uint8_t cc = msg[1];
-                uint8_t val = msg[2];
-                if (cc == 25) {
-                    mmc_stop(mmc);
-                }
-#if 0
-                else if (cc == 26) {
-                    // FIXME: what should this do?  Maybe just ignore
-                    // because midi play/continue/stop is different.
-                }
-#endif
-                else if (cc == 27) {
-                    mmc_play(mmc);
-                }
-                else if (cc == 28) {
-                    if (val == 0) {
-                        LOG("rec on\n");
-                        to_erl_pterm("{record,start}");
-                        mmc_set_record(mmc, 1);
-                    }
-                    else {
-                        LOG("rec off\n");
-                        to_erl_pterm("{record,stop}");
-                        mmc_set_record(mmc, 0);
-                    }
-
-                    // app_play(app);
-
-
-                }
-                LOG("CC %d %d\n", cc, val);
-            }
-            default:
-                to_erl_midi(msg, n, 6 /*midi port*/);
-                break;
-            }
-        }
-        else {
-            to_erl_midi(msg, n, 6 /*midi port*/);
-        }
+    switch(mmc->mode) {
+    case MMC_MODE_OFFLINE_REC:
+        to_erl_ptermf(
+            "{record,{%d,<<%d,%d,%d,%d>>}}",
+            mmc->time,
+            ev.u8[0],
+            ev.u8[1],
+            ev.u8[2],
+            ev.u8[3]);
+        break;
+    case MMC_MODE_LIVE_REC:
+        sequencer_cursor_write(s, &ev);
+        break;
     }
 }
 
@@ -515,6 +568,7 @@ static inline void process_erl_out(struct app *app) {
 
 
 
+#if 0
 static inline void process_novation_remote_in(struct app *app) {
     struct midi_cursor cur = midi_cursor_init(novation_remote_in, app->nframes);
     process_novation_remote(
@@ -529,6 +583,7 @@ static inline void process_novation_remote_in(struct app *app) {
         &app->route
         );
 }
+#endif
 
 static inline void process_arturia_minilab_in(struct app *app) {
     struct midi_cursor cur = midi_cursor_init(arturia_minilab_in, app->nframes);
@@ -611,12 +666,12 @@ static void app_process(struct app *app) {
     process_telnet(app);
     process_clock_in(app);
     process_easycontrol_in(app);
-    process_keystation_in1(app);
-    process_keystation_in2(app);
-    process_novation_remote_in(app);
     process_arturia_minilab_in(app);
     process_maudio_axiom25_in(app);
-    process_uma_in(app);
+    //process_keystation_in1(app);
+    //process_keystation_in2(app);
+    // process_novation_remote_in(app);
+    // process_uma_in(app);
     process_erl_out(app);
 
     /* FIXME: Normalize this. */
@@ -906,7 +961,13 @@ void telnet_write_output(struct telnet *t, const uint8_t *bytes, uintptr_t len) 
    jack_ringbuffer then executed in the high prio thread. */
 void play_pause(struct telnet *t) {
     struct app *app = telnet_to_app(t);
-    mmc_toggle(&app->mmc);
+    struct mmc *mmc = &app->mmc;
+    if (mmc_running(mmc)) {
+        mmc_press_stop(mmc);
+    }
+    else {
+        mmc_press_play(mmc);
+    }
 }
 struct telnet_cmd hub_cmds[] = {
     {"toggle", play_pause},
