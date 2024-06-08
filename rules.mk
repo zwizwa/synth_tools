@@ -85,6 +85,7 @@ HOST_ELF := \
 	linux/test_misc.dynamic.host.elf \
 	linux/test_cgen.dynamic.host.so \
 	linux/test_synth_cgen.dynamic.host.elf \
+	linux/test_voice_alloc.dynamic.host.elf \
 	linux/test_pdm.dynamic.host.elf \
 	linux/test_bl_midi.dynamic.host.elf \
 	linux/test_cproc.dynamic.host.elf \

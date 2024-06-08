@@ -515,6 +515,10 @@ void route_cc(struct route *route, uintptr_t sel, uint8_t ctrl, uint8_t val) {
 void route_note(struct route *route, uintptr_t sel, uint8_t on_off, uint8_t note, uint8_t vel) {
     union pattern_event ev = {
         .u8 = {
+            /* Map 'sel' to port, chan for now. Later this should
+               probably be more general, e.g. allow the 256 virtual
+               channels be spread over more ports.  It is quite common
+               to have ports that use only one channel. */
             PAT_MIDI_TAG(sel >> 4),
             (on_off & 0xF0) + (sel & 0xF),
             note & 0x7f,
@@ -541,6 +545,8 @@ void route_note(struct route *route, uintptr_t sel, uint8_t on_off, uint8_t note
         break;
     case MMC_MODE_LIVE_REC:
         sequencer_cursor_write(s, &ev);
+        LOG("sequencer_cursor_write %02x %02x %02x %02x\n",
+            ev.u8[0], ev.u8[1], ev.u8[2], ev.u8[3]);
         break;
     }
 }
