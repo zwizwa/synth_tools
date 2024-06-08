@@ -66,6 +66,8 @@
 #include "macros.h"
 
 #define VOICE_NONE 255
+#define NOTE_NONE  255
+
 
 #ifndef NB_VOICES
 #define NB_VOICES 64
@@ -79,6 +81,15 @@
 #define VOICE_ALLOC_LOG LOG
 #endif
 
+/* To keep the implementation simple, the linked lists are implemented
+   as circular bi-directional lists with a marker-only head element
+   that sits in between start and end.  These heads are added to the
+   array of voices. */
+#define VOICE_OFF (NB_VOICES)
+#define VOICE_ON  (NB_VOICES+1)
+
+#define VOICE_MAX_SEMA 255
+
 struct voice_meta {
     uint8_t prev;  // previous element in on or off queue
     uint8_t next;  // next ...
@@ -86,12 +97,178 @@ struct voice_meta {
     uint8_t note;  // voice->note map
 };
 
+
 struct voice_alloc {
-    struct voice_meta voice[NB_VOICES];
-    uint8_t note_to_voice[NB_NOTES]; 
-    uint8_t next_on;
-    uint8_t next_off;
+    struct voice_meta voice[NB_VOICES + 2 /* VOICE_OFF, VOICE_ON */];
+    uint8_t note_to_voice[NB_NOTES];
 };
+
+/* Implement insert + remove primitives. */
+
+/* Precondition: voice is not part of any list.  This is necessary
+   because the next/prev pointers are stored in the voice struct, not
+   separately. */
+static inline void voice_alloc_insert_before(
+    struct voice_alloc *va,
+    uint8_t element_nb,
+    uint8_t new_before_nb) {
+
+    /* Standard circular list insert before element.  Three elements
+       need to be updated: the element marker, the new before element,
+       and the previous before element.
+
+       PRE:      [prev_before] <-> [element]
+       POST:     [prev_before] <-> [new_before] <-> [element]
+
+     */
+
+    struct voice_meta *element     = &va->voice[element_nb];
+    struct voice_meta *prev_before = &va->voice[element->prev];
+    struct voice_meta *new_before  = &va->voice[new_before_nb];
+
+    ASSERT(new_before->prev == VOICE_NONE);
+    ASSERT(new_before->next == VOICE_NONE);
+
+    new_before->next  = element_nb;
+    new_before->prev  = element->prev;
+    prev_before->next = new_before_nb;
+    element->prev     = new_before_nb;
+
+}
+
+/* After this, the element needs to be added to the other list to
+   maintain the invariant that the voice is in one of the two
+   lists. */
+static inline void voice_alloc_remove(
+    struct voice_alloc *va,
+    uint8_t to_remove_nb) {
+
+    /* Standard circular list remove.  Three elements need to be
+       updated.  The element to be removed, and the elements before
+       and after (which can include a head/tail marker.
+
+       PRE:     [before] <-> [to_remove] <-> [after]
+       POST:    [before] <-> [after]
+    */
+
+    struct voice_meta *to_remove = &va->voice[to_remove_nb];
+    struct voice_meta *before    = &va->voice[to_remove->prev];
+    struct voice_meta *after     = &va->voice[to_remove->next];
+
+    before->next = to_remove->next;
+    after->prev  = to_remove->prev;
+
+    to_remove->next = VOICE_NONE;
+    to_remove->prev = VOICE_NONE;
+}
+
+
+
+/* Implement the allocator primitives directly in terms of the
+   insert/remove primitives.  No need to make this implementation very
+   layered. */
+
+
+static inline int voice_alloc_queue_empty(struct voice_alloc *va, uint8_t queue_nb) {
+    struct voice_meta *q = &va->voice[queue_nb];
+    if (q->next == queue_nb) {
+        ASSERT(q->prev == queue_nb);
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
+
+void voice_alloc_note_on(struct voice_alloc *va, uint8_t note) {
+    ASSERT(note < NB_NOTES);
+    uint8_t voice_nb = va->note_to_voice[note];
+    if (voice_nb == VOICE_NONE) {
+        /* Note is not associated to a voice.  Identify which voice to
+           reuse. One of the queues is guaranteed to be non-empty. */
+        if (!voice_alloc_queue_empty(va, VOICE_OFF)) {
+            voice_nb = va->voice[VOICE_OFF].next;
+        }
+        else {
+            ASSERT(!voice_alloc_queue_empty(va, VOICE_ON));
+            voice_nb = va->voice[VOICE_ON].next;
+        }
+        /* Remove it from the queue it was in and move it to the back
+           of the ON queue.  Circular list, so this is implemented as
+           before the beginning. */
+        voice_alloc_remove(va, voice_nb);
+        voice_alloc_insert_before(va, VOICE_ON, voice_nb);
+
+        /* Re-initialize, killing all traces of the old voice. */
+        struct voice_meta *v = &va->voice[voice_nb];
+        uint8_t old_note = v->note;
+        if (old_note != NOTE_NONE) {
+            va->note_to_voice[old_note] = VOICE_NONE;
+        }
+        v->sema = 1;
+        v->note = note;
+        va->note_to_voice[note] = voice_nb;
+        // FIXME: note_to_inc
+        // FIXME: trigger the envelope
+    }
+    else {
+        /* Note is already associated to a voice in on or off state
+           (decaying).  This means we can simply reuse it. */
+        struct voice_meta *v = &va->voice[voice_nb];
+
+        /* Check that back reference is consistent. */
+        ASSERT(note == v->note);
+
+        if (0 == v->sema) {
+            /* Voice is in the off state, we will reactivate it.  Move
+               it from the off queue into the end of the on queue. */
+            voice_alloc_remove(va, voice_nb);
+            voice_alloc_insert_before(va, VOICE_ON, voice_nb);
+            // FIXME: trigger the envelope
+        }
+        else {
+            /* Voice is in the on state. */
+            if (v->sema == VOICE_MAX_SEMA) {
+                /* Cannot support more simultaneous on states, so drop
+                   the voice. */
+                VOICE_ALLOC_LOG("Dropping note_on %d\n", note);
+            }
+            else {
+                v->sema++;
+                // FIXME: trigger the envelope
+            }
+        }
+    }
+}
+
+void voice_alloc_note_off(struct voice_alloc *va, uint8_t note) {
+    ASSERT(note < NB_NOTES);
+    uint8_t voice_nb = va->note_to_voice[note];
+    if (voice_nb == VOICE_NONE) {
+        VOICE_ALLOC_LOG("Dropping unknown note_off %d\n", note);
+    }
+    else {
+        struct voice_meta *v = &va->voice[voice_nb];
+        ASSERT(note == v->note);
+        if (0 == v->sema) {
+            VOICE_ALLOC_LOG("Dropping spurious note_off %d\n", note);
+        }
+        else {
+            v->sema--;
+            if (0 == v->sema) {
+                // FIXME: remove note from on queue
+                // FIXME: add note to off queue
+                // FIXME: send note off to envelope
+            }
+            else {
+                /* Nothing to do.  Note will stay in the on state
+                   until we have compensated all on events with off
+                   events. */
+            }
+        }
+    }
+}
+
 
 static inline void voice_alloc_init(struct voice_alloc *va) {
     /* This will initialize all sema=0 meaning voices are off.  The
@@ -102,34 +279,45 @@ static inline void voice_alloc_init(struct voice_alloc *va) {
     /* Empty note to voice map. */
     memset(va->note_to_voice, VOICE_NONE, sizeof(va->note_to_voice));
 
-    /* All voices are in the off queue, and the on queue is empty. */
-    va->next_on = VOICE_NONE;
-    va->next_off = 0;
 
-    /* Initialize next/prev for first, mid and last elements. */
-    struct voice_meta *v = &va->voice[0];
-    v[0].prev = VOICE_NONE;
-    v[0].next = 1;
-    for(uint8_t n = 1; n < NB_VOICES-1; n++) {
-        v[n].prev = n-1;
-        v[n].next = n+1;
+    /* Initialize both lists to contain only the head element,
+       meaning they are empty. */
+    va->voice[VOICE_ON].prev = VOICE_ON;
+    va->voice[VOICE_ON].next = VOICE_ON;
+    va->voice[VOICE_OFF].prev = VOICE_OFF;
+    va->voice[VOICE_OFF].next = VOICE_OFF;
+
+    /* Add all the notes to the off list. */
+    for(uint8_t n = 0; n < NB_VOICES; n++) {
+        struct voice_meta *v = &va->voice[n];
+        v->prev = VOICE_NONE;
+        v->next = VOICE_NONE;
+        v->sema = 0; // off
+        v->note = NOTE_NONE;
+        voice_alloc_insert_before(va, VOICE_OFF, n);
     }
-    v[NB_VOICES-1].prev = NB_VOICES-2;
-    v[NB_VOICES-1].next = VOICE_NONE;
-
 }
 
-static inline void voice_alloc_log_chain(struct voice_alloc *va, const char *tag, uint8_t n) {
+static inline void voice_alloc_log_chain(struct voice_alloc *va, const char *tag, uint8_t head_nb) {
     VOICE_ALLOC_LOG("%s: (", tag);
-    for (; n != VOICE_NONE; n = va->voice[n].next) {
+    for (uint8_t n = va->voice[head_nb].next;
+         n != head_nb;
+         n = va->voice[n].next) {
         VOICE_ALLOC_LOG(" %d", n);
     }
     VOICE_ALLOC_LOG(" )\n");
 }
 
 static inline void voice_alloc_dump(struct voice_alloc *va) {
-    voice_alloc_log_chain(va, "on", va->next_on);
-    voice_alloc_log_chain(va, "off", va->next_off);
+    voice_alloc_log_chain(va, "on",  VOICE_ON);
+    voice_alloc_log_chain(va, "off", VOICE_OFF);
 }
+
+static inline int voice_alloc_voice_state(struct voice_alloc *va, uint8_t voice_nb) {
+    /* The sema will tell us whether the voice is on or off.  Note
+       that also tells us which queue it is in. */
+    return !!(va->voice[voice_nb].sema);
+}
+
 
 #endif
