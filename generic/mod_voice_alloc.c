@@ -88,7 +88,9 @@
 #define VOICE_OFF (NB_VOICES)
 #define VOICE_ON  (NB_VOICES+1)
 
+#ifndef VOICE_MAX_SEMA
 #define VOICE_MAX_SEMA 255
+#endif
 
 struct voice_meta {
     uint8_t prev;  // previous element in on or off queue
@@ -256,8 +258,9 @@ void voice_alloc_note_off(struct voice_alloc *va, uint8_t note) {
         else {
             v->sema--;
             if (0 == v->sema) {
-                // FIXME: remove note from on queue
-                // FIXME: add note to off queue
+                /* Move from on to off queue. */
+                voice_alloc_remove(va, voice_nb);
+                voice_alloc_insert_before(va, VOICE_OFF, voice_nb);
                 // FIXME: send note off to envelope
             }
             else {
@@ -298,19 +301,25 @@ static inline void voice_alloc_init(struct voice_alloc *va) {
     }
 }
 
-static inline void voice_alloc_log_chain(struct voice_alloc *va, const char *tag, uint8_t head_nb) {
-    VOICE_ALLOC_LOG("%s: (", tag);
+static inline void voice_alloc_dump_chain(struct voice_alloc *va, uint8_t head_nb) {
     for (uint8_t n = va->voice[head_nb].next;
          n != head_nb;
          n = va->voice[n].next) {
-        VOICE_ALLOC_LOG(" %d", n);
+        if (head_nb == VOICE_OFF) {
+            VOICE_ALLOC_LOG(" %d", n);
+        }
+        else {
+            struct voice_meta *v = &va->voice[n];
+            VOICE_ALLOC_LOG(" %d[%d]", n, v->sema);
+        }
     }
-    VOICE_ALLOC_LOG(" )\n");
 }
 
 static inline void voice_alloc_dump(struct voice_alloc *va) {
-    voice_alloc_log_chain(va, "on",  VOICE_ON);
-    voice_alloc_log_chain(va, "off", VOICE_OFF);
+    voice_alloc_dump_chain(va, VOICE_OFF);
+    VOICE_ALLOC_LOG(" |");
+    voice_alloc_dump_chain(va, VOICE_ON);
+    VOICE_ALLOC_LOG("\n");
 }
 
 static inline int voice_alloc_voice_state(struct voice_alloc *va, uint8_t voice_nb) {
