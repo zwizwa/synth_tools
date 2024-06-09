@@ -6,10 +6,19 @@
 
 /* Use a global variable, that makes notation a little simpler. */
 struct voice_alloc va;
-void init() { voice_alloc_init(&va); }
+
+void voice_event(struct voice_alloc *va,
+                 uint8_t voice_nb,
+                 uint8_t event,
+                 uint8_t note,
+                 uint8_t velocity) {
+    LOG("E(%d,%x,%d,%d)", voice_nb, event, note, velocity);
+}
+
+void init() { voice_alloc_init(&va, voice_event); }
 void dump() { voice_alloc_dump(&va); }
-void on(uint8_t note)  { voice_alloc_note_on(&va, note);  dump(); }
-void off(uint8_t note) { voice_alloc_note_off(&va, note); dump(); }
+void on(uint8_t note)  { voice_alloc_note_on(&va, note, 100);  dump(); }
+void off(uint8_t note) { voice_alloc_note_off(&va, note, 100); dump(); }
 void n_on (int nb, uint8_t note) { for(int i=0; i<nb; i++) { on(note);  } }
 void n_off(int nb, uint8_t note) { for(int i=0; i<nb; i++) { off(note); } }
 
@@ -29,7 +38,7 @@ int main(int argc, char **argv) {
        handle, then visually inspect the state.  Writing invariants is
        not something I can just do atm. */
 
-    LOG("\n2 ON, 2 OFF NOTE 64 to test semaphores\n");
+    LOG("\n2 ON, 2 OFF NOTE 64 to test semaphores without overflow\n");
     n_on(2, 64);
     n_off(2, 64);
 
