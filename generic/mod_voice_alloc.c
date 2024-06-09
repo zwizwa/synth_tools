@@ -226,6 +226,7 @@ void voice_alloc_note_on(struct voice_alloc *va, uint8_t note) {
                it from the off queue into the end of the on queue. */
             voice_alloc_remove(va, voice_nb);
             voice_alloc_insert_before(va, VOICE_ON, voice_nb);
+            v->sema = 1;
             // FIXME: trigger the envelope
         }
         else {
@@ -305,11 +306,14 @@ static inline void voice_alloc_dump_chain(struct voice_alloc *va, uint8_t head_n
     for (uint8_t n = va->voice[head_nb].next;
          n != head_nb;
          n = va->voice[n].next) {
+        struct voice_meta *v = &va->voice[n];
         if (head_nb == VOICE_OFF) {
-            VOICE_ALLOC_LOG(" %d", n);
+            /* Asterisk makes a difference between clean unused voice,
+               and a voice that has seen an OFF note but is still
+               ringing. */
+            VOICE_ALLOC_LOG(" %d%s", n, v->note == VOICE_NONE ? "" : "*");
         }
         else {
-            struct voice_meta *v = &va->voice[n];
             VOICE_ALLOC_LOG(" %d[%d]", n, v->sema);
         }
     }
