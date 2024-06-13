@@ -193,8 +193,7 @@ struct app {
     int alsa_client_id;
     int alsa_port_id;
     pthread_t alsa_thread;
-    int alsa_npfd;
-    struct pollfd *alsa_pfd;
+    int alsa_pipefd[2]; //0=read, 1=write
 
 } app_state = {};
 
@@ -735,6 +734,9 @@ static void app_process(struct app *app) {
 
     process_z_debug(app);
 
+    uintptr_t ev = 0;
+    assert_write(app->alsa_pipefd[1], (const void*)&ev, sizeof(ev));
+
 }
 
 static int process (jack_nframes_t nframes, void *arg) {
@@ -1153,14 +1155,25 @@ const struct alsa_input_config alsa_input_config[] = {
 void *alsa_main(void *arg) {
     struct app *app = arg;
 
-    // FIXME: I just did this from example. Poll probably isn't
-    // necessary if snd_seq_event_input() is blocking.
+    int npfd = snd_seq_poll_descriptors_count(app->seq, POLLIN);
+    struct pollfd pfd[npfd + 1]; // One extra for pipe
+    snd_seq_poll_descriptors(app->seq, pfd + 1, npfd, POLLIN);
+
+    pfd[0].fd = app->alsa_pipefd[0];
+    pfd[0].events = POLLIN;
 
     for(;;) {
-        // LOG("poll\n");
-        if (poll(app->alsa_pfd, app->alsa_npfd, -1 /*inf*/) > 0) {
 
-            do {
+        // LOG("poll\n");
+        if (poll(pfd, 1 + npfd, -1 /*inf*/) > 0) {
+
+            if(pfd[0].revents & POLLIN) {
+                /* Event from jack thread. */
+                uintptr_t ev;
+                assert_read(pfd[0].fd, &ev, sizeof(ev));
+                // LOG("jack event\n");
+            }
+            else do {
                 snd_seq_event_t *ev;
                 snd_seq_event_input(app->seq, &ev);
                 switch(ev->type) {
@@ -1175,9 +1188,11 @@ void *alsa_main(void *arg) {
                         snd_midi_event_decode(
                             app->alsa_decoder, buf, sizeof(buf), ev));
                     if (count > 0) {
-                        LOG("ALSA MIDI:");
-                        for (long i=0; i<count; i++) { LOG(" %02x", buf[i]); }
-                        LOG("\n");
+                        if (1) {
+                            LOG("ALSA MIDI %d:%d", ev->source.client, ev->source.port);
+                            for (long i=0; i<count; i++) { LOG(" %02x", buf[i]); }
+                            LOG("\n");
+                        }
 
                         /* Re-encode */
                         snd_seq_event_t out_ev;
@@ -1234,9 +1249,8 @@ void app_alsa_init(struct app *app) {
     app_alsa_connect(app, alsa_input_config);
 
 
-    app->alsa_npfd = snd_seq_poll_descriptors_count(app->seq, POLLIN);
-    app->alsa_pfd = (struct pollfd *)malloc(app->alsa_npfd * sizeof(struct pollfd));
-    snd_seq_poll_descriptors(app->seq, app->alsa_pfd, app->alsa_npfd, POLLIN);
+    /* Events from jack realtime thread to low-pri ALSA thread */
+    ASSERT_ERRNO(pipe(app->alsa_pipefd));
 
     /* Run ALSA I/O in the backkground. */
     pthread_create(&app->alsa_thread, NULL, alsa_main, app);
@@ -1256,7 +1270,6 @@ int main(int argc, char **argv) {
 
     /* ALSA MIDI setup */
     app_alsa_init(app);
-
 
     /* Jack client setup */
     const char *client_name = "hub"; // argv[1];
