@@ -42,7 +42,7 @@ void app_sequencer_tick(struct sequencer *seq, const union pattern_event *ev) {
 
     if (msg[0] < 16) {
         // FIXME: msg[0] is midi port, make numerical mapping
-        send_midi(app->midi_out_buf, 0, msg + 1, 3);
+        jack_send_midi(app->midi_out_buf, 0, msg + 1, 3);
     }
     else {
         LOG("unsupported event tag %d\n", msg[0]);

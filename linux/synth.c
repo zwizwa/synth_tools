@@ -23,6 +23,7 @@
 #include "assert_read.h"
 
 #include "jack_tools.h"
+#include "alsa_tools.h"
 
 // The synth engine is part of the rkt/cgen.rkt test suite.
 // See rkt/test-cgen.rkt
@@ -70,6 +71,12 @@ struct synth {
 
     /* Voice allocator state */
     struct voice_alloc voice_alloc;
+
+    /* ALSA */
+    snd_seq_t *seq;
+    snd_midi_event_t *alsa_decoder;
+    int alsa_client_id;
+    int alsa_port_id;
 
 };
 
@@ -351,6 +358,9 @@ static int process (jack_nframes_t nframes, void *arg) {
     return 0;
 }
 
+
+#define MAX_MIDI 16
+
 int main(int argc, char **argv) {
 
     /* Jack client setup */
@@ -369,12 +379,82 @@ int main(int argc, char **argv) {
 
     synth_init(&synth);
 
+    /* Support ALSA MIDI */
+    ALSA_ASSERT(snd_seq_open(&synth.seq, "hw", SND_SEQ_OPEN_INPUT, 0));
+    snd_seq_set_client_name(synth.seq, "synth");
+    synth.alsa_client_id = snd_seq_client_id(synth.seq);
+    synth.alsa_port_id = ALSA_ASSERT(
+        snd_seq_create_simple_port(
+            synth.seq, "synth_midi",
+            SND_SEQ_PORT_CAP_WRITE |
+            SND_SEQ_PORT_CAP_SUBS_WRITE,
+            SND_SEQ_PORT_TYPE_HARDWARE));
+    ALSA_ASSERT(snd_midi_event_new(MAX_MIDI, &synth.alsa_decoder));
+    snd_midi_event_reset_decode(synth.alsa_decoder);
+    snd_midi_event_no_status(synth.alsa_decoder, 1);
+
+
     /* Input loop. */
+    int npfd = snd_seq_poll_descriptors_count(synth.seq, POLLIN);
+    struct pollfd pfd[npfd + 1]; // One extra for stdin
+    snd_seq_poll_descriptors(synth.seq, pfd + 1, npfd, POLLIN);
+
+    pfd[0].fd = 0;
+    pfd[0].events = POLLIN;
+
+
     for(;;) {
-        // FIXME: only used to signal exit
-        uint8_t buf[4];
-        assert_read(0, buf, sizeof(buf));
-        exit(1);
+        if (poll(pfd, 1 + npfd, -1 /*inf*/) > 0) {
+
+            // FIXME: Handle errors
+
+            if (pfd[0].revents & POLLIN) {
+                // FIXME: only used to signal exit
+                uint8_t buf[4];
+                assert_read(0, buf, sizeof(buf));
+                exit(1);
+            }
+            else {
+                do {
+                    snd_seq_event_t *ev;
+                    snd_seq_event_input(synth.seq, &ev);
+                    // LOG("synth: event\n");
+                    switch(ev->type) {
+                    case SND_SEQ_EVENT_CLOCK:
+                        // Not needed until we have LFO sync.
+                        // LOG("event: clock\n");
+                        break;
+                    case SND_SEQ_EVENT_PORT_SUBSCRIBED:
+                        LOG("event: port subscribed\n");
+                        break;
+                    default: {
+                        /* Not handling all snd_seq_event_type separately.
+                           Try to convert it to midi. */
+                        static unsigned char buf[MAX_MIDI];
+
+                        long count = snd_midi_event_decode(
+                            synth.alsa_decoder, buf, sizeof(buf), ev);
+                        if (count > 0) {
+                            if (1) {
+                                LOG("synth: ALSA MIDI %d:%d",
+                                    ev->source.client, ev->source.port);
+                                for (long i=0; i<count; i++) { LOG(" %02x", buf[i]); }
+                                LOG("\n");
+                            }
+                            /* FIXME: Send it to jack thread. */
+                        }
+                        else {
+                            /* Event not supported or decoder error. */
+                            LOG("WARNING: decode=%d, event=%d\n", count, ev->type);
+                        }
+                        break;
+                    }}
+                    snd_seq_free_event(ev);
+
+                }
+                while (snd_seq_event_input_pending(synth.seq, 0) > 0);
+            }
+        }
     }
 
     return 0;

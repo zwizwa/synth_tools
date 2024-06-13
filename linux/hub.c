@@ -82,6 +82,7 @@ struct alsa_midi_config {
 
 const struct alsa_midi_config alsa_midi_config[] = {
     { .name = "Axiom 25", .as_inputs = 0b111, .as_outputs = 0b1},
+    { .name = "synth",                        .as_outputs = 0b1},
     {}
 };
 
@@ -99,7 +100,12 @@ void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
 #include "mod_send_tag_u32.c"
 
 /* JACK */
-#define FOR_MIDI_IN(m) \
+
+/* For now all jack ports are disabled, replaced with ALSA */
+
+#define FOR_MIDI_IN(m)
+
+#define FOR_MIDI_IN_DISABLED(m) \
     m(clock_in)        \
     m(akai_fire_in)    \
     m(maudio_axiom25_in)        \
@@ -108,13 +114,13 @@ void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
     m(keystation_in1)  \
     m(keystation_in2)  \
     m(z_debug)         \
-
-#define FOR_MIDI_IN_DISABLED(m) \
     m(uma_in)          \
     m(novation_remote_in)          \
 
 
 #define FOR_MIDI_OUT(m) \
+
+#define FOR_MIDI_DISABLED(m) \
     m(tb03)         \
     m(fire_out)     \
     m(volca_keys)   \
@@ -310,7 +316,8 @@ void mmc_press_stop(struct mmc *mmc) {
         break;
     case MMC_MODE_PLAY:
         /* Turn off any slave devices and stop sequencer. */
-        send_stop(app->transport_buf);
+        // FIXME: send_stop(app->transport_buf);
+
         sequencer_restart(&app->sequencer);
         mmc->mode = MMC_MODE_OFF;
         /* Send note off events for all notes that are still on. */
@@ -417,18 +424,18 @@ static inline void *midi_out_buf_cleared(jack_port_t *port, jack_nframes_t nfram
 
 
 
+#if 0
 static inline void process_z_debug(struct app *app) {
     FOR_MIDI_EVENTS(iter, z_debug, app->nframes) {
-#if 1
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         LOG_HEX("z_debug:", msg, n);
-#endif
     }
 }
+#endif
 
 
-
+#if 0
 static inline void process_clock_in(struct app *app) {
     struct mmc *mmc = &app->mmc;
     FOR_MIDI_EVENTS(iter, clock_in, app->nframes) {
@@ -454,9 +461,11 @@ static inline void process_clock_in(struct app *app) {
         }
     }
 }
+#endif
 
 // FIXME: I want a simpler midi dispatch construct.
 
+#if 0
 static inline void process_easycontrol_in(struct app *app) {
     FOR_MIDI_EVENTS(iter, easycontrol, app->nframes) {
         const uint8_t *msg = iter.event.buffer;
@@ -490,6 +499,7 @@ static inline void process_easycontrol_in(struct app *app) {
         }
     }
 }
+#endif
 
 
 /* Data flow:  FIXME TODO
@@ -505,12 +515,19 @@ static inline void process_easycontrol_in(struct app *app) {
 
 
 /* Map selector to port/channel. */
+
+/* Note that this is now only called in the ALSA thread.  Jack devices
+   can only be reached by writing to a ring buffer and then performing
+   the write in the jack process function, which is currently not
+   supported. */
+
 void route_pattern_event(struct route *route, const union pattern_event *ev) {
 
     const uint8_t *msg = &ev->u8[1];
     int len = 3; // FIXME: Depends on the contents of the event.  Currently only note, cc.
 
     struct app *app = route_to_app(route);
+    (void)app;
     int port = ev->u8[0] & 0x0F; // FIXME: Assumes midi
 
     /* Below is only for MIDI */
@@ -532,9 +549,13 @@ void route_pattern_event(struct route *route, const union pattern_event *ev) {
     switch(port) {
     /* Jack midi port connected to pd_io object, which takes jack
        midi in and converts it to netsend into Pd. */
-    case 0: send_midi(app->pd_out_buf, 0, msg, len); break;
+    case 0:
+        // FIXME: send_midi(app->pd_out_buf, 0, msg, len);
+        break;
     /* synth.c */
-    case 1: send_midi(app->synth_out_buf, 0, msg, len); break;
+    case 1:
+        // FIXME: send_midi(app->synth_out_buf, 0, msg, len);
+        break;
     }
 
     /* Send a copy to Erlang. */
@@ -642,6 +663,7 @@ static inline void process_novation_remote_in(struct app *app) {
 }
 #endif
 
+#if 0
 static inline void process_arturia_minilab_in(struct app *app) {
     struct midi_cursor cur = midi_cursor_init(arturia_minilab_in, app->nframes);
     process_arturia_minilab(
@@ -656,7 +678,9 @@ static inline void process_arturia_minilab_in(struct app *app) {
         &app->route
         );
 }
+#endif
 
+#if 0
 static inline void process_maudio_axiom25_in(struct app *app) {
     struct midi_cursor cur = midi_cursor_init(maudio_axiom25_in, app->nframes);
     process_maudio_axiom25(
@@ -671,7 +695,9 @@ static inline void process_maudio_axiom25_in(struct app *app) {
         &app->route
         );
 }
+#endif
 
+#if 0
 static inline void process_keystation_in1(struct app *app) {
     struct midi_cursor cur = midi_cursor_init(keystation_in1, app->nframes);
     process_keystation_1(
@@ -685,6 +711,9 @@ static inline void process_keystation_in1(struct app *app) {
         &app->route
         );
 }
+#endif
+
+#if 0
 static inline void process_keystation_in2(struct app *app) {
     struct midi_cursor cur = midi_cursor_init(keystation_in2, app->nframes);
     process_keystation_2(
@@ -698,6 +727,7 @@ static inline void process_keystation_in2(struct app *app) {
         &app->route
         );
 }
+#endif
 
 
 struct hub_command;
@@ -789,21 +819,22 @@ static void app_process(struct app *app) {
 
     /* Order is important. */
     process_telnet(app);
-    process_clock_in(app);
-    process_easycontrol_in(app);
-    process_arturia_minilab_in(app);
-    process_maudio_axiom25_in(app);
-    process_keystation_in1(app);
-    process_keystation_in2(app);
+
+    // process_clock_in(app);
+    // process_easycontrol_in(app);
+    // process_arturia_minilab_in(app);
+    // process_maudio_axiom25_in(app);
+    // process_keystation_in1(app);
+    // process_keystation_in2(app);
     // process_novation_remote_in(app);
     // process_uma_in(app);
     process_erl_out(app);
 
     /* FIXME: Normalize this. */
-    void *akai_fire_in_buf = jack_port_get_buffer(akai_fire_in, app->nframes);
-    akai_fire_process(&app->akai_fire, app->fire_out_buf, akai_fire_in_buf);
+    //void *akai_fire_in_buf = jack_port_get_buffer(akai_fire_in, app->nframes);
+    //akai_fire_process(&app->akai_fire, app->fire_out_buf, akai_fire_in_buf);
 
-    process_z_debug(app);
+    // process_z_debug(app);
 
 
     process_clock(app);
@@ -817,10 +848,12 @@ static void app_process(struct app *app) {
 static int process (jack_nframes_t nframes, void *arg) {
     struct app *app = &app_state;
     app->nframes = nframes;
-    app->pd_out_buf    = midi_out_buf_cleared(pd_out, nframes);
-    app->transport_buf = midi_out_buf_cleared(transport, nframes);
-    app->fire_out_buf  = midi_out_buf_cleared(fire_out, nframes);
-    app->synth_out_buf = midi_out_buf_cleared(synth_out, nframes);
+
+    // app->pd_out_buf    = midi_out_buf_cleared(pd_out, nframes);
+    // app->transport_buf = midi_out_buf_cleared(transport, nframes);
+    // app->fire_out_buf  = midi_out_buf_cleared(fire_out, nframes);
+    // app->synth_out_buf = midi_out_buf_cleared(synth_out, nframes);
+
     app_process(app);
     app->mmc.time += nframes;
     return 0;
@@ -1248,6 +1281,10 @@ void *alsa_main(void *arg) {
                 assert_read(pfd[0].fd, &ev, sizeof(ev));
                 switch(ev) {
                 case 0: {
+                    if (mmc_running(&app->mmc)) {
+                        sequencer_tick(&app->sequencer);
+                    }
+
                     // LOG("MIDI CLOCK\n");
                     snd_seq_event_t clock_ev;
                     uint8_t midi_clock[1] = { 0xF8 };
@@ -1302,10 +1339,11 @@ void *alsa_main(void *arg) {
                         /* Event not supported or decoder error. */
                         LOG("WARNING: decode=%d, event=%d\n", count, ev->type);
                     }
-                    snd_seq_free_event(ev);
                     break;
                 }
                 }
+                snd_seq_free_event(ev);
+
             } while (snd_seq_event_input_pending(app->seq, 0) > 0);
 
 

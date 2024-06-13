@@ -54,7 +54,7 @@ void to_erl_midi(const uint8_t *buf, int nb, uint8_t port);
 void to_erl_pterm(const char *pterm);
 
 
-static void process_maudio_axiom25(
+static inline void process_maudio_axiom25(
     /* Private state data */
     struct maudio_axiom25 *s,
     /* MIDI in data is provided in a slightly general way.  This

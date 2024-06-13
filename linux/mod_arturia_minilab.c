@@ -50,7 +50,7 @@ void to_erl_midi(const uint8_t *buf, int nb, uint8_t port);
 void to_erl_pterm(const char *pterm);
 
 
-static void process_arturia_minilab(
+static inline void process_arturia_minilab(
     /* Private state data */
     struct arturia_minilab *s,
     /* MIDI in data is provided in a slightly general way.  This
