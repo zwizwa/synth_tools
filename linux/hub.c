@@ -35,6 +35,12 @@
 */
 
 
+
+
+/* See clock.c for comments.  Functionality is back inside hub.c for now */
+#define BPM_TO_HPERIOD(sr,bpm) ((sr*5)/(bpm*4))
+
+
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 1
 
@@ -62,6 +68,26 @@
 
 
 #include "alsa_tools.h"
+
+
+/* Since drivers are hardcoded in hub.c, the port numbers should
+   probably be hardcoded as well.  Look up in a hardcode table if we
+   connect to this client and if so, which port(s).*/
+
+struct alsa_midi_config {
+    const char *name;
+    uintptr_t as_inputs;
+    uintptr_t as_outputs;
+};
+
+const struct alsa_midi_config alsa_midi_config[] = {
+    { .name = "Axiom 25", .as_inputs = 0b111, .as_outputs = 0b1},
+    {}
+};
+
+
+
+
 
 void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
     uint8_t len_buf[4];
@@ -113,6 +139,10 @@ static jack_client_t *client = NULL;
 struct mmc {
     uint32_t time;      /* rolling time */
     uint32_t mode:2;
+    jack_nframes_t bpm;
+    int clock_phase;
+    int clock_pol;
+    jack_nframes_t clock_hperiod;
 };
 
 struct route {
@@ -159,6 +189,7 @@ struct synth { };
 struct app {
     struct sequencer sequencer;
     jack_nframes_t nframes;
+    jack_nframes_t sr;
     uint8_t stamp;
 
     /* message handler state */
@@ -710,10 +741,50 @@ static void process_telnet(struct app *app) {
 
 }
 
+void app_to_alsa(struct app *app, uintptr_t ev) {
+    assert_write(app->alsa_pipefd[1], (const void*)&ev, sizeof(ev));
+}
+
+static void process_clock(struct app *app) {
+    /* This is an integer divisor of the sample clock, which makes it
+       possible to have perfect lock for devices that only receive
+       word clock in. */
+    struct mmc *mmc = &app->mmc;
+    if (!mmc->clock_hperiod) {
+        /* It seems that sr is only valid in side the process thread,
+           so set it here once. */
+        mmc->clock_hperiod = BPM_TO_HPERIOD(app->sr, mmc->bpm);
+        float bpm_actual = (((float)app->sr)*1.25f) / ((float)mmc->clock_hperiod);
+        LOG("clock: bpm_set = %d, sr = %d -> clock_hperiod = %d, bpm_actual = %3.6f\n",
+            mmc->bpm, app->sr, mmc->clock_hperiod, bpm_actual);
+        // FIXME: Send out an NRPN as well?
+    }
+
+    /* Generate quare wave output, send midi on positive edge. */
+    for (int t=0; t<app->nframes; t++) {
+        if (mmc->clock_phase >= mmc->clock_hperiod) {
+            mmc->clock_phase -= mmc->clock_hperiod;
+            mmc->clock_pol ^= 1;
+            if (mmc->clock_pol == 1) {
+                // Send event to ALSA thread
+                uintptr_t ev = 0;
+                app_to_alsa(app, ev);
+                // const uint8_t clock[] = {0xF8};
+                // send_midi(midi_out_buf, t, clock, sizeof(clock));
+            }
+        }
+        // FIXME: Write audio sample later when adding audio port
+        // audio_out_buf[t] = clock_pol;
+        mmc->clock_phase += 1;
+    }
+}
+
 static void app_process(struct app *app) {
 
     /* Erlang out is tagged with a rolling time stamp. */
     jack_nframes_t f = jack_last_frame_time(client);
+    app->sr = jack_get_sample_rate(client);
+
     app->stamp = (f / app->nframes);
 
     /* Order is important. */
@@ -734,8 +805,12 @@ static void app_process(struct app *app) {
 
     process_z_debug(app);
 
-    uintptr_t ev = 0;
-    assert_write(app->alsa_pipefd[1], (const void*)&ev, sizeof(ev));
+
+    process_clock(app);
+
+    //uintptr_t ev = 0;
+    //app_to_alsa(app, ev);
+
 
 }
 
@@ -1003,6 +1078,10 @@ void app_init(struct app *app) {
 
     app->telnet_fd = -1;
 
+    app->mmc.bpm = 120;
+    app->mmc.clock_phase = 0;
+    app->mmc.clock_pol = 1;
+
 }
 
 void synth_tools_rs_init(void);
@@ -1102,28 +1181,31 @@ void *telnet_main(void *arg) {
 
 #define MAX_MIDI 1024
 
-struct alsa_input_config {
-    const char *name;
-    uintptr_t portmask;
-};
-
 void app_alsa_connect_input(struct app *app, uint8_t client, uint8_t port) {
     snd_seq_addr_t src = { .client = client, .port = port};
     snd_seq_addr_t dst = { .client = app->alsa_client_id, .port = app->alsa_port_id};
-    LOG("Connecting %d:%d -> %d:%d\n",
-        src.client, src.port,
-        dst.client, dst.port);
+    alsa_connect(app->seq, src, dst);
+}
+void app_alsa_connect_output(struct app *app, uint8_t client, uint8_t port) {
+    snd_seq_addr_t src = { .client = app->alsa_client_id, .port = app->alsa_port_id};
+    snd_seq_addr_t dst = { .client = client, .port = port};
     alsa_connect(app->seq, src, dst);
 }
 
-void app_alsa_maybe_connect(struct app *app, const struct alsa_input_config *ic,
+void app_alsa_maybe_connect(struct app *app, const struct alsa_midi_config *ic,
                             const char *client_name, uint8_t client_id) {
     for(;ic->name;ic++) {
         if (!strcmp(ic->name, client_name)) {
-            uintptr_t portmask = ic->portmask;
-            for(int i=0; portmask!=0; i++,portmask>>=1) {
-                if (portmask & 1) {
+            uintptr_t as_inputs = ic->as_inputs;
+            for(int i=0; as_inputs!=0; i++,as_inputs>>=1) {
+                if (as_inputs & 1) {
                     app_alsa_connect_input(app, client_id, i);
+                }
+            }
+            uintptr_t as_outputs = ic->as_outputs;
+            for(int i=0; as_outputs!=0; i++,as_outputs>>=1) {
+                if (as_outputs & 1) {
+                    app_alsa_connect_output(app, client_id, i);
                 }
             }
             return;
@@ -1131,7 +1213,7 @@ void app_alsa_maybe_connect(struct app *app, const struct alsa_input_config *ic,
     }
 }
 
-void app_alsa_connect(struct app *app, const struct alsa_input_config *ic) {
+void app_alsa_connect(struct app *app, const struct alsa_midi_config *ic) {
     snd_seq_client_info_t *cinfo;
     snd_seq_client_info_alloca(&cinfo);
     snd_seq_client_info_set_client(cinfo, -1);
@@ -1144,13 +1226,6 @@ void app_alsa_connect(struct app *app, const struct alsa_input_config *ic) {
     }
 }
 
-/* Since drivers are hardcoded in hub.c, the port numbers should
-   probably be hardcoded as well.  Look up in a hardcode table if we
-   connect to this client and if so, which port(s).*/
-const struct alsa_input_config alsa_input_config[] = {
-    { .name = "Axiom 25", .portmask = 0b111 },
-    {}
-};
 
 void *alsa_main(void *arg) {
     struct app *app = arg;
@@ -1171,6 +1246,24 @@ void *alsa_main(void *arg) {
                 /* Event from jack thread. */
                 uintptr_t ev;
                 assert_read(pfd[0].fd, &ev, sizeof(ev));
+                switch(ev) {
+                case 0: {
+                    // LOG("MIDI CLOCK\n");
+                    snd_seq_event_t clock_ev;
+                    uint8_t midi_clock[1] = { 0xF8 };
+                    snd_seq_ev_clear(&clock_ev);
+                    if (snd_midi_event_encode(
+                            app->alsa_encoder,
+                            midi_clock, sizeof(midi_clock),
+                            &clock_ev)) {
+                        snd_seq_ev_set_source(&clock_ev, app->alsa_port_id);
+                        snd_seq_ev_set_subs(&clock_ev);
+                        snd_seq_ev_schedule_tick(&clock_ev, app->alsa_queue_id, 1, 0);
+                    }
+                    snd_seq_event_output_direct(app->seq, &clock_ev);
+                    break;
+                }
+                }
                 // LOG("jack event\n");
             }
             else do {
@@ -1227,7 +1320,7 @@ void app_alsa_init(struct app *app) {
                              SND_SEQ_OPEN_OUTPUT | SND_SEQ_OPEN_INPUT, 0));
     snd_seq_set_client_name(app->seq, "hub");
 
-    app->alsa_client_id = 131; // FIXME
+    app->alsa_client_id = snd_seq_client_id(app->seq);
 
     app->alsa_queue_id = ALSA_ASSERT(snd_seq_alloc_queue(app->seq));
 
@@ -1246,7 +1339,7 @@ void app_alsa_init(struct app *app) {
 
     ALSA_ASSERT(snd_midi_event_new(MAX_MIDI, &app->alsa_encoder));
 
-    app_alsa_connect(app, alsa_input_config);
+    app_alsa_connect(app, alsa_midi_config);
 
 
     /* Events from jack realtime thread to low-pri ALSA thread */

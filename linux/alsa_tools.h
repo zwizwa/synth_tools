@@ -11,6 +11,11 @@
 static inline void alsa_connect(snd_seq_t *seq_handle,
                                 snd_seq_addr_t sender, snd_seq_addr_t dest)
 {
+
+    LOG("Connecting %d:%d -> %d:%d\n",
+        sender.client, sender.port,
+        dest.client, dest.port);
+
     // See alsa-utils/seq/aconnect/aconnect.c for example
     // Are these relevant?
     int queue = 0, convert_time = 0, convert_real = 0, exclusive = 0;

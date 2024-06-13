@@ -155,8 +155,8 @@ need_clients(State) ->
         [{Name,start_client(Name, State)}
          || Name <- [control   %% non-real time connectivity
                     ,hub       %% synth_tools hub.c (MIDI / Erlang hub)
-                    ,a2jmidid  %% upstream alsa to jack midi bridge
-                    ,clock     %% synth_tools clock.c
+                    %% ,a2jmidid  %% upstream alsa to jack midi bridge
+                    %% ,clock     %% synth_tools clock.c
                     %% ,pd  %% Introduces too many issues
                     ]]),
       State).
