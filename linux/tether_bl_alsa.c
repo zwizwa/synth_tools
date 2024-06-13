@@ -1,5 +1,5 @@
-#include <alsa/asoundlib.h>
 #include "macros.h"
+#include "alsa_tools.h"
 
 /* Just use globals for these. */
 snd_seq_t *seq_handle;
@@ -9,9 +9,26 @@ int queue_id;
 
 #define MAX_MIDI 1024
 
-/* Docs say "negative error code".  Find out where to find them */
-#define ALSA_ASSERT(cmd) \
-    ({int err; if ((err=(cmd)) < 0) { ERROR("%s: ERROR %d\n", #cmd, err); }; err;})
+
+void list_clients(void) {
+    snd_seq_client_info_t *cinfo;
+    snd_seq_client_info_alloca(&cinfo);
+    snd_seq_client_info_set_client(cinfo, -1);
+    while (snd_seq_query_next_client(seq_handle, cinfo) >= 0) {
+        int client = snd_seq_client_info_get_client(cinfo);
+        const char *name = snd_seq_client_info_get_name(cinfo);
+        int nb_ports = snd_seq_client_info_get_num_ports(cinfo);
+        LOG("client %d %s:%d\n", client, name, nb_ports);
+    }
+}
+
+#if 0
+void connect_client(const char *sender_str, const char *dest_str) {
+    snd_seq_addr_t sender, dest;
+    ALSA_ASSERT(snd_seq_parse_address(seq_handle, &sender, sender_str));
+    ALSA_ASSERT(snd_seq_parse_address(seq_handle, &dest, dest_str));
+}
+#endif
 
 int main(int argc, char **argv) {
     const char client_name[] = "tether_bl";
@@ -21,6 +38,8 @@ int main(int argc, char **argv) {
     queue_id = ALSA_ASSERT(snd_seq_alloc_queue(seq_handle));
 
 
+    // FIXME: How to subscribe to an existing client?
+
     /* Create ports */
     int out_port_id = ALSA_ASSERT(
         snd_seq_create_simple_port(
@@ -28,7 +47,7 @@ int main(int argc, char **argv) {
             SND_SEQ_PORT_CAP_READ |
             SND_SEQ_PORT_CAP_SUBS_READ,
             SND_SEQ_PORT_TYPE_HARDWARE));
-    LOG("out_port_id %d\n", out_port_id);
+    //LOG("out_port_id %d\n", out_port_id);
 
     int in_port_id = ALSA_ASSERT(
         snd_seq_create_simple_port(
@@ -36,7 +55,8 @@ int main(int argc, char **argv) {
             SND_SEQ_PORT_CAP_WRITE |
             SND_SEQ_PORT_CAP_SUBS_WRITE,
             SND_SEQ_PORT_TYPE_HARDWARE));
-    LOG("in_port_id %d\n", in_port_id);
+    //LOG("in_port_id %d\n", in_port_id);
+    (void)in_port_id;
 
     /* Create ALSA snd_seq_event_t decoder */
     ALSA_ASSERT(snd_midi_event_new(MAX_MIDI, &alsa_decoder));
@@ -44,6 +64,11 @@ int main(int argc, char **argv) {
     snd_midi_event_no_status(alsa_decoder, 1);
 
     ALSA_ASSERT(snd_midi_event_new(MAX_MIDI, &alsa_encoder));
+
+
+    list_clients();
+
+
 
     /* Get poll info */
     int npfd;

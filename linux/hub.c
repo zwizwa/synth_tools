@@ -38,6 +38,7 @@
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 1
 
+
 #include "macros.h"
 #include "jack_tools.h"
 #include "assert_read.h"
@@ -60,6 +61,7 @@
 #include "mod_telnet.c"
 
 
+#include "alsa_tools.h"
 
 void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
     uint8_t len_buf[4];
@@ -182,6 +184,17 @@ struct app {
     jack_ringbuffer_t *telnet_ringbuffer;
     //void (*telnet_op)(struct app *app);
     //uintptr_t telnet_lit;
+
+    /* ALSA MIDI */
+    snd_seq_t *seq;
+    snd_midi_event_t *alsa_decoder;
+    snd_midi_event_t *alsa_encoder;
+    int alsa_queue_id;
+    int alsa_client_id;
+    int alsa_port_id;
+    pthread_t alsa_thread;
+    int alsa_npfd;
+    struct pollfd *alsa_pfd;
 
 } app_state = {};
 
@@ -1085,6 +1098,151 @@ void *telnet_main(void *arg) {
     return NULL;
 }
 
+#define MAX_MIDI 1024
+
+struct alsa_input_config {
+    const char *name;
+    uintptr_t portmask;
+};
+
+void app_alsa_connect_input(struct app *app, uint8_t client, uint8_t port) {
+    snd_seq_addr_t src = { .client = client, .port = port};
+    snd_seq_addr_t dst = { .client = app->alsa_client_id, .port = app->alsa_port_id};
+    LOG("Connecting %d:%d -> %d:%d\n",
+        src.client, src.port,
+        dst.client, dst.port);
+    alsa_connect(app->seq, src, dst);
+}
+
+void app_alsa_maybe_connect(struct app *app, const struct alsa_input_config *ic,
+                            const char *client_name, uint8_t client_id) {
+    for(;ic->name;ic++) {
+        if (!strcmp(ic->name, client_name)) {
+            uintptr_t portmask = ic->portmask;
+            for(int i=0; portmask!=0; i++,portmask>>=1) {
+                if (portmask & 1) {
+                    app_alsa_connect_input(app, client_id, i);
+                }
+            }
+            return;
+        }
+    }
+}
+
+void app_alsa_connect(struct app *app, const struct alsa_input_config *ic) {
+    snd_seq_client_info_t *cinfo;
+    snd_seq_client_info_alloca(&cinfo);
+    snd_seq_client_info_set_client(cinfo, -1);
+    while (snd_seq_query_next_client(app->seq, cinfo) >= 0) {
+        int client = snd_seq_client_info_get_client(cinfo);
+        const char *name = snd_seq_client_info_get_name(cinfo);
+        int nb_ports = snd_seq_client_info_get_num_ports(cinfo);
+        LOG("client %d %s:%d\n", client, name, nb_ports);
+        app_alsa_maybe_connect(app, ic, name, client);
+    }
+}
+
+/* Since drivers are hardcoded in hub.c, the port numbers should
+   probably be hardcoded as well.  Look up in a hardcode table if we
+   connect to this client and if so, which port(s).*/
+const struct alsa_input_config alsa_input_config[] = {
+    { .name = "Axiom 25", .portmask = 0b111 },
+    {}
+};
+
+void *alsa_main(void *arg) {
+    struct app *app = arg;
+
+    // FIXME: I just did this from example. Poll probably isn't
+    // necessary if snd_seq_event_input() is blocking.
+
+    for(;;) {
+        // LOG("poll\n");
+        if (poll(app->alsa_pfd, app->alsa_npfd, -1 /*inf*/) > 0) {
+
+            do {
+                snd_seq_event_t *ev;
+                snd_seq_event_input(app->seq, &ev);
+                switch(ev->type) {
+                case SND_SEQ_EVENT_PORT_SUBSCRIBED:
+                    LOG("event: port subscribed\n");
+                    break;
+                default: {
+                    /* Not handling all snd_seq_event_type separately.
+                       Try to convert it to midi. */
+                    static unsigned char buf[MAX_MIDI];
+                    long count = ALSA_ASSERT(
+                        snd_midi_event_decode(
+                            app->alsa_decoder, buf, sizeof(buf), ev));
+                    if (count > 0) {
+                        LOG("ALSA MIDI:");
+                        for (long i=0; i<count; i++) { LOG(" %02x", buf[i]); }
+                        LOG("\n");
+
+                        /* Re-encode */
+                        snd_seq_event_t out_ev;
+                        snd_seq_ev_clear(&out_ev);
+                        if (snd_midi_event_encode(
+                                app->alsa_encoder, buf, count, &out_ev)) {
+                            snd_seq_ev_set_source(&out_ev, app->alsa_port_id);
+                            snd_seq_ev_set_subs(&out_ev);
+                            snd_seq_ev_schedule_tick(&out_ev, app->alsa_queue_id, 1, 0);
+                            snd_seq_event_output_direct(app->seq, &out_ev);
+                        }
+                    }
+                    else {
+                        /* Event not supported or decoder error. */
+                        LOG("WARNING: decode=%d, event=%d\n", count, ev->type);
+                    }
+                    snd_seq_free_event(ev);
+                    break;
+                }
+                }
+            } while (snd_seq_event_input_pending(app->seq, 0) > 0);
+
+
+        }
+
+    }
+}
+
+
+void app_alsa_init(struct app *app) {
+    ALSA_ASSERT(snd_seq_open(&app->seq, "hw",
+                             SND_SEQ_OPEN_OUTPUT | SND_SEQ_OPEN_INPUT, 0));
+    snd_seq_set_client_name(app->seq, "hub");
+
+    app->alsa_client_id = 131; // FIXME
+
+    app->alsa_queue_id = ALSA_ASSERT(snd_seq_alloc_queue(app->seq));
+
+    app->alsa_port_id = ALSA_ASSERT(
+        snd_seq_create_simple_port(
+            app->seq, "hub_midi",
+            SND_SEQ_PORT_CAP_READ |
+            SND_SEQ_PORT_CAP_SUBS_READ |
+            SND_SEQ_PORT_CAP_WRITE |
+            SND_SEQ_PORT_CAP_SUBS_WRITE,
+            SND_SEQ_PORT_TYPE_HARDWARE));
+
+    ALSA_ASSERT(snd_midi_event_new(MAX_MIDI, &app->alsa_decoder));
+    snd_midi_event_reset_decode(app->alsa_decoder);
+    snd_midi_event_no_status(app->alsa_decoder, 1);
+
+    ALSA_ASSERT(snd_midi_event_new(MAX_MIDI, &app->alsa_encoder));
+
+    app_alsa_connect(app, alsa_input_config);
+
+
+    app->alsa_npfd = snd_seq_poll_descriptors_count(app->seq, POLLIN);
+    app->alsa_pfd = (struct pollfd *)malloc(app->alsa_npfd * sizeof(struct pollfd));
+    snd_seq_poll_descriptors(app->seq, app->alsa_pfd, app->alsa_npfd, POLLIN);
+
+    /* Run ALSA I/O in the backkground. */
+    pthread_create(&app->alsa_thread, NULL, alsa_main, app);
+
+}
+
 int main(int argc, char **argv) {
 
     /* Initialize Rust and Zig libraries.  FIXME: This doesn't do
@@ -1095,6 +1253,10 @@ int main(int argc, char **argv) {
 
     struct app *app = &app_state;
     app_init(app);
+
+    /* ALSA MIDI setup */
+    app_alsa_init(app);
+
 
     /* Jack client setup */
     const char *client_name = "hub"; // argv[1];
