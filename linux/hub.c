@@ -47,6 +47,7 @@
 #include "mod_akai_fire.c"
 #include "mod_arturia_minilab.c"
 #include "mod_maudio_axiom25.c"
+#include "mod_keystation.c"
 
 // FIXME: This needs to be rebuilt completely, so disable it for now.
 // #include "mod_novation_remote.c"
@@ -76,13 +77,13 @@ void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
     m(maudio_axiom25_in)        \
     m(easycontrol)     \
     m(arturia_minilab_in)      \
+    m(keystation_in1)  \
+    m(keystation_in2)  \
     m(z_debug)         \
 
 #define FOR_MIDI_IN_DISABLED(m) \
     m(uma_in)          \
     m(novation_remote_in)          \
-    m(keystation_in1)  \
-    m(keystation_in2)  \
 
 
 #define FOR_MIDI_OUT(m) \
@@ -94,6 +95,12 @@ void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
     m(synth_out)    \
     m(pd_out)       \
     m(transport)    \
+
+#define FOR_SELECTORS(m) \
+    m(tb03,tb03,1)          \
+    m(volca_keys,volcas,1)  \
+    m(volca_bass,volcas,2)  \
+    m(volca_beats,volcas,3) \
 
 
 FOR_MIDI_IN(DEF_JACK_PORT)
@@ -157,6 +164,7 @@ struct app {
     // struct novation_remote novation_remote;
     struct arturia_minilab arturia_minilab;
     struct maudio_axiom25 maudio_axiom25;
+    struct keystation keystation;
     struct akai_fire akai_fire;
     struct pd pd;
     struct mmc mmc;
@@ -368,7 +376,7 @@ static inline void *midi_out_buf_cleared(jack_port_t *port, jack_nframes_t nfram
 
 static inline void process_z_debug(struct app *app) {
     FOR_MIDI_EVENTS(iter, z_debug, app->nframes) {
-#if 0
+#if 1
         const uint8_t *msg = iter.event.buffer;
         int n = iter.event.size;
         LOG_HEX("z_debug:", msg, n);
@@ -621,6 +629,34 @@ static inline void process_maudio_axiom25_in(struct app *app) {
         );
 }
 
+static inline void process_keystation_in1(struct app *app) {
+    struct midi_cursor cur = midi_cursor_init(keystation_in1, app->nframes);
+    process_keystation_1(
+        /* State */
+        &app->keystation,
+        /* Cursor into MIDI in buffer, MIDI from Novation Remote */
+        &cur,
+        /* Stateful local objects */
+        &app->mmc,
+        /* Remote uni-directional message targets. */
+        &app->route
+        );
+}
+static inline void process_keystation_in2(struct app *app) {
+    struct midi_cursor cur = midi_cursor_init(keystation_in2, app->nframes);
+    process_keystation_2(
+        /* State */
+        &app->keystation,
+        /* Cursor into MIDI in buffer, MIDI from Novation Remote */
+        &cur,
+        /* Stateful local objects */
+        &app->mmc,
+        /* Remote uni-directional message targets. */
+        &app->route
+        );
+}
+
+
 struct hub_command;
 struct hub_command {
     void (*fun)(struct telnet *);
@@ -674,8 +710,8 @@ static void app_process(struct app *app) {
     process_easycontrol_in(app);
     process_arturia_minilab_in(app);
     process_maudio_axiom25_in(app);
-    //process_keystation_in1(app);
-    //process_keystation_in2(app);
+    process_keystation_in1(app);
+    process_keystation_in2(app);
     // process_novation_remote_in(app);
     // process_uma_in(app);
     process_erl_out(app);

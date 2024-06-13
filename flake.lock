@@ -230,17 +230,17 @@
     "uc_tools": {
       "flake": false,
       "locked": {
-        "lastModified": 1717415679,
-        "narHash": "sha256-CpQ5q80XL2ISMBtYBWjGhxUVk/eORL5+kKSB6QmdhhA=",
+        "lastModified": 1717535239,
+        "narHash": "sha256-tACrXRI7veCuVm10veXmhU4Q57YEB9FNCmlhLiEbzqo=",
         "owner": "zwizwa",
         "repo": "uc_tools",
-        "rev": "2eb2c412385f69b3b66b656b72752712a98d6207",
+        "rev": "7a2f394a3d86a94a6da40a3104176296988f7139",
         "type": "github"
       },
       "original": {
         "owner": "zwizwa",
         "repo": "uc_tools",
-        "rev": "2eb2c412385f69b3b66b656b72752712a98d6207",
+        "rev": "7a2f394a3d86a94a6da40a3104176296988f7139",
         "type": "github"
       }
     }

@@ -32,7 +32,8 @@
       owner = "zwizwa";
       repo = "uc_tools";
       # rev = "c0853b29811c5d184d39b630b3c848a86d5d5e9e";
-      rev = "2eb2c412385f69b3b66b656b72752712a98d6207";
+      # rev = "2eb2c412385f69b3b66b656b72752712a98d6207";
+      rev = "7a2f394a3d86a94a6da40a3104176296988f7139";
       flake = false;
     };
   };

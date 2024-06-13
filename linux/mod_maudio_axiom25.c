@@ -109,7 +109,6 @@ static void process_maudio_axiom25(
                     case 0x76:
                         LOG("record\n");
                         mmc_press_record(mmc);
-                       
                         break;
                     }
                 }

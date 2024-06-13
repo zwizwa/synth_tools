@@ -105,6 +105,7 @@ HOST_ELF := \
 	linux/test_sequencer.dynamic.host.elf \
 	linux/gen_max11300.dynamic.host.elf \
 	linux/tether_bl_midi.dynamic.host.elf \
+	linux/tether_bl_alsa.dynamic.host.elf \
 	linux/a2jmidid.dynamic.host.elf \
 	linux/synth_tools.dynamic.host.so \
 	$(UC_TOOLS)/linux/test_telnet.dynamic.host.elf \

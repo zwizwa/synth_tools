@@ -110,7 +110,7 @@ void f2(struct telnet *t) { LOG("f2\n"); }
 void f3(struct telnet *t) { LOG("f3\n"); }
 void f4(struct telnet *t) { LOG("f4\n"); }
 
-const struct telnet_escapes escapes[] = {
+const struct telnet_cmd escapes[] = {
     {"[11~",f1},
     {"[12~",f2},
     {"[13~",f3},

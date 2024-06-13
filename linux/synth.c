@@ -28,6 +28,12 @@
 // See rkt/test-cgen.rkt
 #include "cgen_synth_out.h"
 
+
+/* VOICE ALLOCATOR */
+#define NB_VOICES 64
+#include "mod_voice_alloc.c"
+
+
 /* SYNTH */
 
 #define SYNTH_NB_VARS 3
@@ -52,25 +58,9 @@ struct voice {
     phasor_t note_inc;  /* 0 == off */
     phasor_t note_state;
 };
-#define NB_VOICES 64
-#define NO_VOICE 255
 
-#define NB_NOTES 128
-#define MAX_NOTE_NB_ON 255
+
 struct synth {
-    /* Map MIDI note number to the voice that is currently allocated
-       to it.  Can be NO_VOICE or 0 .. NB_VOICES-1 */
-    uint8_t note2voice[NB_NOTES];
-
-    /* Semaphore keeping track of how many note on events we've seen
-       not cancelled by a note off event. */
-    uint8_t note_nb_on[NB_NOTES];
-
-    /* Queues for voice allocation.  Notes that are in the off state
-       (but maybe still ringing their release state) are prioritized
-       over those in the on state. */
-    struct cbuf q_note_on;  uint8_t q_note_on_buf[NB_VOICES];
-    struct cbuf q_note_off; uint8_t q_note_off_buf[NB_VOICES];
 
     /* Per voice state data. */
     struct voice voice[NB_VOICES];
@@ -78,11 +68,28 @@ struct synth {
     /* Synth DSP state */
     struct synth_state state;
 
+    /* Voice allocator state */
+    struct voice_alloc voice_alloc;
+
 };
 
+/* Cross-link */
+#include "uct_offsetof.h"
+
+#define DEF_TO_SYNTH(substruct)                 \
+    DEF_FIELD_TO_PARENT(                        \
+        substruct##_to_synth,                   \
+        struct synth,                           \
+        struct substruct,                       \
+        substruct)                              \
+
+DEF_TO_SYNTH(voice_alloc)
+
+
+
 /* MIDI */
-void synth_note_on (struct synth *, uint8_t note);
-void synth_note_off(struct synth *, uint8_t note);
+void synth_note_on (struct synth *, uint8_t note, uint8_t velocity);
+void synth_note_off(struct synth *, uint8_t note, uint8_t velocity);
 
 void synth_init(struct synth *);
 void synth_run(struct synth *, float *vec, int n);
@@ -185,79 +192,32 @@ phasor_t note_to_inc(uint8_t b_note) {
 }
 #endif
 
-
-// INVARIANT: Voices are either in the on or the off queue.
-uint8_t voice_alloc(struct synth *x) {
-    uint8_t v = 0;
-    /* Get last voice that was turned off. */
-    if (1 == cbuf_read(&x->q_note_off, &v, 1)) goto gotit;
-    /* If there is none, get last voice that was turned on. */
-    if (1 == cbuf_read(&x->q_note_on, &v, 1)) goto gotit;
-    ERROR("internal error: voice_alloc failed\n");
-  gotit:
-    cbuf_write(&x->q_note_on, &v, 1);
-    return v;
+void voice_event(struct voice_alloc *va,
+                 uint8_t voice_nb,
+                 uint8_t event,
+                 uint8_t note,
+                 uint8_t velocity) {
+    LOG("voice_event(%d,%x,%d,%d)\n", voice_nb, event, note, velocity);
+    struct synth *synth = voice_alloc_to_synth(va);
+    switch(event) {
+    case VOICE_EVENT_ON:
+        synth->voice[voice_nb].note_inc = note_to_inc(note);
+        break;
+    case VOICE_EVENT_OFF:
+        /* FIXME: I wonder if this causes notes to get stuck in a high
+           phase, adding DC */
+        synth->voice[voice_nb].note_inc = 0;
+        break;
+    }
 }
 
-void synth_note_on(struct synth *x, uint8_t note) {
-    ASSERT(note < NB_NOTES);
-    if (x->note_nb_on[note] < MAX_NOTE_NB_ON) {
-        /* MIDI is a bit problematic when it comes to modeling
-           multiple instances of the same note.  We solve that by
-           keeping track of the difference between note on and note
-           off events (a semaphore), such that the last note off turns
-           off the voice.  We expect this to happen for a "couple of
-           notes" up to MAX_NOTE_NB_ON */
-        x->note_nb_on[note]++;
-    }
-    else {
-        /* This degenerates when there are more than 255 simultaneous notes.
-           Then further note on events get ignored.  When this happens the
-           voice will turn off after 255 note off events. */
-        LOG("WARNING: ignoring note_on\n");
-        return;
-    }
-    uint8_t v;
-    if (x->note_nb_on[note] == 1) {
-        /* The note was previously off, so allocate a new voice. */
-        v = voice_alloc(x);
-        x->note2voice[note] = v;
-        x->voice[v].note_inc = note_to_inc(note);
-    }
-    else {
-        /* The note was previously on and phasor was set in a previous
-           note on message, so update only the envelope. */
-        v = x->note2voice[note];
-    }
-    /* Each (subsequent) note on event retriggers the envelope. */
-    // FIXME: trigger_voice_envelope_note_on(v)
+
+void synth_note_on(struct synth *x, uint8_t note, uint8_t velocity) {
+    voice_alloc_note_on(&x->voice_alloc, note, velocity);
 }
 
-void synth_note_off(struct synth *x, uint8_t note) {
-    ASSERT(note < NB_NOTES);
-    if (x->note_nb_on[note] == 0) {
-        /* We did not register a previous on event.  Ignore. */
-        LOG("WARNING: ignoring note_off\n");
-        return;
-    }
-    x->note_nb_on[note]--;
-    if (x->note_nb_on[note] > 0) {
-        /* We are waiting for more note off events.  Ignore. */
-        return;
-    }
-    // FIXME: trigger_voice_envelope_note_off(v)
-
-    uint8_t v = x->note2voice[note];
-
-    /* Move the voice into the note off queue, so it will be stolen
-       before any on notes. */
-    cbuf_write(&x->q_note_off, &v, 1);
-
-    /* Remove the voice from the note on queue. */
-    // FIXME
-
-    /* Remove dangling references */
-    x->note2voice[note] = NO_VOICE;
+void synth_note_off(struct synth *x, uint8_t note, uint8_t velocity) {
+    voice_alloc_note_off(&x->voice_alloc, note, velocity);
 }
 
 
@@ -314,12 +274,7 @@ void synth_run(struct synth *x, float *vec, int n) {
 
 void synth_init(struct synth *x) {
     bzero(x, sizeof(*x));
-    CBUF_INIT(x->q_note_on);
-    CBUF_INIT(x->q_note_off);
-    // Initially, all voices are in the off queue.
-    for (uint8_t v=0; v<NB_VOICES; v++) {
-        cbuf_write(&x->q_note_off, &v, 1);
-    }
+    voice_alloc_init(&x->voice_alloc, voice_event);
 }
 
 struct synth synth;
@@ -361,17 +316,17 @@ static inline void process_midi(jack_nframes_t nframes) {
             uint8_t note = msg[1];
             uint8_t vel  = msg[2];
             if (vel == 0) {
-                synth_note_off(&synth, note);
+                synth_note_off(&synth, note, vel);
             }
             else {
-                synth_note_on(&synth, note);
+                synth_note_on(&synth, note, vel);
             }
         }
         else if (event.size == 3 &&
                  msg[0] == 0x80) { // Note off channel 0
             uint8_t note = msg[1];
-            // uint8_t vel  = msg[2];
-            synth_note_off(&synth, note);
+            uint8_t vel  = msg[2];
+            synth_note_off(&synth, note, vel);
         }
     }
 }
