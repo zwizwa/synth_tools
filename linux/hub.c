@@ -70,23 +70,55 @@
 #include "alsa_tools.h"
 
 
-/* Since drivers are hardcoded in hub.c, the port numbers should
-   probably be hardcoded as well.  Look up in a hardcode table if we
-   connect to this client and if so, which port(s).*/
+/* Since drivers are hardcoded in hub.c, the device port information
+   should probably be hardcoded as well.  At startup and when a client
+   port is created, the connections contained in this table are
+   restored, and a routing entry is made for the specific device.
 
-struct alsa_midi_config {
+   To keep things simple, we relate everything to selectors.  The
+   selectors represent a single MIDI channel, hosted on a specific
+   port of a specific device.  Try to keep the map as flat as
+   possible.
+
+*/
+
+#define MAX_NB_PORTS 6
+
+
+struct alsa_dev {
     const char *name;
-    uintptr_t as_inputs;
-    uintptr_t as_outputs;
+    uintptr_t from;    // we subscribe from this port mask
+    uintptr_t to;      // we broadcast to this port mask
+    uint8_t dev_id;    // device as we identify it internally
+    uint8_t nb_ports;          // nb entries in sel
+    uint8_t sel[MAX_NB_PORTS]; // port to selector map
 };
 
-const struct alsa_midi_config alsa_midi_config[] = {
-    { .name = "Axiom 25", .as_inputs = 0b111, .as_outputs = 0b1},
-    { .name = "synth",                        .as_outputs = 0b1},
-    {}
+const struct alsa_dev alsa_dev[] = {
+    [0] = { .dev_id = 0, .name = "Axiom 25", .from = 0b111, .to = 0b1, .nb_ports = 3, .sel = {0,1,2} },
+    [1] = { .dev_id = 1, .name = "synth",                   .to = 0b1, .nb_ports = 3, .sel = {3}     },
 };
 
+/* Try to keep it abstract.
 
+   The important property is that each 'selector', e.g. each abstract
+   midi channel, is referred to by name, and that name is a
+   compile-time known entity in the C code.
+
+   To be able to do that we also need to refer to devices and their
+   driver by name.
+
+   But that's it.
+
+   Selector number, client id, device id, port, channel are all
+   abstracted away behind those names.  Any other way is going to be
+   unmanageable.  Flat namespaces are the way out.
+
+*/
+
+
+
+#include "mod_hub_devices.c"
 
 
 
@@ -232,9 +264,13 @@ struct app {
     pthread_t alsa_thread;
     int alsa_pipefd[2]; //0=read, 1=write
 
+    /* Map live ALSA client id to our representation of the device. */
+    uint8_t client_id_to_dev_id[256];
+
 } app_state = {};
 
-
+#define PORT_ID_NONE 255
+#define DEV_ID_NONE 255
 
 
 
@@ -1099,6 +1135,10 @@ void app_fire_button_notify(struct akai_fire *fire, int row, int col) {
 }
 
 void app_init(struct app *app) {
+
+    memset(app, 0, sizeof(*app));
+    memset(app->client_id_to_dev_id, DEV_ID_NONE, sizeof(app->client_id_to_dev_id));
+
     /* Initialize the components. */
     akai_fire_init(&app->akai_fire);
     sequencer_init(&app->sequencer, app_sequencer_tick);
@@ -1225,19 +1265,22 @@ void app_alsa_connect_output(struct app *app, uint8_t client, uint8_t port) {
     alsa_connect(app->seq, src, dst);
 }
 
-void app_alsa_maybe_connect(struct app *app, const struct alsa_midi_config *ic,
+void app_alsa_maybe_connect(struct app *app,
+                            const struct alsa_dev *dev,
+                            int nb_dev,
                             const char *client_name, uint8_t client_id) {
-    for(;ic->name;ic++) {
-        if (!strcmp(ic->name, client_name)) {
-            uintptr_t as_inputs = ic->as_inputs;
-            for(int i=0; as_inputs!=0; i++,as_inputs>>=1) {
-                if (as_inputs & 1) {
+    for(int i=0; i<nb_dev; i++) {
+        const struct alsa_dev *d = &dev[i];
+        if (!strcmp(d->name, client_name)) {
+            uintptr_t fromputs = d->from;
+            for(int i=0; fromputs!=0; i++,fromputs>>=1) {
+                if (fromputs & 1) {
                     app_alsa_connect_input(app, client_id, i);
                 }
             }
-            uintptr_t as_outputs = ic->as_outputs;
-            for(int i=0; as_outputs!=0; i++,as_outputs>>=1) {
-                if (as_outputs & 1) {
+            uintptr_t toputs = d->to;
+            for(int i=0; toputs!=0; i++,toputs>>=1) {
+                if (toputs & 1) {
                     app_alsa_connect_output(app, client_id, i);
                 }
             }
@@ -1246,7 +1289,9 @@ void app_alsa_maybe_connect(struct app *app, const struct alsa_midi_config *ic,
     }
 }
 
-void app_alsa_connect(struct app *app, const struct alsa_midi_config *ic) {
+void app_alsa_connect(struct app *app,
+                      const struct alsa_dev *dev,
+                      int nb_dev) {
     snd_seq_client_info_t *cinfo;
     snd_seq_client_info_alloca(&cinfo);
     snd_seq_client_info_set_client(cinfo, -1);
@@ -1255,10 +1300,68 @@ void app_alsa_connect(struct app *app, const struct alsa_midi_config *ic) {
         const char *name = snd_seq_client_info_get_name(cinfo);
         int nb_ports = snd_seq_client_info_get_num_ports(cinfo);
         LOG("client %d %s:%d\n", client, name, nb_ports);
-        app_alsa_maybe_connect(app, ic, name, client);
+        app_alsa_maybe_connect(app, dev, nb_dev, name, client);
     }
 }
 
+void handle_axiom25_0_0(struct app *app, const uint8_t *buf, int count) {}
+void handle_axiom25_1_0(struct app *app, const uint8_t *buf, int count) {}
+void handle_axiom25_2_0(struct app *app, const uint8_t *buf, int count) {}
+void handle_synth(struct app *app, const uint8_t *buf, int count) {}
+
+typedef void (*app_midi_fn)(struct app *app, const uint8_t *buf, int count);
+#define MIDI_HANDLE(name,dev,port,chan) handle_##name,
+const app_midi_fn app_midi_handle[] = {
+    FOR_SEL(MIDI_HANDLE)
+};
+
+app_midi_fn route_dpc(struct app *app, uint8_t client, uint8_t port, uint8_t chan) {
+    /* Dynamic mapping: ALSA client to our internal dev_id */
+    uint8_t dev_id = app->client_id_to_dev_id[client];
+
+    /* With dev_id the static maps can be used to find dev, then sel
+       based on port number, then handler based on selector. */
+    if (dev_id == DEV_ID_NONE) return NULL;
+    ASSERT(dev_id < ARRAY_SIZE(alsa_dev));
+    const struct alsa_dev *d = &alsa_dev[dev_id];
+    ASSERT(d->nb_ports <= MAX_NB_PORTS);
+    ASSERT(port < d->nb_ports);
+
+    intptr_t sel = dpc_to_sel(dev_id, port, chan);
+    if ((sel >= 0) &&
+        (sel < ARRAY_SIZE(app_midi_handle))) {
+        return app_midi_handle[sel];
+    }
+    return NULL;
+}
+
+void app_route_midi_incoming(struct app *app,
+                             snd_seq_addr_t addr,
+                             const uint8_t *buf, int count) {
+
+    uint8_t client = addr.client;
+    uint8_t port   = addr.port;
+    uint8_t chan   = buf[0] & 0x0F; // FIXME
+
+    app_midi_fn fn = route_dpc(app, client, port, chan);
+    if (fn) {
+        fn(app, buf, count);
+    }
+
+#if 0
+    /* Re-encode */
+    snd_seq_event_t out_ev;
+    snd_seq_ev_clear(&out_ev);
+    if (snd_midi_event_encode(
+            app->alsa_encoder, buf, count, &out_ev)) {
+        snd_seq_ev_set_source(&out_ev, app->alsa_port_id);
+        snd_seq_ev_set_subs(&out_ev);
+        snd_seq_ev_schedule_tick(&out_ev, app->alsa_queue_id, 1, 0);
+        snd_seq_event_output_direct(app->seq, &out_ev);
+    }
+#endif
+
+}
 
 void *alsa_main(void *arg) {
     struct app *app = arg;
@@ -1338,7 +1441,7 @@ void *alsa_main(void *arg) {
                             a->client, a->port);
                         /* Do the stupid thing and just rerun the
                            connection routine. */
-                        app_alsa_connect(app, alsa_midi_config);
+                        app_alsa_connect(app, alsa_dev, ARRAY_SIZE(alsa_dev));
                         break;
                     }
                     }
@@ -1358,16 +1461,7 @@ void *alsa_main(void *arg) {
                                 for (long i=0; i<count; i++) { LOG(" %02x", buf[i]); }
                                 LOG("\n");
                             }
-                            /* Re-encode */
-                            snd_seq_event_t out_ev;
-                            snd_seq_ev_clear(&out_ev);
-                            if (snd_midi_event_encode(
-                                    app->alsa_encoder, buf, count, &out_ev)) {
-                                snd_seq_ev_set_source(&out_ev, app->alsa_port_id);
-                                snd_seq_ev_set_subs(&out_ev);
-                                snd_seq_ev_schedule_tick(&out_ev, app->alsa_queue_id, 1, 0);
-                                snd_seq_event_output_direct(app->seq, &out_ev);
-                            }
+                            app_route_midi_incoming(app, ev->source, buf, count);
                         }
                         else {
                             /* Event not supported or decoder error. */
@@ -1418,9 +1512,8 @@ void app_alsa_init(struct app *app) {
     alsa_connect(app->seq, announce, self);
 
     /* Connect to hardware ports for which we have drivers. */
-    app_alsa_connect(app, alsa_midi_config);
-
-
+    app_alsa_connect(app, alsa_dev, ARRAY_SIZE(alsa_dev));
+ 
     /* Events from jack realtime thread to low-pri ALSA thread */
     ASSERT_ERRNO(pipe(app->alsa_pipefd));
 
