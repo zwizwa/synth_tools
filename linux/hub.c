@@ -51,6 +51,9 @@
 #include "tag_u32.h"
 
 #include "mod_sequencer.c"
+
+#include "mod_hub_devices.c"
+
 #include "mod_akai_fire.c"
 #include "mod_arturia_minilab.c"
 #include "mod_maudio_axiom25.c"
@@ -103,7 +106,6 @@
 
 
 
-#include "mod_hub_devices.c"
 
 
 
@@ -1284,6 +1286,14 @@ void handle_axiom25_0_0(struct app *app, const uint8_t *msg, int n) {
         &app->route,
         msg, n);
 }
+void handle_axiom25_0_15(struct app *app, const uint8_t *msg, int n) {
+    process_maudio_axiom25_transport(
+        &app->maudio_axiom25,
+        &app->mmc,
+        &app->sequencer,
+        &app->route,
+        msg, n);
+}
 void handle_axiom25_1_0(struct app *app, const uint8_t *msg, int n) {}
 void handle_axiom25_2_0(struct app *app, const uint8_t *msg, int n) {}
 
@@ -1302,7 +1312,7 @@ app_midi_fn route_dpc(struct app *app, uint8_t dev_id, uint8_t port, uint8_t cha
         return sel_to_midi_handle[sel];
     }
     else {
-        LOG("no dispatch for sel=%d\n", sel);
+        // LOG("no dispatch for sel=%d\n", sel);
         return NULL;
     }
 }
@@ -1310,18 +1320,24 @@ app_midi_fn route_dpc(struct app *app, uint8_t dev_id, uint8_t port, uint8_t cha
 void app_route_midi_incoming(struct app *app,
                              snd_seq_addr_t addr,
                              const uint8_t *buf, int count) {
-    // FIXME: This only works for 3-byte channel-tagged messages
-    ASSERT(count == 3);
+
     uint8_t client = addr.client;
     uint8_t port   = addr.port;
-    uint8_t chan   = buf[0] & 0x0F; // FIXME
     uint8_t dev_id = app->client_id_to_dev_id[client];
 
-    /* All selector handlers get only a single channel flattened to 0. */
-    uint8_t flat_midi[] = {buf[0] & 0xF0, buf[1], buf[2]};
-    app_midi_fn fn = route_dpc(app, dev_id, port, chan);
-    if (fn) { fn(app, flat_midi, count); }
-    else LOG("Can't route dpc=(%d,%d,%d), client=%d\n", dev_id, port, chan, client);
+    // FIXME: This only works for 3-byte channel-tagged messages
+    if (count == 3) {
+        uint8_t chan   = buf[0] & 0x0F; // FIXME
+
+        /* All selector handlers get only a single channel flattened to 0. */
+        uint8_t flat_midi[] = {buf[0] & 0xF0, buf[1], buf[2]};
+        app_midi_fn fn = route_dpc(app, dev_id, port, chan);
+        if (fn) { fn(app, flat_midi, count); }
+        else LOG("Can't route dpc=(%d,%d,%d), client=%d\n", dev_id, port, chan, client);
+    }
+    else {
+        // FIXME: What else is there?
+    }
 }
 
 void app_route_midi_outgoing(struct app *app,

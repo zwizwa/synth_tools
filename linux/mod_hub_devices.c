@@ -25,10 +25,11 @@
    to be sorted in DPC order. */
 #define FOR_SEL(m) \
     /* sel_name, dev_name, port, channel */ \
-    m(axiom25_0_0, axiom25, 0, 0) \
-    m(axiom25_1_0, axiom25, 1, 0) \
-    m(axiom25_2_0, axiom25, 2, 0) \
-    m(synth,       synth,   0, 0) \
+    m(axiom25_0_0,  axiom25, 0,  0) \
+    m(axiom25_0_15, axiom25, 0, 15) \
+    m(axiom25_1_0,  axiom25, 1,  0) \
+    m(axiom25_2_0,  axiom25, 2,  0) \
+    m(synth,        synth,   0,  0) \
 
 /* Routing information is needed for input and output:
    - MIDI in   client:port:channel -> selector
@@ -45,6 +46,12 @@
 /* dev_name -> dev_id */
 #define DEV_ENUM(name, str) dev_##name,
 enum dev { FOR_DEV(DEV_ENUM) };
+
+/* sel_name -> sel_id */
+#define SEL_ENUM(name, d, p, c) sel_##name,
+enum sel { FOR_SEL(SEL_ENUM) };
+
+
 
 /* dev_id,port,chan -> sel */
 #define DPC(D,P,C) (((((D) * 16) + (P)) * 16) + (C))

@@ -62,7 +62,7 @@ static inline void process_maudio_axiom25(
 
 ) {
 
-    uintptr_t sel = 3; // FIXME hardcoded
+    uintptr_t sel = sel_synth; // FIXME hardcoded
 
     uint8_t tag = msg[0];
     if (n == 3) {
@@ -111,6 +111,46 @@ static inline void process_maudio_axiom25(
     }
     else {
         to_erl_midi(msg, n, 3 /*midi port*/);
+    }
+}
+
+static inline void process_maudio_axiom25_transport(
+    /* Private state data */
+    struct maudio_axiom25 *s,
+    /* Stateful local objects. */
+    struct mmc *mmc,
+    struct sequencer *seq,
+    /* Remote uni-directional message targets. */
+    struct route *route,
+    /* Midi data */
+    const uint8_t *msg, int n
+
+) {
+
+    if (n == 3) {
+        uint8_t tag = msg[0] & 0xF0;
+        switch(tag) {
+        case 0xB0: {
+            uint8_t cc = msg[1];
+            uint8_t val = msg[2];
+            if (val == 0x7F) {
+                switch(cc) {
+                case 0x74:
+                    LOG("stop\n");
+                    mmc_press_stop(mmc);
+                    break;
+                case 0x75:
+                    LOG("play\n");
+                    mmc_press_play(mmc);
+                    break;
+                case 0x76:
+                    LOG("record\n");
+                    mmc_press_record(mmc);
+                    break;
+                }
+            }
+        }
+        }
     }
 }
 
