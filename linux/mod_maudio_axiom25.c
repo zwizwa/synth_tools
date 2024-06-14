@@ -29,11 +29,6 @@ struct maudio_axiom25 {
    the module file. */
 
 
-/* This can be generalized.  Code below only uses FOR_MIDI and
-   ->buffer, ->size dereferences. */
-
-struct midi_cursor;
-
 /* This is an "object" in the sense that it has a method that returns
    a result. */
 
@@ -57,71 +52,65 @@ void to_erl_pterm(const char *pterm);
 static inline void process_maudio_axiom25(
     /* Private state data */
     struct maudio_axiom25 *s,
-    /* MIDI in data is provided in a slightly general way.  This
-       should be generalized more. */
-    struct midi_cursor *events,
     /* Stateful local objects. */
     struct mmc *mmc,
     struct sequencer *seq,
     /* Remote uni-directional message targets. */
-    struct route *route
+    struct route *route,
+    /* Midi data */
+    const uint8_t *msg, int n
 
 ) {
 
-    uintptr_t sel = 16; // FIXME hardcoded
+    uintptr_t sel = 3; // FIXME hardcoded
 
-    FOR_MIDI(event, events) {
-        const uint8_t *msg = event->buffer;
-        int n = event->size;
-        /* Send a copy to Erlang.  FIXME: How to allocate midi port numbers? */
-        uint8_t tag = msg[0];
-        if (n == 3) {
-            switch(tag) {
-            case 0x80:
-            case 0x90: {
-                /* Route it to route. */
-                uint8_t note = msg[1];
-                uint8_t vel = msg[2];
-                route_note(route, sel, tag, note, vel);
-                break;
+    uint8_t tag = msg[0];
+    if (n == 3) {
+        switch(tag) {
+        case 0x80:
+        case 0x90: {
+            /* Route it to route. */
+            uint8_t note = msg[1];
+            uint8_t vel = msg[2];
+            route_note(route, sel, tag, note, vel);
+            break;
+        }
+        case 0xB0: {
+            uint8_t cc = msg[1];
+            uint8_t val = msg[2];
+            switch(cc) {
             }
-            case 0xB0: {
-                uint8_t cc = msg[1];
-                uint8_t val = msg[2];
+            route_cc(route, sel, cc, val);
+            break;
+        }
+        case 0xBF: {
+            uint8_t cc = msg[1];
+            uint8_t val = msg[2];
+            if (val == 0x7F) {
                 switch(cc) {
+                case 0x74:
+                    LOG("stop\n");
+                    mmc_press_stop(mmc);
+                    break;
+                case 0x75:
+                    LOG("play\n");
+                    mmc_press_play(mmc);
+                    break;
+                case 0x76:
+                    LOG("record\n");
+                    mmc_press_record(mmc);
+                    break;
                 }
-                route_cc(route, sel, cc, val);
-                break;
-            }
-            case 0xBF: {
-                uint8_t cc = msg[1];
-                uint8_t val = msg[2];
-                if (val == 0x7F) {
-                    switch(cc) {
-                    case 0x74:
-                        LOG("stop\n");
-                        mmc_press_stop(mmc);
-                        break;
-                    case 0x75:
-                        LOG("play\n");
-                        mmc_press_play(mmc);
-                        break;
-                    case 0x76:
-                        LOG("record\n");
-                        mmc_press_record(mmc);
-                        break;
-                    }
-                }
-            }
-            default: {
-                to_erl_midi(msg, n, 3 /*midi port*/);
-                break;
-            }
             }
         }
-        else {
+        default: {
             to_erl_midi(msg, n, 3 /*midi port*/);
+            break;
         }
+        }
+    }
+    else {
+        to_erl_midi(msg, n, 3 /*midi port*/);
     }
 }
 

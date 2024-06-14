@@ -72,11 +72,14 @@ static inline uint8_t dpc_to_dev(uint16_t dpc) { return dpc >> 8; }
 static inline uint8_t dpc_to_port(uint16_t dpc) { return (dpc >> 4) & 0xF; }
 static inline uint8_t dpc_to_chan(uint16_t dpc) { return dpc & 0xF; }
 
-#define DEV_DUMMY_STRUCT(name,str) uint8_t name;
-struct dev_dummy_struct {
-    FOR_DEV(DEV_DUMMY_STRUCT)
-} __attribute__((__packed__));
-#define NB_DEV (sizeof(struct dev_dummy_struct))
+#define DEV_NAMES(name,str) str,
+const char *dev_names[] = {
+    FOR_DEV(DEV_NAMES)
+};
+#define NB_DEV ARRAY_SIZE(dev_names)
+
+
+
 
 /* Routing information is needed for input and output:
    - MIDI in   client:port:channel -> selector

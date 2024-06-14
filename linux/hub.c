@@ -84,21 +84,6 @@
 
 #define MAX_NB_PORTS 6
 
-
-struct alsa_dev {
-    const char *name;
-    uintptr_t from;    // we subscribe from this port mask
-    uintptr_t to;      // we broadcast to this port mask
-    uint8_t dev_id;    // device as we identify it internally
-    uint8_t nb_ports;          // nb entries in sel
-    uint8_t sel[MAX_NB_PORTS]; // port to selector map
-};
-
-const struct alsa_dev alsa_dev[] = {
-    [0] = { .dev_id = 0, .name = "Axiom 25", .from = 0b111, .to = 0b1, .nb_ports = 3, .sel = {0,1,2} },
-    [1] = { .dev_id = 1, .name = "synth",                   .to = 0b1, .nb_ports = 3, .sel = {3}     },
-};
-
 /* Try to keep it abstract.
 
    The important property is that each 'selector', e.g. each abstract
@@ -558,9 +543,13 @@ static inline void process_easycontrol_in(struct app *app) {
    the write in the jack process function, which is currently not
    supported. */
 
+
+void app_route_midi_outgoing(struct app *app,
+                             uint8_t sel,
+                             const uint8_t *buf, int count);
+
 void route_pattern_event(struct route *route, const union pattern_event *ev) {
 
-    const uint8_t *msg = &ev->u8[1];
     int len = 3; // FIXME: Depends on the contents of the event.  Currently only note, cc.
 
     struct app *app = route_to_app(route);
@@ -583,20 +572,14 @@ void route_pattern_event(struct route *route, const union pattern_event *ev) {
         }
     }
 
-    switch(port) {
-    /* Jack midi port connected to pd_io object, which takes jack
-       midi in and converts it to netsend into Pd. */
-    case 0:
-        // FIXME: send_midi(app->pd_out_buf, 0, msg, len);
-        break;
-    /* synth.c */
-    case 1:
-        // FIXME: send_midi(app->synth_out_buf, 0, msg, len);
-        break;
-    }
+    /* Send it to the selector. */
+    uint8_t chan = ev->u8[1] & 0x0F;
+    uint8_t sel = (port << 4)  + chan;
+    uint8_t flat_midi[] = {midi_cmd, ev->u8[2], ev->u8[3]};
+    app_route_midi_outgoing(app, sel, flat_midi, len);
 
     /* Send a copy to Erlang. */
-    to_erl_midi(msg, len, port);
+    to_erl_midi(flat_midi, len, sel);
 }
 void app_sequencer_tick(struct sequencer *seq, const union pattern_event *ev) {
     struct app *app = (void*)seq;
@@ -1255,44 +1238,32 @@ void *telnet_main(void *arg) {
 
 #define MAX_MIDI 1024
 
-void app_alsa_connect_input(struct app *app, uint8_t client, uint8_t port) {
-    snd_seq_addr_t src = { .client = client, .port = port};
+void app_alsa_connect_input(struct app *app, snd_seq_addr_t src) {
     snd_seq_addr_t dst = { .client = app->alsa_client_id, .port = app->alsa_port_id};
     alsa_connect(app->seq, src, dst);
 }
-void app_alsa_connect_output(struct app *app, uint8_t client, uint8_t port) {
+void app_alsa_connect_output(struct app *app, snd_seq_addr_t dst) {
     snd_seq_addr_t src = { .client = app->alsa_client_id, .port = app->alsa_port_id};
-    snd_seq_addr_t dst = { .client = client, .port = port};
     alsa_connect(app->seq, src, dst);
 }
 
 void app_alsa_maybe_connect(struct app *app,
-                            const struct alsa_dev *dev,
-                            int nb_dev,
                             const char *client_name, uint8_t client_id) {
-    for(int i=0; i<nb_dev; i++) {
-        const struct alsa_dev *d = &dev[i];
-        if (!strcmp(d->name, client_name)) {
-            uintptr_t fromputs = d->from;
-            for(int i=0; fromputs!=0; i++,fromputs>>=1) {
-                if (fromputs & 1) {
-                    app_alsa_connect_input(app, client_id, i);
-                }
-            }
-            uintptr_t toputs = d->to;
-            for(int i=0; toputs!=0; i++,toputs>>=1) {
-                if (toputs & 1) {
-                    app_alsa_connect_output(app, client_id, i);
-                }
-            }
-            return;
+    /* This happens infrequently enough that a linear scan is
+       acceptable behavior. */
+    for(int dev_id=0; dev_id<NB_DEV; dev_id++) {
+        if (!strcmp(dev_names[dev_id], client_name)) {
+            // FIXME: Connect all the inputs.
+            snd_seq_addr_t src = { .client = client_id, .port = 0};
+            app_alsa_connect_input(app, src);
+            LOG("client %d is dev %d\n", client_id, dev_id);
+            app->dev_id_to_client_id[dev_id] = client_id;
+            app->client_id_to_dev_id[client_id] = dev_id;
         }
     }
 }
 
-void app_alsa_connect(struct app *app,
-                      const struct alsa_dev *dev,
-                      int nb_dev) {
+void app_alsa_connect(struct app *app) {
     snd_seq_client_info_t *cinfo;
     snd_seq_client_info_alloca(&cinfo);
     snd_seq_client_info_set_client(cinfo, -1);
@@ -1301,40 +1272,39 @@ void app_alsa_connect(struct app *app,
         const char *name = snd_seq_client_info_get_name(cinfo);
         int nb_ports = snd_seq_client_info_get_num_ports(cinfo);
         LOG("client %d %s:%d\n", client, name, nb_ports);
-        app_alsa_maybe_connect(app, dev, nb_dev, name, client);
+        app_alsa_maybe_connect(app, name, client);
     }
 }
 
-void handle_axiom25_0_0(struct app *app, const uint8_t *buf, int count) {}
-void handle_axiom25_1_0(struct app *app, const uint8_t *buf, int count) {}
-void handle_axiom25_2_0(struct app *app, const uint8_t *buf, int count) {}
+void handle_axiom25_0_0(struct app *app, const uint8_t *msg, int n) {
+    process_maudio_axiom25(
+        &app->maudio_axiom25,
+        &app->mmc,
+        &app->sequencer,
+        &app->route,
+        msg, n);
+}
+void handle_axiom25_1_0(struct app *app, const uint8_t *msg, int n) {}
+void handle_axiom25_2_0(struct app *app, const uint8_t *msg, int n) {}
+
 void handle_synth(struct app *app, const uint8_t *buf, int count) {}
 
 typedef void (*app_midi_fn)(struct app *app, const uint8_t *buf, int count);
 #define MIDI_HANDLE(name,dev,port,chan) handle_##name,
-const app_midi_fn app_midi_handle[] = {
+const app_midi_fn sel_to_midi_handle[] = {
     FOR_SEL(MIDI_HANDLE)
 };
 
 
-app_midi_fn route_dpc(struct app *app, uint8_t client, uint8_t port, uint8_t chan) {
-    /* Dynamic mapping: ALSA client to our internal dev_id */
-    uint8_t dev_id = app->client_id_to_dev_id[client];
-
-    /* With dev_id the static maps can be used to find dev, then sel
-       based on port number, then handler based on selector. */
-    if (dev_id == DEV_ID_NONE) return NULL;
-    ASSERT(dev_id < ARRAY_SIZE(alsa_dev));
-    const struct alsa_dev *d = &alsa_dev[dev_id];
-    ASSERT(d->nb_ports <= MAX_NB_PORTS);
-    ASSERT(port < d->nb_ports);
-
+app_midi_fn route_dpc(struct app *app, uint8_t dev_id, uint8_t port, uint8_t chan) {
     intptr_t sel = dpc_to_sel(dev_id, port, chan);
-    if ((sel >= 0) &&
-        (sel < ARRAY_SIZE(app_midi_handle))) {
-        return app_midi_handle[sel];
+    if ((sel >= 0) && (sel < NB_SEL)) {
+        return sel_to_midi_handle[sel];
     }
-    return NULL;
+    else {
+        LOG("no dispatch for sel=%d\n", sel);
+        return NULL;
+    }
 }
 
 void app_route_midi_incoming(struct app *app,
@@ -1345,16 +1315,20 @@ void app_route_midi_incoming(struct app *app,
     uint8_t client = addr.client;
     uint8_t port   = addr.port;
     uint8_t chan   = buf[0] & 0x0F; // FIXME
+    uint8_t dev_id = app->client_id_to_dev_id[client];
 
     /* All selector handlers get only a single channel flattened to 0. */
     uint8_t flat_midi[] = {buf[0] & 0xF0, buf[1], buf[2]};
-    app_midi_fn fn = route_dpc(app, client, port, chan);
+    app_midi_fn fn = route_dpc(app, dev_id, port, chan);
     if (fn) { fn(app, flat_midi, count); }
+    else LOG("Can't route dpc=(%d,%d,%d), client=%d\n", dev_id, port, chan, client);
 }
 
 void app_route_midi_outgoing(struct app *app,
                              uint8_t sel,
                              const uint8_t *buf, int count) {
+    LOG("midi outgoing %d\n", sel);
+    
     ASSERT(sel < NB_SEL);
     uint16_t dpc = dpc_table[sel];
     uint8_t dev  = dpc_to_dev(dpc);
@@ -1454,9 +1428,9 @@ void *alsa_main(void *arg) {
                         snd_seq_addr_t *a = &ev->data.addr;
                         LOG("event: port start %d:%d\n",
                             a->client, a->port);
-                        /* Do the stupid thing and just rerun the
-                           connection routine. */
-                        app_alsa_connect(app, alsa_dev, ARRAY_SIZE(alsa_dev));
+                        /* Do the stupid thing and just try to connect
+                           all devices. */
+                        app_alsa_connect(app);
                         break;
                     }
                     }
@@ -1471,7 +1445,7 @@ void *alsa_main(void *arg) {
                             snd_midi_event_decode(
                                 app->alsa_decoder, buf, sizeof(buf), ev));
                         if (count > 0) {
-                            if (1) {
+                            if (0) {
                                 LOG("ALSA MIDI %d:%d", ev->source.client, ev->source.port);
                                 for (long i=0; i<count; i++) { LOG(" %02x", buf[i]); }
                                 LOG("\n");
@@ -1527,7 +1501,7 @@ void app_alsa_init(struct app *app) {
     alsa_connect(app->seq, announce, self);
 
     /* Connect to hardware ports for which we have drivers. */
-    app_alsa_connect(app, alsa_dev, ARRAY_SIZE(alsa_dev));
+    app_alsa_connect(app);
  
     /* Events from jack realtime thread to low-pri ALSA thread */
     ASSERT_ERRNO(pipe(app->alsa_pipefd));
