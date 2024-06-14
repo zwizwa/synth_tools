@@ -266,6 +266,7 @@ struct app {
 
     /* Map live ALSA client id to our representation of the device. */
     uint8_t client_id_to_dev_id[256];
+    uint8_t dev_id_to_client_id[NB_DEV];
 
 } app_state = {};
 
@@ -1315,6 +1316,7 @@ const app_midi_fn app_midi_handle[] = {
     FOR_SEL(MIDI_HANDLE)
 };
 
+
 app_midi_fn route_dpc(struct app *app, uint8_t client, uint8_t port, uint8_t chan) {
     /* Dynamic mapping: ALSA client to our internal dev_id */
     uint8_t dev_id = app->client_id_to_dev_id[client];
@@ -1338,29 +1340,42 @@ app_midi_fn route_dpc(struct app *app, uint8_t client, uint8_t port, uint8_t cha
 void app_route_midi_incoming(struct app *app,
                              snd_seq_addr_t addr,
                              const uint8_t *buf, int count) {
-
+    // FIXME: This only works for 3-byte channel-tagged messages
+    ASSERT(count == 3);
     uint8_t client = addr.client;
     uint8_t port   = addr.port;
     uint8_t chan   = buf[0] & 0x0F; // FIXME
 
+    /* All selector handlers get only a single channel flattened to 0. */
+    uint8_t flat_midi[] = {buf[0] & 0xF0, buf[1], buf[2]};
     app_midi_fn fn = route_dpc(app, client, port, chan);
-    if (fn) {
-        fn(app, buf, count);
-    }
+    if (fn) { fn(app, flat_midi, count); }
+}
 
-#if 0
+void app_route_midi_outgoing(struct app *app,
+                             uint8_t sel,
+                             const uint8_t *buf, int count) {
+    ASSERT(sel < NB_SEL);
+    uint16_t dpc = dpc_table[sel];
+    uint8_t dev  = dpc_to_dev(dpc);
+    uint8_t port = dpc_to_port(dpc);
+    uint8_t chan = dpc_to_chan(dpc);
+
+    uint8_t new_midi[] = {(buf[0] & 0xF0) + (chan & 0x0F), buf[1], buf[2]};
+    ASSERT(dev < NB_DEV);
+    uint8_t client = app->dev_id_to_client_id[dev];
+
     /* Re-encode */
     snd_seq_event_t out_ev;
     snd_seq_ev_clear(&out_ev);
     if (snd_midi_event_encode(
-            app->alsa_encoder, buf, count, &out_ev)) {
+            app->alsa_encoder, new_midi, count, &out_ev)) {
         snd_seq_ev_set_source(&out_ev, app->alsa_port_id);
-        snd_seq_ev_set_subs(&out_ev);
+        snd_seq_ev_set_dest(&out_ev, client, port);
+        // snd_seq_ev_set_subs(&out_ev); // Don't broadcast
         snd_seq_ev_schedule_tick(&out_ev, app->alsa_queue_id, 1, 0);
         snd_seq_event_output_direct(app->seq, &out_ev);
     }
-#endif
-
 }
 
 void *alsa_main(void *arg) {

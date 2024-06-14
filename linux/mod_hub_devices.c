@@ -50,6 +50,7 @@ enum dev { FOR_DEV(DEV_ENUM) };
 #define DPC(D,P,C) (((((D) * 16) + (P)) * 16) + (C))
 #define DPT_TO_SEL(sel_name,dev_name,port,channel) DPC(dev_##dev_name,port,channel),
 const uint16_t dpc_table[] = { FOR_SEL(DPT_TO_SEL) };
+#define NB_SEL (ARRAY_SIZE(dpc_table))
 
 /* Instantiate the bisect module. */
 #define NS(name) dpc##name
@@ -67,6 +68,15 @@ static inline intptr_t dpc_to_sel(uint8_t dev_id, uint8_t port, uint8_t chan) {
 }
 
 
+static inline uint8_t dpc_to_dev(uint16_t dpc) { return dpc >> 8; }
+static inline uint8_t dpc_to_port(uint16_t dpc) { return (dpc >> 4) & 0xF; }
+static inline uint8_t dpc_to_chan(uint16_t dpc) { return dpc & 0xF; }
+
+#define DEV_DUMMY_STRUCT(name,str) uint8_t name;
+struct dev_dummy_struct {
+    FOR_DEV(DEV_DUMMY_STRUCT)
+} __attribute__((__packed__));
+#define NB_DEV (sizeof(struct dev_dummy_struct))
 
 /* Routing information is needed for input and output:
    - MIDI in   client:port:channel -> selector
