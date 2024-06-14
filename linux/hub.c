@@ -1306,41 +1306,76 @@ void *alsa_main(void *arg) {
             else do {
                 snd_seq_event_t *ev;
                 snd_seq_event_input(app->seq, &ev);
-                switch(ev->type) {
-                case SND_SEQ_EVENT_PORT_SUBSCRIBED:
-                    LOG("event: port subscribed\n");
-                    break;
-                default: {
-                    /* Not handling all snd_seq_event_type separately.
-                       Try to convert it to midi. */
-                    static unsigned char buf[MAX_MIDI];
-                    long count = ALSA_ASSERT(
-                        snd_midi_event_decode(
-                            app->alsa_decoder, buf, sizeof(buf), ev));
-                    if (count > 0) {
-                        if (1) {
-                            LOG("ALSA MIDI %d:%d", ev->source.client, ev->source.port);
-                            for (long i=0; i<count; i++) { LOG(" %02x", buf[i]); }
-                            LOG("\n");
-                        }
 
-                        /* Re-encode */
-                        snd_seq_event_t out_ev;
-                        snd_seq_ev_clear(&out_ev);
-                        if (snd_midi_event_encode(
-                                app->alsa_encoder, buf, count, &out_ev)) {
-                            snd_seq_ev_set_source(&out_ev, app->alsa_port_id);
-                            snd_seq_ev_set_subs(&out_ev);
-                            snd_seq_ev_schedule_tick(&out_ev, app->alsa_queue_id, 1, 0);
-                            snd_seq_event_output_direct(app->seq, &out_ev);
-                        }
+                if (ev->source.client == 0) {
+                    /* System messages. */
+                    switch(ev->type) {
+#if 0
+                    case SND_SEQ_EVENT_PORT_SUBSCRIBED: {
+                        snd_seq_connect_t *c = &ev->data.connect;
+                        LOG("event: port subscribed %d:%d -> %d:%d\n",
+                            c->sender.client, c->sender.port,
+                            c->dest.client, c->dest.port);
+                        break;
                     }
-                    else {
-                        /* Event not supported or decoder error. */
-                        LOG("WARNING: decode=%d, event=%d\n", count, ev->type);
+                    case SND_SEQ_EVENT_PORT_UNSUBSCRIBED: {
+                        snd_seq_connect_t *c = &ev->data.connect;
+                        LOG("event: port unsubscribed %d:%d -> %d:%d\n",
+                            c->sender.client, c->sender.port,
+                            c->dest.client, c->dest.port);
+                        break;
                     }
-                    break;
+                    case SND_SEQ_EVENT_CLIENT_EXIT: {
+                        snd_seq_addr_t *a = &ev->data.addr;
+                        LOG("event: client exit %d:%d\n",
+                            a->client, a->port);
+                        break;
+                    }
+#endif
+                    case SND_SEQ_EVENT_PORT_START: {
+                        snd_seq_addr_t *a = &ev->data.addr;
+                        LOG("event: port start %d:%d\n",
+                            a->client, a->port);
+                        /* Do the stupid thing and just rerun the
+                           connection routine. */
+                        app_alsa_connect(app, alsa_midi_config);
+                        break;
+                    }
+                    }
                 }
+                else {
+                    switch(ev->type) {
+                    default: {
+                        /* Not handling all snd_seq_event_type separately.
+                           Try to convert it to midi. */
+                        static unsigned char buf[MAX_MIDI];
+                        long count = ALSA_ASSERT(
+                            snd_midi_event_decode(
+                                app->alsa_decoder, buf, sizeof(buf), ev));
+                        if (count > 0) {
+                            if (1) {
+                                LOG("ALSA MIDI %d:%d", ev->source.client, ev->source.port);
+                                for (long i=0; i<count; i++) { LOG(" %02x", buf[i]); }
+                                LOG("\n");
+                            }
+                            /* Re-encode */
+                            snd_seq_event_t out_ev;
+                            snd_seq_ev_clear(&out_ev);
+                            if (snd_midi_event_encode(
+                                    app->alsa_encoder, buf, count, &out_ev)) {
+                                snd_seq_ev_set_source(&out_ev, app->alsa_port_id);
+                                snd_seq_ev_set_subs(&out_ev);
+                                snd_seq_ev_schedule_tick(&out_ev, app->alsa_queue_id, 1, 0);
+                                snd_seq_event_output_direct(app->seq, &out_ev);
+                            }
+                        }
+                        else {
+                            /* Event not supported or decoder error. */
+                            LOG("WARNING: decode=%d, event=%d\n", count, ev->type);
+                        }
+                        break;
+                    }
+                    }
                 }
                 snd_seq_free_event(ev);
 
@@ -1377,6 +1412,12 @@ void app_alsa_init(struct app *app) {
 
     ALSA_ASSERT(snd_midi_event_new(MAX_MIDI, &app->alsa_encoder));
 
+    /* System messages. */
+    snd_seq_addr_t self = { .client = app->alsa_client_id, .port = app->alsa_port_id};
+    snd_seq_addr_t announce = { .client = 0, .port = 1};
+    alsa_connect(app->seq, announce, self);
+
+    /* Connect to hardware ports for which we have drivers. */
     app_alsa_connect(app, alsa_midi_config);
 
 

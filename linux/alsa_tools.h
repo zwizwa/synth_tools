@@ -8,8 +8,8 @@
     ({int err; if ((err=(cmd)) < 0) { \
             ERROR("%s: ALSA ERROR %d: %s\n", #cmd, err, snd_strerror(err)); }; err;})
 
-static inline void alsa_connect(snd_seq_t *seq_handle,
-                                snd_seq_addr_t sender, snd_seq_addr_t dest)
+static inline int alsa_connect(snd_seq_t *seq_handle,
+                               snd_seq_addr_t sender, snd_seq_addr_t dest)
 {
 
     LOG("Connecting %d:%d -> %d:%d\n",
@@ -30,8 +30,7 @@ static inline void alsa_connect(snd_seq_t *seq_handle,
     snd_seq_port_subscribe_set_time_update(subs, convert_time);
     snd_seq_port_subscribe_set_time_real(subs, convert_real);
 
-    //ALSA_ASSERT(snd_seq_get_port_subscription(seq_handle, subs));
-    ALSA_ASSERT(snd_seq_subscribe_port(seq_handle, subs));
+    return snd_seq_subscribe_port(seq_handle, subs);
 
 }
 
