@@ -100,7 +100,6 @@ HOST_ELF := \
 	linux/control.dynamic.host.elf \
 	linux/hub.dynamic.host.elf \
 	linux/akai_fire.dynamic.host.elf \
-	linux/clock.dynamic.host.elf \
 	linux/pd.dynamic.host.elf \
 	linux/envy24.dynamic.host.elf \
 	linux/test_sequencer.dynamic.host.elf \
@@ -110,6 +109,9 @@ HOST_ELF := \
 	linux/a2jmidid.dynamic.host.elf \
 	linux/synth_tools.dynamic.host.so \
 	$(UC_TOOLS)/linux/test_telnet.dynamic.host.elf \
+
+HOST_ELF_DIS := \
+	linux/clock.dynamic.host.elf \
 
 
 HOST_CRUST_ELF := \

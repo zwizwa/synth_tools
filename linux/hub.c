@@ -248,7 +248,6 @@ struct app {
     int alsa_queue_id;
     int alsa_client_id;
     int alsa_port_id;
-    pthread_t alsa_thread;
     int alsa_pipefd[2]; //0=read, 1=write
 
     /* Map live ALSA client id to our representation of the device. */
@@ -1250,17 +1249,20 @@ void app_alsa_connect_output(struct app *app, snd_seq_addr_t dst) {
 }
 
 void app_alsa_maybe_connect(struct app *app,
-                            const char *client_name, uint8_t client_id) {
+                            const char *client_name, uint8_t client_id, int nb_ports) {
     /* This happens infrequently enough that a linear scan is
        acceptable behavior. */
     for(int dev_id=0; dev_id<NB_DEV; dev_id++) {
         if (!strcmp(dev_names[dev_id], client_name)) {
             // FIXME: Connect all the inputs.
-            snd_seq_addr_t src = { .client = client_id, .port = 0};
-            app_alsa_connect_input(app, src);
+            for(int port=0; port<nb_ports; port++) {
+                snd_seq_addr_t src = { .client = client_id, .port = port};
+                app_alsa_connect_input(app, src);
+            }
             LOG("client %d is dev %d\n", client_id, dev_id);
             app->dev_id_to_client_id[dev_id] = client_id;
             app->client_id_to_dev_id[client_id] = dev_id;
+
         }
     }
 }
@@ -1274,7 +1276,7 @@ void app_alsa_connect(struct app *app) {
         const char *name = snd_seq_client_info_get_name(cinfo);
         int nb_ports = snd_seq_client_info_get_num_ports(cinfo);
         LOG("client %d %s:%d\n", client, name, nb_ports);
-        app_alsa_maybe_connect(app, name, client);
+        app_alsa_maybe_connect(app, name, client, nb_ports);
     }
 }
 
@@ -1368,123 +1370,6 @@ void app_route_midi_outgoing(struct app *app,
     }
 }
 
-void *alsa_main(void *arg) {
-    struct app *app = arg;
-
-    int npfd = snd_seq_poll_descriptors_count(app->seq, POLLIN);
-    struct pollfd pfd[npfd + 1]; // One extra for pipe
-    snd_seq_poll_descriptors(app->seq, pfd + 1, npfd, POLLIN);
-
-    pfd[0].fd = app->alsa_pipefd[0];
-    pfd[0].events = POLLIN;
-
-    for(;;) {
-
-        // LOG("poll\n");
-        if (poll(pfd, 1 + npfd, -1 /*inf*/) > 0) {
-
-            if(pfd[0].revents & POLLIN) {
-                /* Event from jack thread. */
-                uintptr_t ev;
-                assert_read(pfd[0].fd, &ev, sizeof(ev));
-                switch(ev) {
-                case 0: {
-                    if (mmc_running(&app->mmc)) {
-                        sequencer_tick(&app->sequencer);
-                    }
-
-                    // LOG("MIDI CLOCK\n");
-                    snd_seq_event_t clock_ev;
-                    uint8_t midi_clock[1] = { 0xF8 };
-                    snd_seq_ev_clear(&clock_ev);
-                    if (snd_midi_event_encode(
-                            app->alsa_encoder,
-                            midi_clock, sizeof(midi_clock),
-                            &clock_ev)) {
-                        snd_seq_ev_set_source(&clock_ev, app->alsa_port_id);
-                        snd_seq_ev_set_subs(&clock_ev);
-                        snd_seq_ev_schedule_tick(&clock_ev, app->alsa_queue_id, 1, 0);
-                    }
-                    snd_seq_event_output_direct(app->seq, &clock_ev);
-                    break;
-                }
-                }
-                // LOG("jack event\n");
-            }
-            else do {
-                snd_seq_event_t *ev;
-                snd_seq_event_input(app->seq, &ev);
-
-                if (ev->source.client == 0) {
-                    /* System messages. */
-                    switch(ev->type) {
-#if 0
-                    case SND_SEQ_EVENT_PORT_SUBSCRIBED: {
-                        snd_seq_connect_t *c = &ev->data.connect;
-                        LOG("event: port subscribed %d:%d -> %d:%d\n",
-                            c->sender.client, c->sender.port,
-                            c->dest.client, c->dest.port);
-                        break;
-                    }
-                    case SND_SEQ_EVENT_PORT_UNSUBSCRIBED: {
-                        snd_seq_connect_t *c = &ev->data.connect;
-                        LOG("event: port unsubscribed %d:%d -> %d:%d\n",
-                            c->sender.client, c->sender.port,
-                            c->dest.client, c->dest.port);
-                        break;
-                    }
-                    case SND_SEQ_EVENT_CLIENT_EXIT: {
-                        snd_seq_addr_t *a = &ev->data.addr;
-                        LOG("event: client exit %d:%d\n",
-                            a->client, a->port);
-                        break;
-                    }
-#endif
-                    case SND_SEQ_EVENT_PORT_START: {
-                        snd_seq_addr_t *a = &ev->data.addr;
-                        LOG("event: port start %d:%d\n",
-                            a->client, a->port);
-                        /* Do the stupid thing and just try to connect
-                           all devices. */
-                        app_alsa_connect(app);
-                        break;
-                    }
-                    }
-                }
-                else {
-                    switch(ev->type) {
-                    default: {
-                        /* Not handling all snd_seq_event_type separately.
-                           Try to convert it to midi. */
-                        static unsigned char buf[MAX_MIDI];
-                        long count = ALSA_ASSERT(
-                            snd_midi_event_decode(
-                                app->alsa_decoder, buf, sizeof(buf), ev));
-                        if (count > 0) {
-                            if (0) {
-                                LOG("ALSA MIDI %d:%d", ev->source.client, ev->source.port);
-                                for (long i=0; i<count; i++) { LOG(" %02x", buf[i]); }
-                                LOG("\n");
-                            }
-                            app_route_midi_incoming(app, ev->source, buf, count);
-                        }
-                        else {
-                            /* Event not supported or decoder error. */
-                            LOG("WARNING: decode=%d, event=%d\n", count, ev->type);
-                        }
-                        break;
-                    }
-                    }
-                }
-                snd_seq_free_event(ev);
-
-            } while (snd_seq_event_input_pending(app->seq, 0) > 0);
-
-
-        }
-
-    }
-}
 
 
 void app_alsa_init(struct app *app) {
@@ -1522,9 +1407,170 @@ void app_alsa_init(struct app *app) {
     /* Events from jack realtime thread to low-pri ALSA thread */
     ASSERT_ERRNO(pipe(app->alsa_pipefd));
 
-    /* Run ALSA I/O in the backkground. */
-    pthread_create(&app->alsa_thread, NULL, alsa_main, app);
 
+}
+
+void handle_erlang_stdin(struct app *app) {
+    /* Erlang command. Use the generic {packet,4} + tag
+       protocol on stdin, since hub.c might be hosting a
+       lot of in-image functionality later. */
+    uint8_t size_be[4];
+    assert_read(0, size_be, 4);
+    uint32_t size = read_be(size_be, 4);
+    uint8_t buf[size];
+    assert_read(0, buf, size);
+    ASSERT(size >= 2);
+    uint16_t tag = read_be(buf, 2);
+    switch(tag) {
+    case TAG_U32: {
+        tag_u32_dispatch(handle_tag_u32,
+                         send_reply_tag_u32,
+                         app,
+                         buf, size);
+        break;
+    }
+    }
+}
+
+void handle_jack_pipe(struct app *app) {
+    /* Event from jack thread. */
+    uintptr_t ev;
+    assert_read(app->alsa_pipefd[0], &ev, sizeof(ev));
+    switch(ev) {
+    case 0: {
+        if (mmc_running(&app->mmc)) {
+            sequencer_tick(&app->sequencer);
+        }
+        // LOG("MIDI CLOCK\n");
+        snd_seq_event_t clock_ev;
+        uint8_t midi_clock[1] = { 0xF8 };
+        snd_seq_ev_clear(&clock_ev);
+        if (snd_midi_event_encode(
+                app->alsa_encoder,
+                midi_clock, sizeof(midi_clock),
+                &clock_ev)) {
+            snd_seq_ev_set_source(&clock_ev, app->alsa_port_id);
+            snd_seq_ev_set_subs(&clock_ev);
+            snd_seq_ev_schedule_tick(&clock_ev, app->alsa_queue_id, 1, 0);
+        }
+        snd_seq_event_output_direct(app->seq, &clock_ev);
+        break;
+    }
+    }
+    // LOG("jack event\n");
+}
+
+void handle_alsa_events(struct app *app) {
+    do {
+        snd_seq_event_t *ev;
+        snd_seq_event_input(app->seq, &ev);
+
+        if (ev->source.client == 0) {
+            /* System messages. */
+            switch(ev->type) {
+#if 0
+            case SND_SEQ_EVENT_PORT_SUBSCRIBED: {
+                snd_seq_connect_t *c = &ev->data.connect;
+                LOG("event: port subscribed %d:%d -> %d:%d\n",
+                    c->sender.client, c->sender.port,
+                    c->dest.client, c->dest.port);
+                break;
+            }
+            case SND_SEQ_EVENT_PORT_UNSUBSCRIBED: {
+                snd_seq_connect_t *c = &ev->data.connect;
+                LOG("event: port unsubscribed %d:%d -> %d:%d\n",
+                    c->sender.client, c->sender.port,
+                    c->dest.client, c->dest.port);
+                break;
+            }
+            case SND_SEQ_EVENT_CLIENT_EXIT: {
+                snd_seq_addr_t *a = &ev->data.addr;
+                LOG("event: client exit %d:%d\n",
+                    a->client, a->port);
+                break;
+            }
+#endif
+            case SND_SEQ_EVENT_PORT_START: {
+                snd_seq_addr_t *a = &ev->data.addr;
+                LOG("event: port start %d:%d\n",
+                    a->client, a->port);
+                /* Do the stupid thing and just try to connect all
+                   devices. */
+                app_alsa_connect(app);
+                break;
+            }
+            }
+        }
+        else {
+            switch(ev->type) {
+            default: {
+                /* Not handling all snd_seq_event_type separately.
+                   Try to convert it to midi. */
+                static unsigned char buf[MAX_MIDI];
+                long count = ALSA_ASSERT(
+                    snd_midi_event_decode(
+                        app->alsa_decoder, buf, sizeof(buf), ev));
+                if (count > 0) {
+                    if (0) {
+                        LOG("ALSA MIDI %d:%d", ev->source.client, ev->source.port);
+                        for (long i=0; i<count; i++) { LOG(" %02x", buf[i]); }
+                        LOG("\n");
+                    }
+                    app_route_midi_incoming(app, ev->source, buf, count);
+                }
+                else {
+                    /* Event not supported or decoder error. */
+                    LOG("WARNING: decode=%d, event=%d\n", count, ev->type);
+                }
+                break;
+            }
+            }
+        }
+        snd_seq_free_event(ev);
+    } while (snd_seq_event_input_pending(app->seq, 0) > 0);
+}
+
+void poll_loop(struct app *app) {
+
+    int alsa_nfd = snd_seq_poll_descriptors_count(app->seq, POLLIN);
+    LOG("alsa alsa_nfd = %d\n", alsa_nfd);
+
+    int extra_nfd = 2;
+    int nfd = extra_nfd + alsa_nfd;
+    struct pollfd pfd[nfd];
+    snd_seq_poll_descriptors(app->seq, pfd + extra_nfd, alsa_nfd, POLLIN);
+
+    /* Data coming from jack process thread. */
+    pfd[0].fd = app->alsa_pipefd[0];
+    pfd[0].events = POLLIN;
+
+    /* Data coming from Erlang. */
+    pfd[1].fd = 0;
+    pfd[1].events = POLLIN;
+
+    for(;;) {
+
+        // LOG("poll\n");
+        if (poll(pfd, nfd, -1 /*inf*/) > 0) {
+
+            /* Exit on error */
+            for (int i=0; i<nfd+1; i++) {
+                if (pfd[i].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+                    LOG("hub: poll_loop error\n");
+                    exit(1);
+                }
+            }
+            if(pfd[0].revents & POLLIN) {
+                handle_jack_pipe(app);
+            }
+            else if(pfd[1].revents & POLLIN) {
+                handle_erlang_stdin(app);
+            }
+            else {
+                handle_alsa_events(app);
+            }
+        }
+    }
 }
 
 int main(int argc, char **argv) {
@@ -1555,32 +1601,14 @@ int main(int argc, char **argv) {
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
     ASSERT(!jack_activate(client));
 
-    /* Run a telnet server in the bac kground. */
-    pthread_t telnet_thread;
-    pthread_create(&telnet_thread, NULL, telnet_main, app);
+    /* Run a telnet server in the background. */
+    //pthread_t telnet_thread;
+    //pthread_create(&telnet_thread, NULL, telnet_main, app);
 
-    /* Use the generic {packet,4} + tag protocol on stdin, since hub.c
-       might be hosting a lot of in-image functionality later. */
-    for(;;) {
-        uint8_t size_be[4];
-        assert_read(0, size_be, 4);
-        uint32_t size = read_be(size_be, 4);
-        uint8_t buf[size];
-        assert_read(0, buf, size);
-        ASSERT(size >= 2);
-        uint16_t tag = read_be(buf, 2);
-        switch(tag) {
-        case TAG_U32: {
-            tag_u32_dispatch(handle_tag_u32,
-                             send_reply_tag_u32,
-                             app,
-                             buf, size);
-            break;
-        }
-        default:
-            ERROR("unknown tag 0x%04x\n", tag);
-        }
-    }
+    // FIXME: Put the telnet fd and the stdin all in the same thread
+    // so they can modify the same datastructures.
+
+    poll_loop(app);
     return 0;
 }
 

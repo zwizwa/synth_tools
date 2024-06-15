@@ -391,17 +391,16 @@ static int process (jack_nframes_t nframes, void *arg) {
 
 
 static void to_synth(struct synth *synth, struct synth_command *c) {
-    int n;
-    while (sizeof(*c) != (n = jack_ringbuffer_write(synth->ringbuffer, (void*)c, sizeof(*c)))) {
+    while (sizeof(*c) > jack_ringbuffer_write_space(synth->ringbuffer)) {
         /* If ringbuffer is full we pause the MIDI thread and retry.
            There is no other synchronization mechanism. */
-        ASSERT(n == 0);
         struct timespec nanoseconds = {
             .tv_sec = 0,
             .tv_nsec = 1000000,
         };
         ASSERT_ERRNO(nanosleep(&nanoseconds, NULL));
     }
+    ASSERT(sizeof(*c) == jack_ringbuffer_write(synth->ringbuffer, (void*)c, sizeof(*c)));
 }
 
 int main(int argc, char **argv) {
