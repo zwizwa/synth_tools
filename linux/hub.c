@@ -631,29 +631,6 @@ void route_note(struct route *route, uintptr_t sel, uint8_t on_off, uint8_t note
     }
 }
 
-
-
-
-static inline void process_erl_out(struct app *app) {
-    /* Send to Erlang
-
-       Note: I'm not exactly sure whether it is a good idea to perform
-       the write() call from this thread, but it seems the difference
-       between a single semaphore system call and a single write to an
-       Erlang port pipe accessing a single page of memory is not going
-       to be big.  So revisit if it ever becomes a problem.
-
-       This will buffer all midi messages and perform only a single
-       write() call.
-
-    */
-
-    to_erl_flush();
-
-}
-
-
-
 #if 0
 static inline void process_novation_remote_in(struct app *app) {
     struct midi_cursor cur = midi_cursor_init(novation_remote_in, app->nframes);
@@ -785,28 +762,7 @@ static void app_process(struct app *app) {
 
     app->stamp = (f / app->nframes);
 
-    // process_clock_in(app);
-    // process_easycontrol_in(app);
-    // process_arturia_minilab_in(app);
-    // process_maudio_axiom25_in(app);
-    // process_keystation_in1(app);
-    // process_keystation_in2(app);
-    // process_novation_remote_in(app);
-    // process_uma_in(app);
-    process_erl_out(app);
-
-    /* FIXME: Normalize this. */
-    //void *akai_fire_in_buf = jack_port_get_buffer(akai_fire_in, app->nframes);
-    //akai_fire_process(&app->akai_fire, app->fire_out_buf, akai_fire_in_buf);
-
-    // process_z_debug(app);
-
-
     process_clock(app);
-
-    //uintptr_t ev = 0;
-    //app_to_alsa(app, ev);
-
 
 }
 
@@ -1421,6 +1377,11 @@ void poll_loop(struct app *app) {
                 handle_alsa_events(app);
             }
         }
+
+        /* Remnant of running this in the process thread.  Erlang
+           messages are buffered, so flush them in case any of the
+           handlers generated erlang messages. */
+        to_erl_flush();
     }
 }
 
