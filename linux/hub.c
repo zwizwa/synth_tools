@@ -324,9 +324,6 @@ void mmc_press_stop(struct mmc *mmc) {
     }
     LOG("STOP: mode: %d->%d\n", prev_mode, mmc->mode);
 
-    /* FIXME: Iterate over all notes that are left on and turn them
-       off. */
-
 }
 void mmc_press_play(struct mmc *mmc) {
     uintptr_t prev_mode = mmc->mode;
@@ -1059,10 +1056,18 @@ void app_alsa_maybe_connect(struct app *app,
        acceptable behavior. */
     for(int dev_id=0; dev_id<NB_DEV; dev_id++) {
         if (!strcmp(dev_names[dev_id], client_name)) {
-            // FIXME: Connect all the inputs.
             for(int port=0; port<nb_ports; port++) {
                 snd_seq_addr_t src = { .client = client_id, .port = port};
+                /* Connect all the inputs and outputs.  If a
+                   particular port is already connected, doesn't exist
+                   any more, or not bidirectional the call will just
+                   be ignored.  We need to subscribe to all inputs so
+                   we can dispatch on all events (we are the hub,
+                   after all), and all outputs to be able to send
+                   broadcast events in addition to explicitly
+                   addressed messages. */
                 app_alsa_connect_input(app, src);
+                app_alsa_connect_output(app, src);
             }
             LOG("client %d is dev %d\n", client_id, dev_id);
             app->dev_id_to_client_id[dev_id] = client_id;
@@ -1105,6 +1110,8 @@ void handle_axiom25_1_0(struct app *app, const uint8_t *msg, int n) {}
 void handle_axiom25_2_0(struct app *app, const uint8_t *msg, int n) {}
 
 void handle_synth(struct app *app, const uint8_t *buf, int count) {}
+
+void handle_pd_io(struct app *app, const uint8_t *buf, int count) {}
 
 typedef void (*app_midi_fn)(struct app *app, const uint8_t *buf, int count);
 #define MIDI_HANDLE(name,dev,port,chan) handle_##name,

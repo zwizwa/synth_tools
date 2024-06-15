@@ -1,15 +1,12 @@
-/* Wrapper to start/stop Pd and provide a data channel on stdin.
+/* Wrapper to start/stop Pd and provide a data channel on stdin and an
+   ALSA MIDI port.
+
    start: Set up Pd with netreceive and connect to it here.
    stop:  When stdin closes, ask Pd to shut down via netreceive channel
-
-   Also provides a MIDI to audio bridge.  Mostly done to bring
-   accurate sync into Pd by keeping the signal inside jack.
 
    Currently no need to export MIDI from Pd.
 
 */
-#include <jack/jack.h>
-#include <jack/midiport.h>
 #include <poll.h>
 
 #include "tcp_tools.h"
@@ -17,8 +14,11 @@
 #include "assert_read.h"
 #include "macros.h"
 #include "uct_byteswap.h"
+#include "alsa_tools.h"
 
-#define CLOCK_OUT 0
+
+#define MAX_MIDI 16
+
 
 /* Erl */
 int erl_fd = 0;
@@ -30,137 +30,11 @@ int pd_fd = -1;
         assert_write(pd_fd, buf, sizeof(buf)-1);        \
     }
 
-
-
-/* Jack */
-#if CLOCK_OUT
-static jack_port_t *audio_out = NULL;
-#endif
-static jack_port_t *midi_in = NULL;
-static jack_client_t *client = NULL;
-
-int nb_clock = 0;
-
-static inline void process_midi(jack_nframes_t nframes) {
-    void *midi_in_buf  = jack_port_get_buffer(midi_in, nframes);
-    jack_nframes_t n = jack_midi_get_event_count(midi_in_buf);
-    for (jack_nframes_t i = 0; i < n; i++) {
-        jack_midi_event_t event;
-        jack_midi_event_get(&event, midi_in_buf, i);
-        const uint8_t *msg = event.buffer;
-        if (event.size == 1) {
-            if (msg[0] == 0xF8) {
-                nb_clock++;
-            }
-            /* Convert some midi messages to PD messages. Just write
-               it to the socket.  This should not block in realistic
-               situations. */
-            else if (msg[0] == 0xFA) {
-                PD_WRITE("start;\n");
-            }
-            else if (msg[0] == 0xFB) {
-                PD_WRITE("continue;\n");
-            }
-            else if (msg[0] == 0xFC) {
-                PD_WRITE("stop;\n");
-            }
-        }
-        else if (event.size == 3) {
-            /* Structure is optimized to make Pd route simple.
-               E.g. channel comes before message type. */
-            uint8_t type = msg[0] & 0xF0;
-            uint8_t chan = msg[0] & 0x0F;
-            if (type == 0xB0) {
-                char fudi[32];
-                int nb = sprintf(fudi, "track %d cc %d %d;\n", chan, msg[1], msg[2]);
-                assert_write(pd_fd, (void*)fudi, nb);
-                // LOG("pd_io %s", msg);
-            }
-            else if ((type & 0xF0) == 0x80) {
-                char fudi[32];
-                /* Use 0 to mean off. */
-                int nb = sprintf(fudi, "track %d note %d %d;\n", chan, msg[1], 0);
-                assert_write(pd_fd, (void*)fudi, nb);
-            }
-            else if ((type & 0xF0) == 0x90) {
-                char fudi[32];
-                int nb = sprintf(fudi, "track %d note %d %d;\n", chan, msg[1], msg[2]);
-                assert_write(pd_fd, (void*)fudi, nb);
-            }
-        }
-
-#if 0 // FIXME: Later, maybe convert control messages to FUDI
-        else if (event.size == 3 &&
-            msg[0] == 0xB0 && // CC channel 0
-            (msg[1] >= 23) && // CC num on Easycontrol 9
-            (msg[1] <= 31)) {
-            // ...
-        }
-        else if (event.size == 3 &&
-                 msg[0] == 0x90) { // Note on channel 0
-            uint8_t note = msg[1];
-            uint8_t vel  = msg[2];
-            if (vel == 0) {
-                synth_note_off(&synth, note);
-            }
-            else {
-                synth_note_on(&synth, note);
-            }
-        }
-        else if (event.size == 3 &&
-                 msg[0] == 0x80) { // Note off channel 0
-            uint8_t note = msg[1];
-            // uint8_t vel  = msg[2];
-            synth_note_off(&synth, note);
-        }
-#endif
-    }
-}
-
-#if CLOCK_OUT
-/* Note that generating audio from midi gives a jittery clock signal.
-   Best to do it the other way around.  See clock.c */
-
-static inline void process_audio(jack_nframes_t nframes) {
-    //LOG("\raudio %d ", count++);
-    jack_default_audio_sample_t *dst =
-        jack_port_get_buffer(audio_out, nframes);
-    /* Sync is 24 per quarter note (beat), so 120bpm is 2 bps is 48
-       pulses per second. */
-
-    /* No pulses needs to be handled separately due to division used
-       for hperiod. */
-    if (nb_clock == 0) {
-        for (int t=0; t<nframes; t++) {
-            dst[t] = 0;
-        }
-        return;
-    }
-
-    jack_nframes_t nsegments = 2 * nb_clock;
-    nb_clock = 0;
-
-    float hperiod = ((float)nframes) / ((float)nsegments);
-    float offset = 0;
-    int phase = 1;
-    for (int t=0; t<nframes; t++) {
-        if (t >= offset) {
-            offset += hperiod;
-            phase ^= 1;
-        }
-        dst[t] = phase;
-    }
-}
-#endif
-
-static int process (jack_nframes_t nframes, void *arg) {
-    /* Order is important. */
-    process_midi(nframes);
-#if AUDIO_CLOCK
-    process_audio(nframes);
-#endif
-    return 0;
-}
+/* ALSA */
+snd_seq_t *seq;
+snd_midi_event_t *alsa_decoder;
+int alsa_client_id;
+int alsa_port_id;
 
 /* Erlang side closed the pipe, which means we need to shut down.
    Send a message to Pd then shut down this wrapper. */
@@ -212,6 +86,77 @@ static inline ssize_t erl_read_msg(void *vbuf) {
     return erl_read_fixed(vbuf, len);
 }
 
+void handle_alsa(void) {
+    do {
+        snd_seq_event_t *ev;
+        snd_seq_event_input(seq, &ev);
+        // LOG("synth: event\n");
+        switch(ev->type) {
+        case SND_SEQ_EVENT_CLOCK:
+            // Not needed until we have LFO sync.
+            // LOG("event: clock\n");
+            break;
+        case SND_SEQ_EVENT_PORT_SUBSCRIBED:
+            LOG("event: port subscribed\n");
+            break;
+        default: {
+            /* Not handling all snd_seq_event_type separately.
+               Try to convert it to midi. */
+            static unsigned char msg[MAX_MIDI];
+
+            long n = snd_midi_event_decode(
+                alsa_decoder, msg, sizeof(msg), ev);
+            if (n == 1) {
+                if (msg[0] == 0xF8) {
+                }
+                /* Convert some midi messages to PD messages. Just
+                   write it to the socket.  This should not block in
+                   realistic situations. */
+                else if (msg[0] == 0xFA) {
+                    PD_WRITE("start;\n");
+                }
+                else if (msg[0] == 0xFB) {
+                    PD_WRITE("continue;\n");
+                }
+                else if (msg[0] == 0xFC) {
+                    PD_WRITE("stop;\n");
+                }
+            }
+            else if (n == 3) {
+                /* Structure is optimized to make Pd route simple.
+                   E.g. channel comes before message type. */
+                uint8_t type = msg[0] & 0xF0;
+                uint8_t chan = msg[0] & 0x0F;
+                if (type == 0xB0) {
+                    char fudi[32];
+                    int nb = sprintf(fudi, "track %d cc %d %d;\n", chan, msg[1], msg[2]);
+                    assert_write(pd_fd, (void*)fudi, nb);
+                    // LOG("pd_io %s", msg);
+                }
+                else if ((type & 0xF0) == 0x80) {
+                    char fudi[32];
+                    /* Use 0 to mean off. */
+                    int nb = sprintf(fudi, "track %d note %d %d;\n", chan, msg[1], 0);
+                    assert_write(pd_fd, (void*)fudi, nb);
+                }
+                else if ((type & 0xF0) == 0x90) {
+                    char fudi[32];
+                    int nb = sprintf(fudi, "track %d note %d %d;\n", chan, msg[1], msg[2]);
+                    assert_write(pd_fd, (void*)fudi, nb);
+                }
+            }
+            else {
+                /* Event not supported or decoder error. */
+                LOG("WARNING: decode=%d, event=%d\n", n, ev->type);
+            }
+            break;
+        }}
+        snd_seq_free_event(ev);
+    }
+    while (snd_seq_event_input_pending(seq, 0) > 0);
+
+}
+
 
 int main(int argc, char **argv) {
 
@@ -229,57 +174,62 @@ int main(int argc, char **argv) {
     rv = system("sleep 1");
     (void)rv;
 
-    /* Pd midi is problematic, so solve it in this adapter. */
-    const char *client_name = "pd_io";
-
-    jack_status_t status = 0;
-    client = jack_client_open (client_name, JackNullOption, &status);
-    ASSERT(client);
-
-    ASSERT(midi_in = jack_port_register(
-               client, "in",
-               JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, 0));
-#if AUDIO_CLOCK
-    ASSERT(audio_out = jack_port_register(
-               client, "out",
-               JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0));
-#endif
-
-    jack_set_process_callback (client, process, 0);
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
-    ASSERT(!jack_activate(client));
-
 
     pd_fd = assert_tcp_connect("localhost", 3001);
     PD_WRITE("startup;\n");
 
+    /* ALSA */
+    ALSA_ASSERT(snd_seq_open(&seq, "hw", SND_SEQ_OPEN_INPUT, 0));
+    snd_seq_set_client_name(seq, "pd_io");
+    alsa_client_id = snd_seq_client_id(seq);
+    alsa_port_id = ALSA_ASSERT(
+        snd_seq_create_simple_port(
+            seq, "pd_io_midi",
+            SND_SEQ_PORT_CAP_WRITE |
+            SND_SEQ_PORT_CAP_SUBS_WRITE,
+            SND_SEQ_PORT_TYPE_HARDWARE));
+    ALSA_ASSERT(snd_midi_event_new(MAX_MIDI, &alsa_decoder));
+    snd_midi_event_reset_decode(alsa_decoder);
+    snd_midi_event_no_status(alsa_decoder, 1);
+    int alsa_nfd = snd_seq_poll_descriptors_count(seq, POLLIN);
+    LOG("alsa alsa_nfd = %d\n", alsa_nfd);
+    int extra_nfd = 1;
+    int nfd = extra_nfd + alsa_nfd;
+    struct pollfd pfd[nfd];
+    snd_seq_poll_descriptors(seq, pfd + extra_nfd, alsa_nfd, POLLIN);
+
+    /* Data coming from Erlang. */
+    pfd[0].fd = erl_fd;
+    pfd[0].events = POLLIN;
+
     /* Start Pd in the background, open the exo patch. */
     for(;;) {
-        /* Wait */
-        struct pollfd pfd = {
-                .events = POLLIN | POLLERR | POLLHUP,
-                .fd = erl_fd
-        };
         int rv;
         int timeout_ms = 1000;
-        ASSERT_ERRNO(rv = poll(&pfd, 1, timeout_ms));
+        ASSERT_ERRNO(rv = poll(pfd, nfd, timeout_ms));
 
         /* Just bail on error. */
-        if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
-            //LOG("pd_io shutdown\n");
-            eof_shutdown();
+        for (int i=0; i<nfd; i++) {
+            if (pfd[i].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+                //LOG("pd_io shutdown\n");
+                eof_shutdown();
+            }
         }
-
-        if(pfd.revents & POLLIN) {
+        if (rv == 0) {
+            /* Timeout */
+            /* Send a message to make sure the connection is ok. */
+            //LOG("pd_io -> pd: idle  (revents = 0x%x)\n", pfd.revents);
+            PD_WRITE("idle;\n");
+        }
+        else if(pfd[0].revents & POLLIN) {
             uint8_t buf[1024]; // FIXME overflow
             /* FIXME: Add 2 protocols to uc_tools: Pd FUDI and framed MIDI */
             //LOG("pd_io read\n");
             erl_read_msg(buf);
         }
         else {
-            /* Send a message to make sure the connection is ok. */
-            //LOG("pd_io -> pd: idle  (revents = 0x%x)\n", pfd.revents);
-            PD_WRITE("idle;\n");
+            handle_alsa();
         }
     }
     return 0;
