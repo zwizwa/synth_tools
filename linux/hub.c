@@ -65,11 +65,6 @@
 
 #include "mod_to_erl.c"
 
-
-#define TELNET_WORD_MODE
-#include "mod_telnet.c"
-
-
 #include "alsa_tools.h"
 
 
@@ -234,13 +229,6 @@ struct app {
     void *fire_out_buf;
     void *synth_out_buf;
 
-    /* telnet control port */
-    struct telnet telnet;
-    int telnet_fd;
-    jack_ringbuffer_t *telnet_ringbuffer;
-    //void (*telnet_op)(struct app *app);
-    //uintptr_t telnet_lit;
-
     /* ALSA MIDI */
     snd_seq_t *seq;
     snd_midi_event_t *alsa_decoder;
@@ -279,7 +267,6 @@ DEF_TO_APP(akai_fire)
 DEF_TO_APP(mmc)
 DEF_TO_APP(pd)
 DEF_TO_APP(route)
-DEF_TO_APP(telnet)
 
 
 
@@ -751,46 +738,6 @@ static inline void process_keystation_in2(struct app *app) {
 #endif
 
 
-struct hub_command;
-struct hub_command {
-    void (*fun)(struct telnet *);
-    uintptr_t arg;
-};
-
-/* This could be more general.  Maybe best to also implement erlang
-   commands using the jack ringbuffer */
-static void process_hub_command(struct app *app, struct hub_command *c) {
-    /* Re-using the signature from telnet_cmd */
-    c->fun(&app->telnet);
-}
-static void process_telnet(struct app *app) {
-    if (!app->telnet_ringbuffer) return;
-
-#if 0
-    // Leaving this here for later reference.  I guess this is the way
-    // to do it if speed is important.  Got this from a2jmidid source.
-    jack_ringbuffer_data_t vec[2];
-    jack_ringbuffer_get_read_vector (app->telnet_ringbuffer, vec);
-    for (int v=0; v<2; v++) {
-        struct hub_command *c = (void*)vec[v].buf;
-        int nb = vec[v].len / sizeof(*c);
-        for (int i=0; i<nb; i++) {
-            process_hub_command(app, c);
-        }
-    }
-    // FIXME: Needs to advance still.
-#else
-    // We can just keep it simple.
-    struct hub_command c;
-    while (sizeof(c) == jack_ringbuffer_read(
-               app->telnet_ringbuffer, (void*)&c, sizeof(c))) {
-        process_hub_command(app, &c);
-    }
-
-#endif
-
-
-}
 
 void app_to_alsa(struct app *app, uintptr_t ev) {
     assert_write(app->alsa_pipefd[1], (const void*)&ev, sizeof(ev));
@@ -837,9 +784,6 @@ static void app_process(struct app *app) {
     app->sr = jack_get_sample_rate(client);
 
     app->stamp = (f / app->nframes);
-
-    /* Order is important. */
-    process_telnet(app);
 
     // process_clock_in(app);
     // process_easycontrol_in(app);
@@ -1134,8 +1078,6 @@ void app_init(struct app *app) {
     app->sequencer.pattern_free_notify = app_pattern_free_notify;
     app->akai_fire.button_notify = app_fire_button_notify;
 
-    app->telnet_fd = -1;
-
     app->mmc.bpm = 120;
     app->mmc.clock_phase = 0;
     app->mmc.clock_pol = 1;
@@ -1145,97 +1087,6 @@ void app_init(struct app *app) {
 void synth_tools_rs_init(void);
 void synth_tools_zig_init(void);
 
-#include "tcp_tools.h"
-void telnet_write_output(struct telnet *t, const uint8_t *bytes, uintptr_t len) {
-    struct app *app = telnet_to_app(t);
-    assert_write(app->telnet_fd, bytes, len);
-}
-
-/* Telnet commands are resolved in the low prio thread, moved into a
-   jack_ringbuffer then executed in the high prio thread. */
-void play_pause(struct telnet *t) {
-    struct app *app = telnet_to_app(t);
-    struct mmc *mmc = &app->mmc;
-    if (mmc_running(mmc)) {
-        mmc_press_stop(mmc);
-    }
-    else {
-        mmc_press_play(mmc);
-    }
-}
-struct telnet_cmd hub_cmds[] = {
-    {"toggle", play_pause},
-    {}
-};
-struct telnet_cmd hub_escs[] = {
-    {"[11~", play_pause},
-    {}
-};
-
-void telnet_ringbuffer_write(struct telnet *t, const struct telnet_cmd *c) {
-    struct app *app = telnet_to_app(t);
-    if (!c) return; // Much easier to make this a maybe
-    struct hub_command cmd = { .fun = c->fun };
-    if (sizeof(cmd) != jack_ringbuffer_write(
-            app->telnet_ringbuffer,
-            (void*)&cmd,
-            sizeof(cmd))) {
-        LOG("dropping telnet command\n");
-    }
-}
-
-void telnet_event(struct telnet *t, uintptr_t event) {
-    uint8_t byte = event & 0xFF;
-    event &= ~0xff;
-    switch(event) {
-    case TELNET_EVENT_INTERRUPT:
-        LOG("<INTERRUPT>\n");
-        break;
-    case TELNET_EVENT_CONTROL:
-        LOG("<CONTROL:%d>\n", byte);
-        if (byte == 4) {
-            /* CTRL-D */
-            /* Ignore for now. Figure out how to close the socket
-             * without daemon restart. */
-        }
-        else if (byte == 12) { telnet_clear(t); }
-        break;
-    case TELNET_EVENT_ESCAPE:
-        telnet_ringbuffer_write(t, telnet_escape_lookup(t, hub_escs));
-        break;
-    case TELNET_EVENT_LINE:
-        // FIXME: number stack?
-        telnet_ringbuffer_write(t,telnet_line_lookup(t, hub_cmds));
-        break;
-    case TELNET_EVENT_FLUSH:
-        break;
-    case TELNET_EVENT_PROMPT:
-        t->write_output(t, (const uint8_t*)":", 2);
-        break;
-    }
-}
-void *telnet_main(void *arg) {
-    struct app *app = arg;
-    int listen_fd = assert_tcp_listen(12345);
-    for (;;) {
-        app->telnet_fd = assert_accept(listen_fd);
-        app->telnet_ringbuffer = jack_ringbuffer_create(16 * sizeof(struct hub_command));
-        telnet_init(&app->telnet, telnet_write_output, telnet_event);
-
-        for(;;) {
-            uint8_t buf[2048];
-            ssize_t rv = read(app->telnet_fd, buf, sizeof(buf));
-            if (rv == 0) break;
-            ASSERT(rv >= 0);
-            telnet_write_input(&app->telnet, buf, rv);
-        }
-
-        jack_ringbuffer_free(app->telnet_ringbuffer);
-        app->telnet_ringbuffer = NULL;
-
-    }
-    return NULL;
-}
 
 #define MAX_MIDI 1024
 
@@ -1600,13 +1451,6 @@ int main(int argc, char **argv) {
     jack_set_process_callback (client, process, 0);
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
     ASSERT(!jack_activate(client));
-
-    /* Run a telnet server in the background. */
-    //pthread_t telnet_thread;
-    //pthread_create(&telnet_thread, NULL, telnet_main, app);
-
-    // FIXME: Put the telnet fd and the stdin all in the same thread
-    // so they can modify the same datastructures.
 
     poll_loop(app);
     return 0;
