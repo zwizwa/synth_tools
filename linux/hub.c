@@ -62,7 +62,6 @@
 // FIXME: This needs to be rebuilt completely, so disable it for now.
 // #include "mod_novation_remote.c"
 
-
 #include "mod_to_erl.c"
 
 #include "alsa_tools.h"
@@ -80,7 +79,6 @@
 
 */
 
-#define MAX_NB_PORTS 6
 
 /* Try to keep it abstract.
 
@@ -113,56 +111,22 @@ void send_tag_u32_buf_write(const uint8_t *buf, uint32_t len) {
 #define SEND_TAG_U32_BUF_WRITE send_tag_u32_buf_write
 #include "mod_send_tag_u32.c"
 
-/* JACK */
-
-/* For now all jack ports are disabled, replaced with ALSA */
-
-#define FOR_MIDI_IN(m)
-
-#define FOR_MIDI_IN_DISABLED(m) \
-    m(clock_in)        \
-    m(akai_fire_in)    \
-    m(maudio_axiom25_in)        \
-    m(easycontrol)     \
-    m(arturia_minilab_in)      \
-    m(keystation_in1)  \
-    m(keystation_in2)  \
-    m(z_debug)         \
-    m(uma_in)          \
-    m(novation_remote_in)          \
-
-
-#define FOR_MIDI_OUT(m) \
-
-#define FOR_MIDI_DISABLED(m) \
-    m(tb03)         \
-    m(fire_out)     \
-    m(volca_keys)   \
-    m(volca_bass)   \
-    m(volca_beats)  \
-    m(synth_out)    \
-    m(pd_out)       \
-    m(transport)    \
-
-#define FOR_SELECTORS(m) \
-    m(tb03,tb03,1)          \
-    m(volca_keys,volcas,1)  \
-    m(volca_bass,volcas,2)  \
-    m(volca_beats,volcas,3) \
-
-
-FOR_MIDI_IN(DEF_JACK_PORT)
-FOR_MIDI_OUT(DEF_JACK_PORT)
 
 static jack_client_t *client = NULL;
+
+struct mmc_rt {
+    jack_nframes_t bpm;
+    jack_nframes_t clock_hperiod;
+    int clock_phase;
+    int clock_pol;
+};
 
 struct mmc {
     uint32_t time;      /* rolling time */
     uint32_t mode:2;
-    jack_nframes_t bpm;
-    int clock_phase;
-    int clock_pol;
-    jack_nframes_t clock_hperiod;
+
+    /* Variables only used in real time thread. */
+    struct mmc_rt mmc_rt;
 };
 
 struct route {
@@ -203,8 +167,6 @@ static inline uintptr_t pattern_event_bit_nb(const union pattern_event *ev) {
 struct pd { };
 struct synth { };
 
-// figure out how to map struct to parent
-
 
 struct app {
     struct sequencer sequencer;
@@ -223,12 +185,6 @@ struct app {
     struct mmc mmc;
     struct synth synth;
 
-    /* midi out ports */
-    void *pd_out_buf;
-    void *transport_buf;
-    void *fire_out_buf;
-    void *synth_out_buf;
-
     /* ALSA MIDI */
     snd_seq_t *seq;
     snd_midi_event_t *alsa_decoder;
@@ -237,6 +193,7 @@ struct app {
     int alsa_client_id;
     int alsa_port_id;
     int alsa_pipefd[2]; //0=read, 1=write
+    jack_ringbuffer_t *ringbuffer;
 
     /* Map live ALSA client id to our representation of the device. */
     uint8_t client_id_to_dev_id[256];
@@ -244,9 +201,19 @@ struct app {
 
 } app_state = {};
 
-#define PORT_ID_NONE 255
 #define DEV_ID_NONE 255
+#define CLIENT_ID_NONE 255
 
+
+/* Events sent between midi thread and real time thread */
+#define RT_EVENT_MIDI_CLOCK 0
+#define RT_EVENT_FRAME_TICK 1
+#define RT_EVENT_CLOCK_DIV  2
+
+struct rt_event {
+    uint32_t cmd;
+    uint32_t arg;
+};
 
 
 
@@ -715,68 +682,96 @@ static inline void process_keystation_in2(struct app *app) {
 #endif
 
 
-
-void app_to_alsa(struct app *app, uintptr_t ev) {
-    assert_write(app->alsa_pipefd[1], (const void*)&ev, sizeof(ev));
+void from_rt(struct app *app, struct rt_event *ev) {
+    assert_write(app->alsa_pipefd[1], (const void*)ev, sizeof(*ev));
 }
+void to_rt(struct app *app, struct rt_event *c) {
+    while (sizeof(*c) > jack_ringbuffer_write_space(app->ringbuffer)) {
+        /* If ringbuffer is full we pause the MIDI thread and retry.
+           There is no other synchronization mechanism. */
+        struct timespec nanoseconds = {
+            .tv_sec = 0,
+            .tv_nsec = 1000000,
+        };
+        ASSERT_ERRNO(nanosleep(&nanoseconds, NULL));
+    }
+    ASSERT(sizeof(*c) == jack_ringbuffer_write(app->ringbuffer, (void*)c, sizeof(*c)));
+}
+
+
+
+/* FIXME ST5: mmc->time is updated in both the main thread and here.
+   Instead, send a message from process thread to main thread to
+   update mmc->time. */
+
 
 static void process_clock(struct app *app) {
     /* This is an integer divisor of the sample clock, which makes it
        possible to have perfect lock for devices that only receive
        word clock in. */
-    struct mmc *mmc = &app->mmc;
-    if (!mmc->clock_hperiod) {
+    struct mmc_rt *mmc_rt = &app->mmc.mmc_rt;
+
+    if (!mmc_rt->clock_hperiod) {
         /* It seems that sr is only valid in side the process thread,
            so set it here once. */
-        mmc->clock_hperiod = BPM_TO_HPERIOD(app->sr, mmc->bpm);
-        float bpm_actual = (((float)app->sr)*1.25f) / ((float)mmc->clock_hperiod);
+        mmc_rt->clock_hperiod = BPM_TO_HPERIOD(app->sr, mmc_rt->bpm);
+        float bpm_actual = (((float)app->sr)*1.25f) / ((float)mmc_rt->clock_hperiod);
         LOG("clock: bpm_set = %d, sr = %d -> clock_hperiod = %d, bpm_actual = %3.6f\n",
-            mmc->bpm, app->sr, mmc->clock_hperiod, bpm_actual);
+            mmc_rt->bpm, app->sr, mmc_rt->clock_hperiod, bpm_actual);
         // FIXME: Send out an NRPN as well?
     }
 
     /* Generate quare wave output, send midi on positive edge. */
     for (int t=0; t<app->nframes; t++) {
-        if (mmc->clock_phase >= mmc->clock_hperiod) {
-            mmc->clock_phase -= mmc->clock_hperiod;
-            mmc->clock_pol ^= 1;
-            if (mmc->clock_pol == 1) {
+        if (mmc_rt->clock_phase >= mmc_rt->clock_hperiod) {
+            mmc_rt->clock_phase -= mmc_rt->clock_hperiod;
+            mmc_rt->clock_pol ^= 1;
+            if (mmc_rt->clock_pol == 1) {
                 // Send event to ALSA thread
-                uintptr_t ev = 0;
-                app_to_alsa(app, ev);
+                struct rt_event ev = {};
+                from_rt(app, &ev);
                 // const uint8_t clock[] = {0xF8};
                 // send_midi(midi_out_buf, t, clock, sizeof(clock));
             }
         }
         // FIXME: Write audio sample later when adding audio port
         // audio_out_buf[t] = clock_pol;
-        mmc->clock_phase += 1;
+        mmc_rt->clock_phase += 1;
     }
+
+    if (1) {
+        struct rt_event ev = {
+            .cmd = RT_EVENT_FRAME_TICK,
+            .arg = app->nframes,
+        };
+        from_rt(app, &ev);
+    }
+
 }
 
-static void app_process(struct app *app) {
-
-    /* Erlang out is tagged with a rolling time stamp. */
-    jack_nframes_t f = jack_last_frame_time(client);
-    app->sr = jack_get_sample_rate(client);
-
-    app->stamp = (f / app->nframes);
-
-    process_clock(app);
-
+static void process_rt(struct app *app) {
+    struct rt_event ev;
+    while (sizeof(ev) == jack_ringbuffer_read(
+               app->ringbuffer, (void*)&ev, sizeof(ev))) {
+        switch(ev.cmd) {
+        case RT_EVENT_CLOCK_DIV:
+            app->mmc.mmc_rt.clock_hperiod = ev.arg;
+            break;
+        }
+    }
 }
 
 static int process (jack_nframes_t nframes, void *arg) {
     struct app *app = &app_state;
     app->nframes = nframes;
+    jack_nframes_t f = jack_last_frame_time(client);
+    app->sr = jack_get_sample_rate(client);
+    app->stamp = (f / app->nframes);
 
-    // app->pd_out_buf    = midi_out_buf_cleared(pd_out, nframes);
-    // app->transport_buf = midi_out_buf_cleared(transport, nframes);
-    // app->fire_out_buf  = midi_out_buf_cleared(fire_out, nframes);
-    // app->synth_out_buf = midi_out_buf_cleared(synth_out, nframes);
+    process_rt(app);
 
-    app_process(app);
-    app->mmc.time += nframes;
+    process_clock(app);
+
     return 0;
 }
 
@@ -801,17 +796,19 @@ int reply_error(struct tag_u32 *req) {
     return reply_1(req, -1);
 }
 
-/* Note that the hub no longer contains the master clock, so for now
-   we need to ignore this.  How to fix?  Erlang has direct access to
-   the clock object so maybe best it is sent there. */
 int handle_clock_div(struct tag_u32 *req) {
+    struct app *app = req->context;
     TAG_U32_UNPACK(req, 0, m, div) {
         LOG("FIXME: set sample clock div = %d\n", m->div);
+        struct rt_event ev = {
+            .cmd = RT_EVENT_CLOCK_DIV,
+            .arg = m->div / 2, // FIXME: rounding!
+        };
+        to_rt(app, &ev);
         return reply_ok(req);
     }
     return -1;
 }
-
 
 
 #define CMD_CONNECT 1
@@ -1022,7 +1019,8 @@ void app_fire_button_notify(struct akai_fire *fire, int row, int col) {
 void app_init(struct app *app) {
 
     memset(app, 0, sizeof(*app));
-    memset(app->client_id_to_dev_id, DEV_ID_NONE, sizeof(app->client_id_to_dev_id));
+    memset(app->client_id_to_dev_id, DEV_ID_NONE,    sizeof(app->client_id_to_dev_id));
+    memset(app->dev_id_to_client_id, CLIENT_ID_NONE, sizeof(app->dev_id_to_client_id));
 
     /* Initialize the components. */
     akai_fire_init(&app->akai_fire);
@@ -1034,9 +1032,9 @@ void app_init(struct app *app) {
     app->sequencer.pattern_free_notify = app_pattern_free_notify;
     app->akai_fire.button_notify = app_fire_button_notify;
 
-    app->mmc.bpm = 120;
-    app->mmc.clock_phase = 0;
-    app->mmc.clock_pol = 1;
+    app->mmc.mmc_rt.bpm = 120;
+    app->mmc.mmc_rt.clock_phase = 0;
+    app->mmc.mmc_rt.clock_pol = 1;
 
 }
 
@@ -1210,9 +1208,12 @@ void app_alsa_init(struct app *app) {
 
     /* Connect to hardware ports for which we have drivers. */
     app_alsa_connect(app);
- 
-    /* Events from jack realtime thread to low-pri ALSA thread */
+
+    /* Events from jack realtime thread to low-pri midi thread */
     ASSERT_ERRNO(pipe(app->alsa_pipefd));
+
+    /* Events from low-pri midi thread to jack realtime thread. */
+    app->ringbuffer = jack_ringbuffer_create(16 * sizeof(struct rt_event));
 
 
 }
@@ -1239,12 +1240,12 @@ void handle_erlang_stdin(struct app *app) {
     }
 }
 
-void handle_jack_pipe(struct app *app) {
+void handle_from_rt(struct app *app) {
     /* Event from jack thread. */
-    uintptr_t ev;
+    struct rt_event ev;
     assert_read(app->alsa_pipefd[0], &ev, sizeof(ev));
-    switch(ev) {
-    case 0: {
+    switch(ev.cmd) {
+    case RT_EVENT_MIDI_CLOCK: {
         if (mmc_running(&app->mmc)) {
             sequencer_tick(&app->sequencer);
         }
@@ -1263,6 +1264,9 @@ void handle_jack_pipe(struct app *app) {
         snd_seq_event_output_direct(app->seq, &clock_ev);
         break;
     }
+    case RT_EVENT_FRAME_TICK:
+        app->mmc.time += ev.arg;
+        break;
     }
     // LOG("jack event\n");
 }
@@ -1368,7 +1372,7 @@ void poll_loop(struct app *app) {
                 }
             }
             if(pfd[0].revents & POLLIN) {
-                handle_jack_pipe(app);
+                handle_from_rt(app);
             }
             else if(pfd[1].revents & POLLIN) {
                 handle_erlang_stdin(app);
@@ -1387,12 +1391,6 @@ void poll_loop(struct app *app) {
 
 int main(int argc, char **argv) {
 
-    /* Initialize Rust and Zig libraries.  FIXME: This doesn't do
-       anything except for making sure building and linking of Rust
-       and Zig code works properly. */
-    //synth_tools_rs_init();
-    //synth_tools_zig_init();
-
     struct app *app = &app_state;
     app_init(app);
 
@@ -1405,9 +1403,6 @@ int main(int argc, char **argv) {
     jack_status_t status = 0;
     client = jack_client_open (client_name, JackNullOption, &status);
     ASSERT(client);
-
-    FOR_MIDI_IN(REGISTER_JACK_MIDI_IN);
-    FOR_MIDI_OUT(REGISTER_JACK_MIDI_OUT);
 
     jack_set_process_callback (client, process, 0);
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
