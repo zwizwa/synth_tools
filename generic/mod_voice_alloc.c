@@ -92,8 +92,11 @@
 #define VOICE_OFF (NB_VOICES)
 #define VOICE_ON  (NB_VOICES+1)
 
+/* Allow per voice On/OFF semaphore tracking.  In practice this has
+   some issues so by default just keep track of 1 ON event. */
 #ifndef VOICE_MAX_SEMA
-#define VOICE_MAX_SEMA 255
+#define VOICE_MAX_SEMA 1
+//#define VOICE_MAX_SEMA 255 // MAX MAX
 #endif
 
 struct voice_meta {

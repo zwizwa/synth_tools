@@ -21,6 +21,8 @@
     m(axiom25, "Axiom 25") \
     m(synth,   "synth") \
     m(pd_io,   "pd_io") \
+    m(pixi,    "EuroPIXI") \
+    m(fire,    "FL STUDIO FIRE") \
 
 /* Selector names. The ids are allocated sequentially.  The list needs
    to be sorted in DPC order. */
@@ -32,6 +34,8 @@
     m(axiom25_2_0,  axiom25, 2,  0) \
     m(synth,        synth,   0,  0) \
     m(pd_io,        pd_io,   0,  0) \
+    m(pixi,         pixi,    0,  0) \
+    m(fire,         fire,    0,  0) \
 
 /* Routing information is needed for input and output:
    - MIDI in   client:port:channel -> selector

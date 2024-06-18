@@ -533,6 +533,16 @@ void route_pattern_event(struct route *route, const union pattern_event *ev) {
     /* Send a copy to Erlang. */
     to_erl_midi(flat_midi, len, sel);
 }
+
+/* This has been added for sysex, akai fire. */
+void route_raw_midi(struct route *route, uint8_t sel,
+                    const uint8_t *buf, uintptr_t size) {
+    struct app *app = route_to_app(route);
+    app_route_midi_outgoing(app, sel, buf, size);
+}
+
+
+
 void app_sequencer_tick(struct sequencer *seq, const union pattern_event *ev) {
     struct app *app = (void*)seq;
     route_pattern_event(&app->route, ev);
@@ -1106,12 +1116,22 @@ void handle_axiom25_0_15(struct app *app, const uint8_t *msg, int n) {
         &app->route,
         msg, n);
 }
+void handle_fire(struct app *app, const uint8_t *msg, int n) {
+    process_akai_fire(
+        &app->akai_fire,
+        &app->mmc,
+        &app->sequencer,
+        &app->route,
+        msg, n);
+}
+
+/* Dummy IN */
 void handle_axiom25_1_0(struct app *app, const uint8_t *msg, int n) {}
 void handle_axiom25_2_0(struct app *app, const uint8_t *msg, int n) {}
-
 void handle_synth(struct app *app, const uint8_t *buf, int count) {}
-
 void handle_pd_io(struct app *app, const uint8_t *buf, int count) {}
+void handle_pixi(struct app *app, const uint8_t *buf, int count) {}
+
 
 typedef void (*app_midi_fn)(struct app *app, const uint8_t *buf, int count);
 #define MIDI_HANDLE(name,dev,port,chan) handle_##name,
@@ -1154,31 +1174,56 @@ void app_route_midi_incoming(struct app *app,
     }
 }
 
-void app_route_midi_outgoing(struct app *app,
-                             uint8_t sel,
-                             const uint8_t *buf, int count) {
-    LOG("midi outgoing %d\n", sel);
-    
-    ASSERT(sel < NB_SEL);
-    uint16_t dpc = dpc_table[sel];
-    uint8_t dev  = dpc_to_dev(dpc);
-    uint8_t port = dpc_to_port(dpc);
-    uint8_t chan = dpc_to_chan(dpc);
-
-    uint8_t new_midi[] = {(buf[0] & 0xF0) + (chan & 0x0F), buf[1], buf[2]};
-    ASSERT(dev < NB_DEV);
-    uint8_t client = app->dev_id_to_client_id[dev];
-
-    /* Re-encode */
+void app_alsa_midi_outgoing(struct app *app,
+                            uint8_t client, uint8_t port,
+                            const uint8_t *buf, int count) {
     snd_seq_event_t out_ev;
     snd_seq_ev_clear(&out_ev);
     if (snd_midi_event_encode(
-            app->alsa_encoder, new_midi, count, &out_ev)) {
+            app->alsa_encoder, buf, count, &out_ev)) {
         snd_seq_ev_set_source(&out_ev, app->alsa_port_id);
         snd_seq_ev_set_dest(&out_ev, client, port);
         // snd_seq_ev_set_subs(&out_ev); // Don't broadcast
         snd_seq_ev_schedule_tick(&out_ev, app->alsa_queue_id, 1, 0);
         snd_seq_event_output_direct(app->seq, &out_ev);
+    }
+    else {
+        LOG("new_midi outgoing encode failed\n");
+    }
+}
+
+void app_route_midi_outgoing(struct app *app,
+                             uint8_t sel,
+                             const uint8_t *buf, int count) {
+    LOG("midi outgoing sel=%d\n", sel);
+    ASSERT(sel < NB_SEL);
+    ASSERT(count > 0);
+
+    /* Find physical client, port, channel (dpc) */
+    uint16_t dpc = dpc_table[sel];
+    uint8_t dev  = dpc_to_dev(dpc);
+    uint8_t port = dpc_to_port(dpc);
+    uint8_t chan = dpc_to_chan(dpc);
+    uint8_t client = app->dev_id_to_client_id[dev];
+
+    /* Kind of midi message. */
+    uint8_t tag = buf[0] & 0xF0;
+
+
+    switch(tag) {
+    case 0x90:
+    case 0x80:
+    case 0xB0: {
+        /* Re-encode */
+        uint8_t new_midi[] = {tag + (chan & 0x0F), buf[1], buf[2]};
+        ASSERT(dev < NB_DEV);
+
+        app_alsa_midi_outgoing(app, client, port, new_midi, sizeof(new_midi));
+        break;
+    }
+    default:
+        /* Keep as-is, e.g. for sysex. */
+        app_alsa_midi_outgoing(app, client, port, buf, count);
     }
 }
 
@@ -1389,10 +1434,10 @@ void poll_loop(struct app *app) {
             }
         }
 
-        /* Remnant of running this in the process thread.  Erlang
-           messages are buffered, so flush them in case any of the
-           handlers generated erlang messages. */
+        /* Flush buffers. */
         to_erl_flush();
+        akai_fire_pad_update(&app->akai_fire, &app->route);
+
     }
 }
 

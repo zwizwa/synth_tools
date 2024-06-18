@@ -97,7 +97,7 @@ void handle_alsa(void) {
             // LOG("event: clock\n");
             break;
         case SND_SEQ_EVENT_PORT_SUBSCRIBED:
-            LOG("event: port subscribed\n");
+            // LOG("event: port subscribed\n");
             break;
         default: {
             /* Not handling all snd_seq_event_type separately.
