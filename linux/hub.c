@@ -1131,6 +1131,7 @@ void handle_axiom25_2_0(struct app *app, const uint8_t *msg, int n) {}
 void handle_synth(struct app *app, const uint8_t *buf, int count) {}
 void handle_pd_io(struct app *app, const uint8_t *buf, int count) {}
 void handle_pixi(struct app *app, const uint8_t *buf, int count) {}
+void handle_easy(struct app *app, const uint8_t *msg, int n) {}
 
 
 typedef void (*app_midi_fn)(struct app *app, const uint8_t *buf, int count);

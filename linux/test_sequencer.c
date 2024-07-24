@@ -10,6 +10,8 @@
 #include "mod_sequencer.c"
 #include "macros.h"
 
+
+
 // The scheduler is a software timer playing back loops.
 
 /* Note that dispatch does not know about the step delay to the
@@ -19,8 +21,13 @@ void pat_dispatch(struct sequencer *seq, const union pattern_event *ev) {
         seq->time,
         ev->u16[1]);
 }
+void init_seq(struct sequencer *s) {
+    sequencer_init(s, pat_dispatch);
+    s->verbose = 1;
+}
 
-pattern_t test_pattern_1(struct sequencer *s) {
+
+pattern_t pattern_1(struct sequencer *s) {
     LOG("alloc pat1\n");
     pattern_t pat = sequencer_pattern_alloc(s);
     sequencer_add_step_cv(s, pat, 0, 100, 12);
@@ -30,7 +37,7 @@ pattern_t test_pattern_1(struct sequencer *s) {
     sequencer_info_pattern(s, pat);
     return pat;
 }
-pattern_t test_pattern_2(struct sequencer *s) {
+pattern_t pattern_2(struct sequencer *s) {
     LOG("alloc pat2\n");
     pattern_t pat = sequencer_pattern_alloc(s);
     sequencer_add_step_cv(s, pat, 0, 1001, 4);
@@ -39,7 +46,7 @@ pattern_t test_pattern_2(struct sequencer *s) {
     return pat;
 }
 
-pattern_t test_pattern_3(struct sequencer *s) {
+pattern_t pattern_3(struct sequencer *s) {
     LOG("alloc pat3\n");
     pattern_t pat = sequencer_pattern_alloc(s);
     sequencer_add_step_cv(s, pat, 0, 1002, 8);
@@ -51,9 +58,9 @@ pattern_t test_pattern_3(struct sequencer *s) {
 void test_pool_and_play(struct sequencer *s) {
     ASSERT(s->pattern_pool.free != PATTERN_NONE);
 
-    pattern_t pat1 = test_pattern_1(s);
-    pattern_t pat2 = test_pattern_2(s);
-    pattern_t pat3 = test_pattern_3(s);
+    pattern_t pat1 = pattern_1(s);
+    pattern_t pat2 = pattern_2(s);
+    pattern_t pat3 = pattern_3(s);
     LOG("pats %d %d %d\n", pat1, pat2, pat3);
 
     for(int i=0;i<100;i++) {
@@ -84,9 +91,9 @@ void test_pool_and_play(struct sequencer *s) {
 
 
     // Already allocate the new patterns
-    pattern_t npat1 = test_pattern_1(s);
-    pattern_t npat2 = test_pattern_2(s);
-    pattern_t npat3 = test_pattern_3(s);
+    pattern_t npat1 = pattern_1(s);
+    pattern_t npat2 = pattern_2(s);
+    pattern_t npat3 = pattern_3(s);
     LOG("npats %d %d %d\n", npat1, npat2, npat3);
 
 
@@ -147,14 +154,43 @@ void test_record_empty(struct sequencer *s) {
     }
 }
 
+/* FIXME:  Move towards some other structure. */
+void test_consolidate(struct sequencer *s) {
+    // 1. Convert two patterns into one
+    // 2. Map note off to its note on event
+    init_seq(s);
+    pattern_t pat1 = pattern_1(s);
+    pattern_t pat2 = pattern_2(s);
+    LOG("pats %d %d %d\n", pat1, pat2);
+    pattern_pool_info(&s->pattern_pool);
+    step_pool_info(&s->step_pool);
+}
+
 
 int main(int argc, char **argv) {
     LOG("test_drum.c\n");
     struct sequencer _s, *s  = &_s;
-    sequencer_init(s, pat_dispatch);
-    s->verbose = 1;
-    //test_pool_and_play(s);
-    test_record(s);
-    //test_record_empty(s);
+    init_seq(s);
+
+    if (0) {
+        LOG("\n** test_pool_and_play\n");
+        test_pool_and_play(s);
+    }
+
+    if (0) {
+        LOG("\n** test_record\n");
+        test_record(s);
+    }
+
+    if (0) {
+        LOG("\n** test_record_empty\n");
+        test_record_empty(s);
+    }
+
+    LOG("\n** test_consolidate\n");
+    test_consolidate(s);
+
+    LOG("sizeof(struct pattern_step) = %d\n", sizeof(struct pattern_step));
+
     return 0;
 }

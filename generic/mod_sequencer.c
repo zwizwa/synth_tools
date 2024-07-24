@@ -81,12 +81,14 @@ union pattern_event {
     struct pattern_midi_cc   cc;
 };
 
-#define STEP_DELAY_NONE 0xFFFF
-
 struct pattern_step {
     union pattern_event event;
-    /* Time delay to next event. */
-    dtime_t delay;
+    /* Time delay.  If fork=0 this is the delay to the next event in
+       the pattern.  If fork=1 this is the delay with which this event
+       is scheduled, and the next event is to be processed
+       immediately. */
+    dtime_t delay:15;
+    uint8_t fork:1;
     /* Index of next event in event pool. */
     step_t next;
 };

@@ -23,6 +23,8 @@
     m(pd_io,   "pd_io") \
     m(pixi,    "EuroPIXI") \
     m(fire,    "FL STUDIO FIRE") \
+    m(easy,    "WORLDE easy control") \
+
 
 /* Selector names. The ids are allocated sequentially.  The list needs
    to be sorted in DPC order. */
@@ -36,6 +38,7 @@
     m(pd_io,        pd_io,   0,  0) \
     m(pixi,         pixi,    0,  0) \
     m(fire,         fire,    0,  0) \
+    m(easy,         easy,    0,  0) \
 
 /* Routing information is needed for input and output:
    - MIDI in   client:port:channel -> selector
