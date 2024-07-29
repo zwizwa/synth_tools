@@ -63,9 +63,11 @@ STUDIO_ELF := \
 	linux/clock.dynamic.host.elf \
 	linux/pd.dynamic.host.elf \
 	linux/a2jmidid.dynamic.host.elf \
-	linux/akai_fire.dynamic.host.elf \
 	linux/envy24.dynamic.host.elf \
 	linux/jack_snapshot.dynamic.host.elf \
+
+FIXME_BITROTTED := \
+	linux/akai_fire.dynamic.host.elf \
 
 STM_ELF := \
 	stm32f103/bl_midi_bp.core.f103.elf \
@@ -79,7 +81,7 @@ STM_ELF := \
 STM_ELF_DIS := \
 	stm32f103/bp2.128.f103.elf \
 	stm32f103/console.128.f103.bin \
-	$(UC_TOOLS)/gdb/test_3if.x8ram.f103.bin \
+	$(UC_TOOLS)/stm32f103/test_3if.x8ram.f103.bin \
 
 HOST_ELF := \
 	linux/test_dpc.dynamic.host.elf \
@@ -99,7 +101,6 @@ HOST_ELF := \
 	linux/telnet_seq.dynamic.host.elf \
 	linux/control.dynamic.host.elf \
 	linux/hub.dynamic.host.elf \
-	linux/akai_fire.dynamic.host.elf \
 	linux/pd.dynamic.host.elf \
 	linux/envy24.dynamic.host.elf \
 	linux/test_sequencer.dynamic.host.elf \
@@ -124,18 +125,18 @@ HOST_ELF_DIS := \
 
 
 LIB_F103_A_OBJECTS := \
-	$(UC_TOOLS)/gdb/bootloader.f103.o \
-	$(UC_TOOLS)/gdb/cdcacm_desc.f103.o \
-	$(UC_TOOLS)/gdb/gdbstub.f103.o \
-	$(UC_TOOLS)/gdb/hw_bootloader.f103.o \
-	$(UC_TOOLS)/gdb/memory.f103.o \
-	$(UC_TOOLS)/gdb/pluginlib.f103.o \
-	$(UC_TOOLS)/gdb/rsp_packet.f103.o \
-	$(UC_TOOLS)/gdb/sm_etf.f103.o \
-	$(UC_TOOLS)/gdb/vector.f103.o \
-	$(UC_TOOLS)/gdb/instance.f103.o \
-	$(UC_TOOLS)/gdb/stack.f103.o \
-	$(UC_TOOLS)/gdb/semihosting.f103.o \
+	$(UC_TOOLS)/stm32f103/bootloader.f103.o \
+	$(UC_TOOLS)/stm32f103/cdcacm_desc.f103.o \
+	$(UC_TOOLS)/stm32f103/gdbstub.f103.o \
+	$(UC_TOOLS)/stm32f103/hw_bootloader.f103.o \
+	$(UC_TOOLS)/stm32f103/memory.f103.o \
+	$(UC_TOOLS)/stm32f103/pluginlib.f103.o \
+	$(UC_TOOLS)/stm32f103/rsp_packet.f103.o \
+	$(UC_TOOLS)/stm32f103/sm_etf.f103.o \
+	$(UC_TOOLS)/stm32f103/vector.f103.o \
+	$(UC_TOOLS)/stm32f103/instance.f103.o \
+	$(UC_TOOLS)/stm32f103/stack.f103.o \
+	$(UC_TOOLS)/stm32f103/semihosting.f103.o \
 	$(UC_TOOLS)/memoize.f103.o \
 	\
 	$(UC_TOOLS)/csp.f103.o \
@@ -199,7 +200,7 @@ stm32f103/%.ld: stm32f103/%.ld.sh
 	export ARCH=f103 ; \
 	export BUILD=stm32f103/build.sh ; \
 	export C=$< ; \
-	export CFLAGS="-Ilinux/ -Istm32f103/ -Igeneric/ -I$(UC_TOOLS)/ -I$(UC_TOOLS)/gdb/ -I$(UC_TOOLS)/linux/" ; \
+	export CFLAGS="-Ilinux/ -Istm32f103/ -Igeneric/ -I$(UC_TOOLS)/ -I$(UC_TOOLS)/stm32f103/ -I$(UC_TOOLS)/linux/" ; \
 	export D=$(patsubst %.o,%.d,$@) ; \
 	export FIRMWARE=memory ; \
 	export O=$@ ; \
@@ -222,7 +223,7 @@ stm32f103/lib.f103.a: $(LIB_F103_A_OBJECTS) rules.mk
 	%.f103.o \
 	stm32f103/lib.f103.a \
 	stm32f103/core.f103.ld \
-	$(UC_TOOLS)/gdb/registers_stm32f103.f103.o \
+	$(UC_TOOLS)/stm32f103/registers_stm32f103.f103.o \
 
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
 	export A=stm32f103/lib.f103.a ; \
@@ -242,7 +243,7 @@ A_STM := stm32f103/lib.f103.a $(RS_A_STM)
 	%.f103.o \
 	$(A_STM) \
 	stm32f103/128.f103.ld \
-	$(UC_TOOLS)/gdb/registers_stm32f103.f103.o \
+	$(UC_TOOLS)/stm32f103/registers_stm32f103.f103.o \
 
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
 	export A="$(A_STM)" ; \
@@ -262,7 +263,7 @@ A_STM := stm32f103/lib.f103.a $(RS_A_STM)
 	%.f103.o \
 	stm32f103/lib.f103.a \
 	stm32f103/x8ram.f103.ld \
-	$(UC_TOOLS)/gdb/registers_stm32f103.f103.o \
+	$(UC_TOOLS)/stm32f103/registers_stm32f103.f103.o \
 
 	@echo $@ ; if [ -f env.sh ] ; then . ./env.sh ; fi ; \
 	export A=stm32f103/lib.f103.a ; \
@@ -312,7 +313,7 @@ A_STM := stm32f103/lib.f103.a $(RS_A_STM)
 	export ARCH=host ; \
 	export BUILD=linux/build.sh ; \
 	export C=$< ; \
-	export CFLAGS=\ -std=gnu99\ -Igeneric\ -Ilinux/\ -Istm32f103/\ -I/usr/include/lua5.1\ -I$(UC_TOOLS)/\ -I$(UC_TOOLS)/gdb/\ -I$(UC_TOOLS)/linux/\ -I$${ZWIZWA_DEV}/include\ -DVERSION="\"$(GIT_VERSION)\""; \
+	export CFLAGS=\ -std=gnu99\ -Igeneric\ -Ilinux/\ -Istm32f103/\ -I/usr/include/lua5.1\ -I$(UC_TOOLS)/\ -I$(UC_TOOLS)/stm32f103/\ -I$(UC_TOOLS)/linux/\ -I$${ZWIZWA_DEV}/include\ -DVERSION="\"$(GIT_VERSION)\""; \
 	export D=$(patsubst %.o,%.d,$@) ; \
 	export FIRMWARE=$$(basename $< .c) ; \
 	export O=$@ ; \

@@ -48,11 +48,11 @@ uint8_t cache_buf[CACHE_SIZE];
 uint32_t cache_addr;
 
 /* GDBSTUB */
-#include "gdb/gdbstub.h"
+#include "stm32f103/gdbstub.h"
 const char gdbstub_memory_map[] = GDBSTUB_MEMORY_MAP_STM32F103CB;
 struct gdbstub_config _config;
-#include "gdb/rsp_packet.c"
-#include "gdb/gdbstub.c"
+#include "stm32f103/rsp_packet.c"
+#include "stm32f103/gdbstub.c"
 #include "tools.c" // FIXME: Why is this suddenly needed?
 GDBSTUB_INSTANCE(gdbstub, gdbstub_default_commands);
 int32_t flash_erase(uint32_t addr, uint32_t size) {

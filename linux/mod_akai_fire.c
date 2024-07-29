@@ -53,12 +53,15 @@ const uint8_t akai_fire_sysex_footer[] = {
     0xF7
 };
 
+
+
 // Odd: writing one byte at a time the controller seems to crash after
 // all pads have been toched.
 
 void akai_fire_sysex_buttons(struct akai_fire *fire,
                              struct route *route,
                              int ncols, int nrows) {
+
     /* pbuf to build up the sysex message incrementally */
     struct pbuf p = {
         .size =
@@ -96,6 +99,7 @@ void akai_fire_sysex_buttons(struct akai_fire *fire,
     LOG_HEX("sysex:",p.buf,p.count);
 
     route_raw_midi(route, sel_fire, p.buf, p.count);
+
 }
 void akai_fire_sysex_buttons_all(struct akai_fire *fire, void *out_buf) {
     akai_fire_sysex_buttons(fire, out_buf, AKAI_FIRE_COLS, AKAI_FIRE_ROWS);
