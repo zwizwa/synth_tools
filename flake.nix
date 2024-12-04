@@ -4,7 +4,10 @@
   description = "synth & effects firmware based on uc_tools, rs_tools";
   inputs = {
     # Same unstable snapshot as used by /etc/net
-    nixpkgs.url = "github:NixOS/nixpkgs/85f1ba3e51676fa8cc604a3d863d729026a6b8eb";
+    # nixpkgs.url = "github:NixOS/nixpkgs/85f1ba3e51676fa8cc604a3d863d729026a6b8eb";
+    # 24.05 snapshot
+    nixpkgs.url = "github:NixOS/nixpkgs/e8c38b73aeb218e27163376a2d617e61a2ad9b59";
+
     # nixpkgs.url = github:zwizwa/nixpkgs;
     flake-utils.url = "github:numtide/flake-utils";
     # flake-utils.inputs.nixpkgs.follows = "nixpkgs";
@@ -24,16 +27,23 @@
     # system for C code contained in synth_tools.  There are a couple
     # of different ways to organize the Rust+C combo and I am not yet
     # clear on how to streamline.
+    #
     rs_tools = {
-      url = "git+file:///i/exo/rs_tools";
+      ## FIXME: It's not following symlinks any more.
+      # url = "git+file:///i/exo/rs_tools";
+      url = "git+file:///mimas/home/tom/exo/deps/rs_tools";
     };
+    #
+    # FIXME: Get this from the filesystem as well.
     uc_tools = {
       type = "github";
       owner = "zwizwa";
       repo = "uc_tools";
       # rev = "c0853b29811c5d184d39b630b3c848a86d5d5e9e";
       # rev = "2eb2c412385f69b3b66b656b72752712a98d6207";
-      rev = "7a2f394a3d86a94a6da40a3104176296988f7139";
+      # rev = "7a2f394a3d86a94a6da40a3104176296988f7139";
+      # rev = "234716d46c9714cb0441c2f50cbda93db5af81b0"; 
+      rev = "28aa0f05a4f159321e9570a977a2d5fecbab3706";
       flake = false;
     };
   };
