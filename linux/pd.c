@@ -169,6 +169,7 @@ int main(int argc, char **argv) {
     // Make sure previous Pd is terminated.
     rv = system("sleep .5");
     // Start a new one in the background.
+    // FIXME: Move hardcoded path into SYNTH_TOOLS env var with default.
     rv = system("~/.result/synth_tools/pd/bin/pd exo.pd &");
     // Make sure the socket is up before we connect.
     rv = system("sleep 1");

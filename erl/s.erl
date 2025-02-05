@@ -1,4 +1,4 @@
-%% Command line shortcuts for synth tools.
+%% The s: commands are shortcuts for synth tools development.
 
 %% Think of this as a configuration file / startup script / terminal
 %% user interface for all synth_tools code.
@@ -33,7 +33,7 @@ init() -> init(erlang:node()).
 init('exo@hyperion.zoo') -> pd();
 init(_) -> error.
 
-%% Idemptotent start of exo processes.
+%% Idempotent start of exo processes.
 jack() ->
     application:ensure_all_started(exo),
     exo:need(jack_daemon).
