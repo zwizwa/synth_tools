@@ -2,6 +2,7 @@
 #define  OSC_H
 
 #include "macros.h"
+#include "scan.h"
 #include <stdint.h>
 
 /* Minimal OSC implementation. */
@@ -105,12 +106,16 @@ static inline const struct param *osc_find(const struct param * const* pl, const
 #define OSC_PARSE_MISSING      1
 #define OSC_PARSE_WILDCARD     2
 #define OSC_PARSE_NOT_FOUND    3
-#define OSC_PARSE_EXTRA        4
+#define OSC_PARSE_EXTRA_ADDR   4
 #define OSC_PARSE_BAD_TYPE     5
 #define OSC_PARSE_NOT_SCALAR   6
 #define OSC_PARSE_EXPECT_INT   7
 #define OSC_PARSE_EXPECT_FLOAT 8
 #define OSC_PARSE_UNKNOWN_TYPE 9
+#define OSC_PARSE_EMPTY        10
+#define OSC_PARSE_TEXT_MISSING 11
+#define OSC_PARSE_EXTRA_TEXT   12
+
 
 static inline const char *osc_error(int e) {
     static const char *errors[] = {
@@ -118,35 +123,38 @@ static inline const char *osc_error(int e) {
         [ OSC_PARSE_MISSING ]      = "missing address component",
         [ OSC_PARSE_WILDCARD ]     = "wildcard not supported",
         [ OSC_PARSE_NOT_FOUND ]    = "parameter not found",
-        [ OSC_PARSE_EXTRA ]        = "extra address component",
+        [ OSC_PARSE_EXTRA_ADDR ]   = "extra address component",
         [ OSC_PARSE_BAD_TYPE ]     = "bad type syntax",
         [ OSC_PARSE_NOT_SCALAR ]   = "only supporting scalars",
         [ OSC_PARSE_EXPECT_INT ]   = "expected integer",
         [ OSC_PARSE_EXPECT_FLOAT ] = "expected float",
         [ OSC_PARSE_UNKNOWN_TYPE ] = "unknown type tag",
+        [ OSC_PARSE_EMPTY ]        = "empty address",
+        [ OSC_PARSE_TEXT_MISSING ] = "missing number in text string",
+        [ OSC_PARSE_EXTRA_TEXT ]   = "extra data in text string",
     };
     if (e < 0) return "unknown";
     if (e > ARRAY_SIZE(errors)) return "unknown";
     return errors[e];
 }
 
-static inline int osc_parse(struct param_context *x, const union osc *cmd_ro, uintptr_t nb_cmd ) {
+static inline int osc_parse_addr(struct param_context *x, const char *addr, const struct param **pp, int *pi_type) {
     const struct param * const* pl = x->root;
     // LOG("root0: %s\n", pl[0]->name);
 
-    union osc cmd[nb_cmd];
-    memcpy(cmd, cmd_ro, sizeof(cmd));
-    // LOG("cmd: %s\n", cmd[0].s);
-    int i_type = osc_word(strlen(cmd[0].s));
-    const char delim[] = "/";
+    int n = strlen(addr)+1;
+    char buf[n];
+    strcpy(buf, addr);
+
+    struct scan scan;
+    scan_init(&scan, buf, '/');
+
     char *tok;
-    char *tok_param = cmd[0].s;
 
   next:
-    if (!(tok = strtok(tok_param, delim))) {
+    if (!(tok = scan_next(&scan))) {
         return OSC_PARSE_MISSING;
     }
-    tok_param = NULL;
     // LOG("tok: %s\n", tok);
     if (tok[0] == '*') {
         return OSC_PARSE_WILDCARD;
@@ -163,63 +171,117 @@ static inline int osc_parse(struct param_context *x, const union osc *cmd_ro, ui
     }
     else {
         /* Handle leaf.  Input address needs to be at the end */
-        if ((tok = strtok(NULL, delim))) {
-            return OSC_PARSE_EXTRA;
+        if ((tok = scan_next(&scan))) {
+            // LOG("extra tok %s\n", tok);
+            return OSC_PARSE_EXTRA_ADDR;
         }
-        char *t = cmd[i_type].s;
-        // LOG("type: %s\n", t);
-        if (t[0] != ',') {
-            return OSC_PARSE_BAD_TYPE;
+        /* Input addr is complete and the param tree it at a leaf
+           node. */
+        *pp = p;
+        *pi_type = osc_word(n);
+        return 0;
+    }
+    // Not reached.
+}
+
+
+
+
+
+
+static inline int osc_parse(struct param_context *x, const union osc *cmd, uintptr_t nb_cmd ) {
+    const struct param *p;
+    int i_type;
+    int e = osc_parse_addr(x, cmd->s, &p, &i_type);
+    if (e) return e;
+    const char *t = cmd[i_type].s;
+    // LOG("type: %s\n", t);
+    if (t[0] != ',') {
+        return OSC_PARSE_BAD_TYPE;
+    }
+    if (t[2] != 0) {
+        LOG("only supporting scalars\n");
+        return OSC_PARSE_NOT_SCALAR;
+    }
+    const union osc *w = &cmd[i_type+1];
+    switch(p->type) {
+    case OSC_TYPE_FLOAT:
+        /* Expecting float */
+        if (t[1] != 'f') {
+            return OSC_PARSE_EXPECT_FLOAT;
         }
-        if (t[2] != 0) {
-            LOG("only supporting scalars\n");
-            return OSC_PARSE_NOT_SCALAR;
+        // LOG("float: %f\n", w->f);
+        p->cont.f(x, w->f);
+        return OSC_PARSE_OK;
+    case OSC_TYPE_INT:
+        /* Expecting int */
+        if (t[1] != 'i') {
+            return OSC_PARSE_EXPECT_INT;
         }
-        union osc *w = &cmd[i_type+1];
-        switch(p->type) {
-        case OSC_TYPE_FLOAT:
-            /* Expecting float */
-            if (t[1] != 'f') {
-                return OSC_PARSE_EXPECT_FLOAT;
-            }
-            // LOG("float: %f\n", w->f);
-            p->cont.f(x, w->f);
-            return OSC_PARSE_OK;
-        case OSC_TYPE_INT:
-            /* Expecting int */
-            if (t[1] != 'i') {
-                return OSC_PARSE_EXPECT_INT;
-            }
-            // LOG("int: %d\n", w->i);
-            p->cont.i(x, w->i);
-            return OSC_PARSE_OK;
-        default:
-            LOG("bad type %d\n", p->type);
-            return OSC_PARSE_UNKNOWN_TYPE;
-        }
+        // LOG("int: %d\n", w->i);
+        p->cont.i(x, w->i);
+        return OSC_PARSE_OK;
+    default:
+        LOG("bad type %d\n", p->type);
+        return OSC_PARSE_UNKNOWN_TYPE;
     }
     /* Not reached */
 }
 
-/* This is a text version of the protocol for use cases where binary
-   is just too cumbersome to use.  Stay as close as possible to the
-   original. */
+/* This is a text representation of the protocol for use cases where
+   binary is just too cumbersome to use.  Stay as close as possible to
+   the original. */
 
-static inline int osc_parse_ascii(struct param_context *x, const char *line) {
+static inline int osc_parse_text(struct param_context *x, const char *line) {
+
+    /* String is processed in-place, so make a copy. */
     int n = strlen(line)+1;
     char buf[n];
     memcpy(buf, line, n);
-    char *tok;
-    char delim[] = " ";
-    if (!(tok = strtok(buf, delim))) {
-        LOG("not space separated\n");
-        return -1;
-    }
-    
 
-    // Parse the string up to whitespace
-    // Look up the parameter and type
-    // Parse the payload based on type
+    struct scan scan;
+    scan_init(&scan, buf, ' ');
+
+    char *addr;
+    if (!(addr = scan_next(&scan))) {
+        return OSC_PARSE_EMPTY;
+    }
+    LOG("addr = %s\n", addr);
+
+    const struct param *p;
+    int i_type;
+    int e = osc_parse_addr(x, addr, &p, &i_type);
+    if (e) return e;
+
+    char *number;
+    if (!(number = scan_next(&scan))) {
+        return OSC_PARSE_TEXT_MISSING;
+    }
+
+    char *extra;
+    if ((extra = scan_next(&scan))) {
+        return OSC_PARSE_EXTRA_TEXT;
+    }
+
+    switch(p->type) {
+    case OSC_TYPE_FLOAT: {
+        float f = atof(number);
+        // LOG("float: %f\n", f);
+        p->cont.f(x, f);
+        return OSC_PARSE_OK;
+    }
+    case OSC_TYPE_INT: {
+        uint32_t i = atoi(number);
+        // LOG("int: %d\n", i);
+        p->cont.i(x, i);
+        return OSC_PARSE_OK;
+    }
+    default:
+        LOG("bad type %d\n", p->type);
+        return OSC_PARSE_UNKNOWN_TYPE;
+    }
+
+    return 0;
 }
 
 
