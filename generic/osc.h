@@ -325,10 +325,12 @@ struct osc_path {
 };
 typedef void (*osc_visit_fn)(struct param_context *, struct osc_path *, const struct param *);
 
-void osc_traverse_pl(struct param_context *x,
-                     osc_visit_fn visit,
-                     struct osc_path *path,
-                     const struct param * const* pl) {
+static inline void osc_traverse_pl(
+    struct param_context *x,
+    osc_visit_fn visit,
+    struct osc_path *path,
+    const struct param * const* pl)
+{
     for (; *pl; pl++) {
         const struct param *p = *pl;
         if (p->type != OSC_TYPE_LIST) {
@@ -344,8 +346,8 @@ void osc_traverse_pl(struct param_context *x,
     }
 }
 
-void osc_traverse(struct param_context *x,
-                  osc_visit_fn visit) {
+static inline void osc_traverse(struct param_context *x,
+                                osc_visit_fn visit) {
     osc_traverse_pl(x, visit, NULL, x->root);
 }
 
