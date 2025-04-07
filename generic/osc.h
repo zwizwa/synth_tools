@@ -31,8 +31,8 @@ struct param_context {
 };
 
 /* Parameters are in a tree structure. */
-typedef void (*osc_float)(struct param_context *, float);
-typedef void (*osc_int)  (struct param_context *, int32_t);
+typedef void (*osc_set_float)(struct param_context *, float);
+typedef void (*osc_set_int)  (struct param_context *, int32_t);
 
 /* All pointers in this struct point to const data since the struct is
    intended to go into Flash memory. */
@@ -41,17 +41,22 @@ struct param {
     const char *name;
     uintptr_t type;
     union {
-        // leaf value handlers
-        const osc_float f;
-        const osc_int i;
+        // leaf value setters
+        const osc_set_float set_f;
+        const osc_set_int   set_i;
+        // leaf value raw pointers
+        float   *ptr_f;
+        int32_t *ptr_i;
         // null-terminated array of param pointers
-        const struct param *const *p;
+        const struct param *const *list;
+        // FIXME: Add explicit FLOAT_SETTER, FLOAT_POINTER variants
     } cont;
 };
-#define OSC_TYPE_LIST  0
-#define OSC_TYPE_FLOAT 1
-#define OSC_TYPE_INT   2
-
+#define OSC_TYPE_LIST      0
+#define OSC_TYPE_SET_FLOAT 1
+#define OSC_TYPE_SET_INT   2
+#define OSC_TYPE_PTR_FLOAT 3
+#define OSC_TYPE_PTR_INT   4
 
 
 
@@ -166,7 +171,7 @@ static inline int osc_parse_addr(struct param_context *x, const char *addr, cons
     // LOG("found %s type=%d\n", tok, p->type);
     if (p->type == OSC_TYPE_LIST) {
         /* Recurse tree */
-        pl = p->cont.p;
+        pl = p->cont.list;
         goto next;
     }
     else {
@@ -205,21 +210,37 @@ static inline int osc_parse(struct param_context *x, const union osc *cmd, uintp
     }
     const union osc *w = &cmd[i_type+1];
     switch(p->type) {
-    case OSC_TYPE_FLOAT:
+    case OSC_TYPE_SET_FLOAT:
         /* Expecting float */
         if (t[1] != 'f') {
             return OSC_PARSE_EXPECT_FLOAT;
         }
         // LOG("float: %f\n", w->f);
-        p->cont.f(x, w->f);
+        p->cont.set_f(x, w->f);
         return OSC_PARSE_OK;
-    case OSC_TYPE_INT:
+    case OSC_TYPE_SET_INT:
         /* Expecting int */
         if (t[1] != 'i') {
             return OSC_PARSE_EXPECT_INT;
         }
         // LOG("int: %d\n", w->i);
-        p->cont.i(x, w->i);
+        p->cont.set_i(x, w->i);
+        return OSC_PARSE_OK;
+    case OSC_TYPE_PTR_FLOAT:
+        /* Expecting float */
+        if (t[1] != 'f') {
+            return OSC_PARSE_EXPECT_FLOAT;
+        }
+        // LOG("float: %f\n", w->f);
+        *p->cont.ptr_f = w->f;
+        return OSC_PARSE_OK;
+    case OSC_TYPE_PTR_INT:
+        /* Expecting int */
+        if (t[1] != 'i') {
+            return OSC_PARSE_EXPECT_INT;
+        }
+        // LOG("int: %d\n", w->i);
+        *p->cont.ptr_i = w->i;
         return OSC_PARSE_OK;
     default:
         LOG("bad type %d\n", p->type);
@@ -264,16 +285,28 @@ static inline int osc_parse_text(struct param_context *x, const char *line) {
     }
 
     switch(p->type) {
-    case OSC_TYPE_FLOAT: {
+    case OSC_TYPE_SET_FLOAT: {
         float f = atof(number);
         // LOG("float: %f\n", f);
-        p->cont.f(x, f);
+        p->cont.set_f(x, f);
         return OSC_PARSE_OK;
     }
-    case OSC_TYPE_INT: {
+    case OSC_TYPE_SET_INT: {
         uint32_t i = atoi(number);
         // LOG("int: %d\n", i);
-        p->cont.i(x, i);
+        p->cont.set_i(x, i);
+        return OSC_PARSE_OK;
+    }
+    case OSC_TYPE_PTR_FLOAT: {
+        float f = atof(number);
+        // LOG("float: %f\n", f);
+        *p->cont.ptr_f = f;
+        return OSC_PARSE_OK;
+    }
+    case OSC_TYPE_PTR_INT: {
+        uint32_t i = atoi(number);
+        // LOG("int: %d\n", i);
+        *p->cont.ptr_i = i;
         return OSC_PARSE_OK;
     }
     default:
@@ -284,15 +317,57 @@ static inline int osc_parse_text(struct param_context *x, const char *line) {
     return 0;
 }
 
+/* Traverse the tree to visit all atom nodes + pass in a (revrsed) path. */
+struct osc_path;
+struct osc_path {
+    struct osc_path *parent;
+    const char *name;
+};
+typedef void (*osc_visit_fn)(struct param_context *, struct osc_path *, const struct param *);
+
+void osc_traverse_pl(struct param_context *x,
+                     osc_visit_fn visit,
+                     struct osc_path *path,
+                     const struct param * const* pl) {
+    for (; *pl; pl++) {
+        const struct param *p = *pl;
+        if (p->type != OSC_TYPE_LIST) {
+            visit(x, path, p);
+        }
+        else {
+            struct osc_path path1 = {
+                .parent = path,
+                .name = p->name,
+            };
+            osc_traverse_pl(x, visit, &path1, p->cont.list);
+        }
+    }
+}
+
+void osc_traverse(struct param_context *x,
+                  osc_visit_fn visit) {
+    osc_traverse_pl(x, visit, NULL, x->root);
+}
 
 
-#define DEF_OSC_FLOAT(_cname, _name, _fun)                              \
-    const struct param _cname = {.name = _name, .type = OSC_TYPE_FLOAT, .cont = { .f = _fun }}
-#define DEF_OSC_INT(_cname, _name, _fun)                                \
-    const struct param _cname = {.name = _name, .type = OSC_TYPE_INT,   .cont = { .i = _fun }}
+/* Param setters */
+#define DEF_OSC_SET_FLOAT(_cname, _name, _fun)                              \
+    const struct param _cname = {.name = _name, .type = OSC_TYPE_SET_FLOAT, .cont = { .set_f = _fun }}
+#define DEF_OSC_SET_INT(_cname, _name, _fun)                                \
+    const struct param _cname = {.name = _name, .type = OSC_TYPE_SET_INT,   .cont = { .set_i = _fun }}
+
+/* Raw pointers */
+#define DEF_OSC_PTR_FLOAT(_cname, _name, _ptr)                              \
+    const struct param _cname = {.name = _name, .type = OSC_TYPE_PTR_FLOAT, .cont = { .ptr_f = _fun }}
+#define DEF_OSC_PTR_INT(_cname, _name, _ptr)                                \
+    const struct param _cname = {.name = _name, .type = OSC_TYPE_PTR_INT,   .cont = { .ptr_i = _fun }}
+
 
 #define DEF_OSC_LIST(_cname, _name, ...)                                \
-    const struct param *_cname##_list[] = {__VA_ARGS__ , NULL};               \
-    const struct param _cname = {.name = _name, .type = OSC_TYPE_LIST, .cont = { .p = _cname##_list }};
+    const struct param *const _cname##_list[] = {__VA_ARGS__ , NULL};               \
+    const struct param _cname = {.name = _name, .type = OSC_TYPE_LIST, .cont = { .list = _cname##_list }};
+
+
+
 
 #endif
