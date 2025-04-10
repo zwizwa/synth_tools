@@ -34,6 +34,9 @@ struct param_context {
 typedef void (*osc_set_float)(struct param_context *, float);
 typedef void (*osc_set_int)  (struct param_context *, int32_t);
 
+typedef const struct param param_t;
+typedef const struct param *const param_list_t;
+
 /* All pointers in this struct point to const data since the struct is
    intended to go into Flash memory. */
 struct param;
@@ -48,7 +51,8 @@ struct param {
         float   *ptr_f;
         int32_t *ptr_i;
         // null-terminated array of param pointers
-        const struct param *const *list;
+        // const struct param *const *list;
+        param_list_t *list;
         // FIXME: Add explicit FLOAT_SETTER, FLOAT_POINTER variants
     } cont;
 };
@@ -267,7 +271,7 @@ static inline int osc_parse_text(struct param_context *x, const char *line) {
     if (!(addr = scan_next(&scan))) {
         return OSC_PARSE_EMPTY;
     }
-    LOG("addr = %s\n", addr);
+    // LOG("addr = %s\n", addr);
 
     const struct param *p;
     int i_type;
@@ -317,6 +321,21 @@ static inline int osc_parse_text(struct param_context *x, const char *line) {
     return 0;
 }
 
+
+// Note that this does not buffer partial lines.
+#ifndef OSC_LINE_MAX
+#define OSC_LINE_MAX 255
+#endif
+
+
+
+static inline void osc_parse_text_lines(
+    struct param_context *x, uint8_t *buf, uintptr_t len)
+{
+    text_for_lines((text_for_lines_fn)osc_parse_text,
+                   x, buf, len, OSC_LINE_MAX);
+}
+
 /* Traverse the tree to visit all atom nodes + pass in a (revrsed) path. */
 struct osc_path;
 struct osc_path {
@@ -352,6 +371,7 @@ static inline void osc_traverse(struct param_context *x,
 }
 
 
+
 /* Param setters */
 #define DEF_OSC_SET_FLOAT(_cname, _name, _fun)                              \
     const struct param _cname = {.name = _name, .type = OSC_TYPE_SET_FLOAT, .cont = { .set_f = _fun }}
@@ -368,8 +388,6 @@ static inline void osc_traverse(struct param_context *x,
 #define DEF_OSC_LIST(_cname, _name, ...)                                \
     const struct param *const _cname##_list[] = {__VA_ARGS__ , NULL};               \
     const struct param _cname = {.name = _name, .type = OSC_TYPE_LIST, .cont = { .list = _cname##_list }};
-
-
 
 
 #endif
