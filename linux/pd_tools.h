@@ -35,5 +35,8 @@
 #define DEF_METHOD(cname,mname,...) \
     class_addmethod(cname##_class, (t_method)cname##_##mname, gensym(#mname), __VA_ARGS__, 0)
 
+#define DEF_ANYTHING(cname,mname,...) \
+    class_addanything(cname##_class, (t_method)cname##_##mname)
+
 
 #endif
