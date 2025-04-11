@@ -371,23 +371,26 @@ static inline void osc_traverse(struct param_context *x,
 }
 
 
+#ifndef OSC_STATIC
+#define OSC_STATIC static
+#endif
 
 /* Param setters */
 #define DEF_OSC_SET_FLOAT(_cname, _name, _fun)                              \
-    const struct param _cname = {.name = _name, .type = OSC_TYPE_SET_FLOAT, .cont = { .set_f = _fun }}
+    OSC_STATIC const struct param _cname = {.name = _name, .type = OSC_TYPE_SET_FLOAT, .cont = { .set_f = _fun }}
 #define DEF_OSC_SET_INT(_cname, _name, _fun)                                \
-    const struct param _cname = {.name = _name, .type = OSC_TYPE_SET_INT,   .cont = { .set_i = _fun }}
+    OSC_STATIC const struct param _cname = {.name = _name, .type = OSC_TYPE_SET_INT,   .cont = { .set_i = _fun }}
 
 /* Raw pointers */
 #define DEF_OSC_PTR_FLOAT(_cname, _name, _ptr)                              \
-    const struct param _cname = {.name = _name, .type = OSC_TYPE_PTR_FLOAT, .cont = { .ptr_f = _fun }}
+    OSC_STATIC const struct param _cname = {.name = _name, .type = OSC_TYPE_PTR_FLOAT, .cont = { .ptr_f = _fun }}
 #define DEF_OSC_PTR_INT(_cname, _name, _ptr)                                \
-    const struct param _cname = {.name = _name, .type = OSC_TYPE_PTR_INT,   .cont = { .ptr_i = _fun }}
+    OSC_STATIC const struct param _cname = {.name = _name, .type = OSC_TYPE_PTR_INT,   .cont = { .ptr_i = _fun }}
 
 
 #define DEF_OSC_LIST(_cname, _name, ...)                                \
-    const struct param *const _cname##_list[] = {__VA_ARGS__ , NULL};               \
-    const struct param _cname = {.name = _name, .type = OSC_TYPE_LIST, .cont = { .list = _cname##_list }};
+    OSC_STATIC const struct param *const _cname##_list[] = {__VA_ARGS__ , NULL};               \
+    OSC_STATIC const struct param _cname = {.name = _name, .type = OSC_TYPE_LIST, .cont = { .list = _cname##_list }};
 
 
 #endif
