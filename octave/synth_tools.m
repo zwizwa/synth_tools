@@ -32,9 +32,11 @@ function fft_bode(ir)
   
   # Limit the frequency range
   f_left = 20;
-  f_right = 20000;
+  # f_right = 20000;
+  f_right = samplerate / 2
   offset_start  = 1 + round(f_left  / f_step);
   offset_end    = 1 + round(f_right / f_step);
+
 
   # Don't include DC and NY
   # offset_start = 2
