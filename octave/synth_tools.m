@@ -4,25 +4,27 @@ pkg load signal
 ## -*- octave -*-
 function abode(f)
   bode(f, {20,24000});
-endfunction
+end
 
 global samplerate = 48000
 
 function f = fir(ir)
   global samplerate;
   f = filt(ir, [1], 1/samplerate);
-endfunction
+end
 
 # Bode plot converting impulse response to discrete system.
 function bode_fir(ir)
   f = fir(ir);
   abode(f);
-endfunction
+end
 
 global z = tf('z', 1/samplerate);
 
 # Faster bode plot directly computed from impulse response fft.
-function fft_bode(ir)
+function fft_bode(irs)
+  ir = irs(:,1:1);
+
   global samplerate;
   N = length(ir);
   fft1 = fft(ir);
@@ -71,7 +73,14 @@ function fft_bode(ir)
   
 
   # plot(x,f1)
-endfunction
+end
+
+# With delay compensation
+function fft_bode_dly(ir, dly)
+  ir_shift = circshift(ir', -dly)';
+  fft_bode(ir_shift);
+end
+
 
 
 # Vector of 0,T,2T,... T=1/samplerate
@@ -79,9 +88,9 @@ function t = time(n)
   global samplerate
   T = 1/samplerate;
   t = linspace(0,(n-1)*T,n);
-endfunction
+end
 
 function sig = sinsr(f,n);
   t = time(n);
   sig = sin(2*pi*f*t);
-endfunction
+end
