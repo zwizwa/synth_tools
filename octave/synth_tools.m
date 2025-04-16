@@ -1,5 +1,5 @@
 pkg load control
-pkg load signal
+# pkg load signal
 
 ## -*- octave -*-
 function abode(f)
@@ -21,9 +21,8 @@ end
 
 global z = tf('z', 1/samplerate);
 
-# Faster bode plot directly computed from impulse response fft.
-function fft_bode(irs)
-  ir = irs(:,1:1);
+function [db, ph, f_0, f_step, f_left, f_right] = fft_spectrum(irs, c)
+  ir = irs(:,c:c);
 
   global samplerate;
   N = length(ir);
@@ -39,17 +38,25 @@ function fft_bode(irs)
   offset_start  = 1 + round(f_left  / f_step);
   offset_end    = 1 + round(f_right / f_step);
 
-
   # Don't include DC and NY
   # offset_start = 2
   # offset_end   = N/2 - 1
 
   f_0 = f_step * (offset_start - 1);
   
-
   db = 20 * log10(ampl(offset_start:offset_end));
   ph = phase(offset_start:offset_end);
 
+end
+
+# Faster bode plot directly computed from impulse response fft.
+function fft_bode(irs)
+  [db, ph, f_0, f_step, f_left, f_right] = fft_spectrum(irs, 1);
+
+  if size(irs)(2) == 2
+    [db1, ph1] = fft_spectrum(irs, 2)
+    ph = mod(ph-ph1+180, 360)-180
+  end
 
   nb_f = length(db);
   x = linspace(f_0, f_step * (nb_f-1), nb_f);
@@ -70,7 +77,7 @@ function fft_bode(irs)
   grid ("on");
   ylabel ("Phase [rad]");
   xlabel ("Frequency [Hz]");
-  
+
 
   # plot(x,f1)
 end
