@@ -23,7 +23,7 @@ end
 
 global z = tf('z', 1/samplerate);
 
-function [db, ph, f_0, f_step, f_left, f_right] = fft_spectrum(irs, c)
+function [db, ph, f_0, f_step] = fft_spectrum(irs, c)
   ir = irs(:,c:c);
 
   global samplerate;
@@ -31,12 +31,12 @@ function [db, ph, f_0, f_step, f_left, f_right] = fft_spectrum(irs, c)
   fft1 = fft(ir);
   ampl   = abs(fft1);
   phase  = angle(fft1) * 180 / pi;
-  f_step = samplerate / N
+  f_step = samplerate / N;
   
   # Limit the frequency range
   f_left = 20;
   # f_right = 20000;
-  f_right = samplerate / 2
+  f_right = samplerate / 2;
   offset_start  = 1 + round(f_left  / f_step);
   offset_end    = 1 + round(f_right / f_step);
 
@@ -51,10 +51,19 @@ function [db, ph, f_0, f_step, f_left, f_right] = fft_spectrum(irs, c)
 
 end
 
+
+function [x,f_left,f_right] = bode_x(f_0, f_step, y)
+  nb_f = length(y);
+  x = linspace(f_0, f_step * (nb_f-1), nb_f);
+  f_left  = f_0;
+  f_right = f_0 + (nb_f - 1) * f_step;
+end
+
 # https://www.mathworks.com/help/matlab/ref/subplot.html
 # m x n is rows x columns
 # p is plot number (col1,row1 then col2,row1 etc)
-function subplot_db(rows, cols, plot_nb, f_left, f_right, x, db)
+function subplot_db(rows, cols, plot_nb, f_0, f_step, db)
+  [x,f_left,f_right] = bode_x(f_0, f_step, db);
   subplot (rows, cols, plot_nb)
   semilogx(x,db);
   xlim([f_left f_right]);
@@ -64,7 +73,8 @@ function subplot_db(rows, cols, plot_nb, f_left, f_right, x, db)
   xlabel ("Frequency [Hz]");
 end
 
-function subplot_ph(rows, cols, plot_nb, f_left, f_right, x, ph)
+function subplot_ph(rows, cols, plot_nb, f_0, f_step, ph)
+  [x,f_left,f_right] = bode_x(f_0, f_step, ph);
   subplot (rows, cols, plot_nb)
   semilogx(x,ph);
   xlim([f_left f_right]);
@@ -89,15 +99,13 @@ end
 # - optionally compute phase difference if two columns are given
 # - plot db magnitude and phase
 function fft_bode(irs)
-  [db, ph, f_0, f_step, f_left, f_right] = fft_spectrum(irs, 1);
+  [db, ph, f_0, f_step] = fft_spectrum(irs, 1);
   if size(irs)(2) == 2
     [db1, ph1] = fft_spectrum(irs, 2)
     ph = mod(ph-ph1+180, 360)-180
   end
-  nb_f = length(db);
-  x = linspace(f_0, f_step * (nb_f-1), nb_f);
-  subplot_db(2,1,1,f_left,f_right,x,db)
-  subplot_ph(2,1,2,f_left,f_right,x,ph)
+  subplot_db(2, 1, 1, f_0, f_step, db)
+  subplot_ph(2, 1, 2, f_0, f_step, ph)
 end
 
 # With delay compensation.  We are computing the spectrum of a
