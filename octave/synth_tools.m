@@ -104,15 +104,30 @@ end
 # - compute spectrum via fft
 # - optionally compute phase difference if two columns are given
 # - plot db magnitude and phase
-function fft_bode(irs)
-  [db, ph, f_0, f_step] = fft_spectrum(irs, 1);
-  if size(irs)(2) == 2
-    [db1, ph1] = fft_spectrum(irs, 2);
-    ph = mod(ph-ph1+180, 360)-180;
-  end
+
+function fft_bode_fft1(fft1)
+  [db, ph, f_0, f_step] = fft_to_spectrum(fft1);
   subplot_db(2, 1, 1, f_0, f_step, db)
   subplot_ph(2, 1, 2, f_0, f_step, ph)
 end
+
+function fft_bode_trans(sig_in, sig_out)
+  fft1 = fft(sig_out) ./ fft(sig_in);
+  fft_bode_fft1(fft1)
+end
+function fft_bode(ir)
+  fft_bode_fft1(fft(ir))
+end
+
+# Originally for plotting relative phase of iir hilbert transformer
+# with frequency dependent i->o group delay, but 90 between outputs.
+function fft_phase_diff(ir, ir1)
+  [db,  ph,  f_0,  f_step]  = fft_to_spectrum(fft(ir));
+  [db1, ph1, f_01, f_step1] = fft_to_spectrum(fft(ir1));
+  ph = mod(ph-ph1+180, 360)-180;
+  subplot_ph(1, 1, 1, f_0, f_step, ph)
+end
+
 
 
 # With delay compensation.  We are computing the spectrum of a
