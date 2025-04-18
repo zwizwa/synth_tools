@@ -23,12 +23,12 @@ end
 
 global z = tf('z', 1/samplerate);
 
-function [db, ph, f_0, f_step] = fft_spectrum(irs, c)
-  ir = irs(:,c:c);
+
+
+function [db, ph, f_0, f_step] = fft_to_spectrum(fft1)
 
   global samplerate;
-  N = length(ir);
-  fft1 = fft(ir);
+  N = length(fft1);
   ampl   = abs(fft1);
   phase  = angle(fft1) * 180 / pi;
   f_step = samplerate / N;
@@ -49,6 +49,12 @@ function [db, ph, f_0, f_step] = fft_spectrum(irs, c)
   db = 20 * log10(ampl(offset_start:offset_end));
   ph = phase(offset_start:offset_end);
 
+end
+
+function [db, ph, f_0, f_step] = fft_spectrum(irs, c)
+  ir = irs(:,c:c);
+  fft1 = fft(ir);
+  [db, ph, f_0, f_step] = fft_to_spectrum(fft1);
 end
 
 
@@ -101,12 +107,13 @@ end
 function fft_bode(irs)
   [db, ph, f_0, f_step] = fft_spectrum(irs, 1);
   if size(irs)(2) == 2
-    [db1, ph1] = fft_spectrum(irs, 2)
-    ph = mod(ph-ph1+180, 360)-180
+    [db1, ph1] = fft_spectrum(irs, 2);
+    ph = mod(ph-ph1+180, 360)-180;
   end
   subplot_db(2, 1, 1, f_0, f_step, db)
   subplot_ph(2, 1, 2, f_0, f_step, ph)
 end
+
 
 # With delay compensation.  We are computing the spectrum of a
 # periodic signal so rotation is appropriate here.
