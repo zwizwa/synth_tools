@@ -1,6 +1,8 @@
 pkg load control
 # pkg load signal
 
+# Check closed code that depend on this before changing API!
+
 ## -*- octave -*-
 function abode(f)
   bode(f, {20,24000});
@@ -49,27 +51,21 @@ function [db, ph, f_0, f_step, f_left, f_right] = fft_spectrum(irs, c)
 
 end
 
-# Faster bode plot directly computed from impulse response fft.
-function fft_bode(irs)
-  [db, ph, f_0, f_step, f_left, f_right] = fft_spectrum(irs, 1);
-
-  if size(irs)(2) == 2
-    [db1, ph1] = fft_spectrum(irs, 2)
-    ph = mod(ph-ph1+180, 360)-180
-  end
-
-  nb_f = length(db);
-  x = linspace(f_0, f_step * (nb_f-1), nb_f);
-
-  subplot (2, 1, 1)
+# https://www.mathworks.com/help/matlab/ref/subplot.html
+# m x n is rows x columns
+# p is plot number (col1,row1 then col2,row1 etc)
+function subplot_db(rows, cols, plot_nb, f_left, f_right, x, db)
+  subplot (rows, cols, plot_nb)
   semilogx(x,db);
   xlim([f_left f_right]);
   ylim([-80 20])
   grid ("on");
   ylabel ("Magnitude [dB]");
   xlabel ("Frequency [Hz]");
+end
 
-  subplot (2, 1, 2)
+function subplot_ph(rows, cols, plot_nb, f_left, f_right, x, ph)
+  subplot (rows, cols, plot_nb)
   semilogx(x,ph);
   xlim([f_left f_right]);
   ylim([-180 180])
@@ -77,16 +73,42 @@ function fft_bode(irs)
   grid ("on");
   ylabel ("Phase [rad]");
   xlabel ("Frequency [Hz]");
-
-
-  # plot(x,f1)
 end
 
-# With delay compensation
+
+# Faster bode plot directly computed from impulse response fft.
+# Note that using fft we approximate by computing the spectrum of a
+# periodic signal.  As long as the impulse is long enough (= padded
+# enough), the effect of the periodicity is minimal.
+#
+# As long as impulse response is "padded enough", the apprixmation
+# is reasonable.  I've been using 8K samples (32 x 256).
+
+# Split up into:
+# - compute spectrum via fft
+# - optionally compute phase difference if two columns are given
+# - plot db magnitude and phase
+function fft_bode(irs)
+  [db, ph, f_0, f_step, f_left, f_right] = fft_spectrum(irs, 1);
+  if size(irs)(2) == 2
+    [db1, ph1] = fft_spectrum(irs, 2)
+    ph = mod(ph-ph1+180, 360)-180
+  end
+  nb_f = length(db);
+  x = linspace(f_0, f_step * (nb_f-1), nb_f);
+  subplot_db(2,1,1,f_left,f_right,x,db)
+  subplot_ph(2,1,2,f_left,f_right,x,ph)
+end
+
+# With delay compensation.  We are computing the spectrum of a
+# periodic signal so rotation is appropriate here.
 function fft_bode_dly(ir, dly)
   ir_shift = circshift(ir', -dly)';
   fft_bode(ir_shift);
 end
+
+
+# Matrix transfer plot.
 
 
 
