@@ -8,11 +8,12 @@ function abode(f)
   bode(f, {20,24000});
 end
 
-global samplerate = 48000
+function sr = samplerate()
+  sr = 48000;
+end
 
 function f = fir(ir)
-  global samplerate;
-  f = filt(ir, [1], 1/samplerate);
+  f = filt(ir, [1], 1/samplerate());
 end
 
 # Bode plot converting impulse response to discrete system.
@@ -21,22 +22,22 @@ function bode_fir(ir)
   abode(f);
 end
 
-global z = tf('z', 1/samplerate);
+# FIXME: global variables don't seem to reload, so use functions instead.
+# global z = tf('z', 1/samplerate());
 
 
 
 function [db, ph, f_0, f_step] = fft_to_spectrum(fft1)
 
-  global samplerate;
   N = length(fft1);
   ampl   = abs(fft1);
   phase  = angle(fft1) * 180 / pi;
-  f_step = samplerate / N;
+  f_step = samplerate() / N;
   
   # Limit the frequency range
   f_left = 20;
   # f_right = 20000;
-  f_right = samplerate / 2;
+  f_right = samplerate() / 2;
   offset_start  = 1 + round(f_left  / f_step);
   offset_end    = 1 + round(f_right / f_step);
 
@@ -138,14 +139,9 @@ function fft_bode_dly(ir, dly)
 end
 
 
-# Matrix transfer plot.
-
-
-
-# Vector of 0,T,2T,... T=1/samplerate
+# Vector of 0,T,2T,... T=1/samplerate()
 function t = time(n)
-  global samplerate
-  T = 1/samplerate;
+  T = 1/samplerate();
   t = linspace(0,(n-1)*T,n);
 end
 
