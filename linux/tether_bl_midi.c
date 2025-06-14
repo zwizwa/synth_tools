@@ -25,6 +25,15 @@
 
 */
 
+/* FIXME:
+
+   I had to comment-out clear_cache() in the gdbstub.c file in the
+   2026-06-12 uc_tools merge between exo and c8.
+
+   This probably breaks things here for the MIDI implementation.
+   Investigate!
+*/
+
 // #define TETHER_3IF_LOG_DBG LOG
 
 #define _GNU_SOURCE // Needed for pipe2 in jack_tools.h
@@ -148,7 +157,7 @@ void send_midi_packet(struct jack_pipes *p,
     struct process_state *s = (void*)p;
     void *buf = jack_midi_event_reserve(s->midi_out_buf, 0, nb_bytes);
     if (buf) {
-        LOG_HEX("tx_sx:", midi_data, nb_bytes);
+        LOG_HEX_BUF("tx_sx:", midi_data, nb_bytes);
         memcpy(buf, midi_data, nb_bytes);
     }
     else {
@@ -168,7 +177,7 @@ static int process (jack_nframes_t nframes, void *arg) {
     FOR_MIDI_EVENTS(iter, midi_in, nframes) {
         const uint8_t *msg = iter.event.buffer;
         uintptr_t len = iter.event.size;
-        LOG_HEX("rx_sx:", msg, len);
+        LOG_HEX_BUF("rx_sx:", msg, len);
         assert_write(process_state.p.to_main_fd, msg, len);
     }
     return 0;

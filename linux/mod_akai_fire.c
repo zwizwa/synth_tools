@@ -96,7 +96,7 @@ void akai_fire_sysex_buttons(struct akai_fire *fire,
     };
     pbuf_write(&p, akai_fire_sysex_footer, sizeof(akai_fire_sysex_footer));
     LOG("akai_fire: update wrote %d bytes, expected %d\n", p.count, p.size);
-    LOG_HEX("sysex:",p.buf,p.count);
+    LOG_HEX_BUF("sysex:",p.buf,p.count);
 
     route_raw_midi(route, sel_fire, p.buf, p.count);
 

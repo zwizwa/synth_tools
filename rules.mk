@@ -92,6 +92,7 @@ HOST_ELF := \
 	linux/test_pdm.dynamic.host.elf \
 	linux/test_bl_midi.dynamic.host.elf \
 	linux/test_cproc.dynamic.host.elf \
+	linux/test_fftw.dynamic.host.elf \
 	linux/jack_netsend.dynamic.host.elf \
 	linux/jack_info.dynamic.host.elf \
 	linux/jack_midi.dynamic.host.elf \
@@ -105,7 +106,7 @@ HOST_ELF := \
 	linux/envy24.dynamic.host.elf \
 	linux/test_sequencer.dynamic.host.elf \
 	linux/gen_max11300.dynamic.host.elf \
-	linux/tether_bl.dynamic.host.elf \
+	$(UC_TOOLS)/linux/tether_bl.dynamic.host.elf \
 	linux/tether_bl_midi.dynamic.host.elf \
 	linux/tether_bl_alsa.dynamic.host.elf \
 	linux/a2jmidid.dynamic.host.elf \
@@ -351,7 +352,7 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	export LD=linux/dynamic.host.ld ; \
 	export MAP=$(patsubst %.elf,%.map,$@) ; \
 	export O=$< ; \
-	export LDLIBS="$(A_HOST) -Wl,--gc-sections -lpthread -ljack -lasound `pkg-config libpulse-simple --cflags --libs`" ; \
+	export LDLIBS="$(A_HOST) -Wl,--gc-sections -lpthread -ljack -lasound -lfftw3f -lm `pkg-config libpulse-simple --cflags --libs`" ; \
 	export TYPE=elf ; \
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1
