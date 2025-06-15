@@ -6,6 +6,8 @@
 
 
 #define DYNAMIC 1
+#define N 4096
+#define SAMPLERATE 48000
 
 int main(int argc, char **argv) {
 
@@ -26,8 +28,20 @@ int main(int argc, char **argv) {
     }
     fftwf_execute(p); /* repeat as needed */
 
-    struct bode bode = {};
-    fft_to_spectrum(&bode, out);
+    struct bode_vec bode_vec[N];
+    struct bode bode = {
+        .samplerate = 48000,
+        .size = N,
+        .vec = bode_vec,
+    };
+    bode_fft_to_spectrum(&bode, out);
+
+    char sep = '\n';
+    char *path = bode_svg_path_db(&bode, sep);
+    LOG("path:\n%s\n", path);
+
+    free(path);
+
 
     fftwf_destroy_plan(p);
 
