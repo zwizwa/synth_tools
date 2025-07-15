@@ -1,3 +1,5 @@
+NO LONGER USED
+
 #lang racket/base
 (require
  "sig.rkt"
@@ -168,7 +170,7 @@
 ;; The result of compiling a collection of nested stream processing
 ;; functions is one C function parameterized with a state vector.
 (define (compile s main . in)
-  (comment! s "function body")
+  (comment! s "function body A")
   (let*
       (;; Generate registers to serve as function inputs
        ;(nb-in (sub1 (procedure-arity main)))

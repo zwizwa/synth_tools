@@ -39,6 +39,7 @@
 
 (define (compile s main . in)
   ;; Generate code by applying the hoas to the input probes.
+  (code! s (comment "function body"))
   (let ((out ((m2l main) s in)))
     ;; ... and collect function form.
     (compile/list s in out)))

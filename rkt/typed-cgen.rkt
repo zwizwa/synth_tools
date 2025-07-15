@@ -267,6 +267,7 @@
 ;; Compile code in a fresh context.  Return the outputs of the block
 ;; as (Listof Ref), and the code as (Listof Code).
 (define (compile-block! s block-thunk!)
+  ;; (code! s (comment "block"))
   (enter-block! s)
   (let* ((ref
           : (Listof Ref)
@@ -410,7 +411,6 @@
        (Listof var) ;; out
        function))
 (define (compile/list s in out)
-  (code! s (comment "function body"))
   (let*
       (;; Buffer the outputs to make sure they are all variables, and
        ;; perform the assgment.
@@ -427,17 +427,20 @@
             (slice-equiv! s "top-out" ro '() o))))
 
     
-    ;; Reverse state and code stacks. The in and out lists are already
-    ;; in the correct order.
-    (function (reverse (cgen-state s)) in (reverse (cgen-code s)) outvar)))
+    ;; Reverse state and code lists (stacks). The in and out lists are
+    ;; already in the correct order.
+    (function (reverse (cgen-state s))
+              in
+              (reverse (cgen-code s))
+              outvar)))
 
 (: pp-function (-> function Void))
 (define (pp-function f)
-  (display "state:\n") (pp (function-state f))
-  (display "in:\n")    (pp (function-in f))
-  (display "code:\n")  (for ((code (function-code f)))
-                            (pp code))
-  (display "out:\n")   (pp (function-out f)))
+  (display ";; -*- scheme -*-\n")
+  (display ";; state:\n") (pp (function-state f))
+  (display ";; in:\n")    (pp (function-in f))
+  (display ";; code:\n")  (for ((code (function-code f))) (pp code))
+  (display ";; out:\n")   (pp (function-out f)))
 
 (: intersperse (All (S) (-> S (Listof S) (Listof S))))
 (define (intersperse between elems)

@@ -1,6 +1,12 @@
 #!/bin/sh
+cd $(dirname "$0")
 echo 
-echo "begin $0"
+echo "begin $0 make"
+./make.sh
+echo "end $0 make"
+echo
+
+echo "begin $0 wait"
 
 inotifywait \
     edit_compile_run.sh \
@@ -11,15 +17,16 @@ inotifywait \
     test-eval.rkt \
     test-cgen.rkt \
     test-complex.rkt \
-    cgen.rkt \
+    untyped-cgen.rkt \
     dsp.rkt \
     typed-cgen.rkt \
+    experiment-composition.rkt \
 
-# racket test-eval.rkt
-# racket test-cgen.rkt
-racket typed-cgen.rkt
-# racket test-complex.rkt
+OLD=\
+    cgen.rkt \
 
-echo "end $0"
+echo "end $0 wait"
+echo
+
 exec $0
 

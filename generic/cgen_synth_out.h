@@ -10,6 +10,7 @@ struct synth_out {
     T o0[64];
 };
 static inline void synth_update(struct synth_state *s, const struct synth_in *i, struct synth_out *o) {
+    // function body
     I n0 = zero();
     T v5[64];
     for(; n0 < 64; n0++) {
@@ -88,7 +89,6 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
         // loop output
         o->o0[t0] = l1; // expanded from: v18[t0] = l1
     }
-    // function body
     // function outputs
     // top-out: treat assignment as equivalence: o->o0 == v18
 }
