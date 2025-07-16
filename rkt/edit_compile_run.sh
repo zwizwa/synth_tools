@@ -21,9 +21,8 @@ inotifywait \
     dsp.rkt \
     typed-cgen.rkt \
     experiment-composition.rkt \
+    ../linux/test_cgen.c \
 
-OLD=\
-    cgen.rkt \
 
 echo "end $0 wait"
 echo

@@ -11,6 +11,7 @@ struct synth_out {
 };
 static inline void synth_update(struct synth_state *s, const struct synth_in *i, struct synth_out *o) {
     // function body
+    // loop state init
     I n0 = zero();
     T v5[64];
     for(; n0 < 64; n0++) {
@@ -30,11 +31,13 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
         // loop output
         v5[n0] = v4;
     }
+    // loop state init
     I t0 = zero();
-    // omit slice definition: T v18[64]
+    // omit slice definition: T v18[64] is in o0
     T l0[64];
+    // loop state init
     I n1 = zero();
-    // omit slice definition: T v7[64]
+    // omit slice definition: T v7[64] is in l0
     for(; n1 < 64; n1++) {
         // loop state snapshot
         // loop body
@@ -44,9 +47,10 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
         // loop output
         l0[n1] = v6; // expanded from: v7[n1] = v6
     }
-    // ls-from!: treat assignment as equivalence: l0 == v7
+    // ls-from!: omit slice assigment: l0 is v7
     for(; t0 < 64; t0++) {
         // loop state snapshot
+        // loop state init
         I n2 = zero();
         T v9[64];
         for(; n2 < 64; n2++) {
@@ -59,8 +63,9 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
             v9[n2] = v8;
         }
         // loop body
+        // loop state init
         I n3 = zero();
-        // omit slice definition: T v17[64]
+        // omit slice definition: T v17[64] is in l0
         T l1;
         l1 = 0;
         for(; n3 < 64; n3++) {
@@ -85,10 +90,10 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
         }
         // loop body output as var
         // loop state update
-        // loop-state-update: treat assignment as equivalence: l0 == v17
+        // loop-state-update: omit slice assigment: l0 is v17
         // loop output
         o->o0[t0] = l1; // expanded from: v18[t0] = l1
     }
     // function outputs
-    // top-out: treat assignment as equivalence: o->o0 == v18
+    // top-out: omit slice assigment: o->o0 is v18
 }

@@ -50,6 +50,18 @@ void test_matrix(void) {
     LOG("\n");
 }
 
+void test_timeloop(void) {
+    struct timeloop_state s = {};
+    LOG("timelloop");
+    struct timeloop_in in = {};
+    struct timeloop_out out;
+    timeloop_update(&s, &in, &out);
+    for (int t=0; t<20 /*ARRAY_SIZE(out.o0)*/; t++) {
+        LOG(" %d", (int)out.o0[t]);
+    }
+    LOG("\n");
+}
+
 /* See rkt/test-ffi.rkt */
 void test(void) {
     LOG("test_cgen.c\n");
@@ -57,6 +69,7 @@ void test(void) {
     test_procproc();
     test_sumramp();
     test_matrix();
+    test_timeloop();
 }
 
 #if 0

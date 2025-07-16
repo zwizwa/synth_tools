@@ -94,9 +94,12 @@
     (case example
 
       ((integrator)
+       ;; The canonical stateful processor to show tracking of state.
        (close 1 (lambda (s i) (values (+ s i) s))))
 
       ((procproc)
+       ;; Double application of integrator to show tracking of
+       ;; separate state per application.
        (lambda (i)
          (let* ((update (lambda (s i) (values (+ s i) s)))
                 (proc (close 1 update)))
@@ -105,27 +108,41 @@
            (proc (proc i)))))
 
       ((sumramp)
+       ;; Use spatial loop to sum the output of 3 stateful generators.
        (lambda (in)
          ;; Create ramp generators
          (let ((ramp (close 1 (lambda (s) (values (+ s in) s)))))
-           (loop 3
+           (loop 3  ;; 0,1,2
                  (lambda (i s)
                    ;; Sum the output of a couple of ramp generators.
                    (+ s (ramp)))))))
 
       ((matrix)
+       ;; Use spatial loop to construct a matrix.
        (lambda ()
-         (loop 3 (lambda (i)
-         (loop 4 (lambda (j)
+         (loop 3 (lambda (i) ;; 0,1,2
+         (loop 4 (lambda (j) ;; 0,1,3,4
            (values (* i j))))))))
 
       ((timeloop)
+       ;; Simple time loop to illustrate semantics: state inside the
+       ;; timeloop is updated.
+       (lambda ()
+         (let ((ramp (close 1 (lambda (s) (values (+ s 1) s)))))
+           (time
+            64
+            (lambda (t)
+              (ramp))))))
+
+      ((timeloopparam)
        ;; Time loop with interpolated parameters, for block-based
-       ;; 2-rate inputs.
+       ;; 2-rate inputs.  The idea is to later create a macro or a
+       ;; higher order function for a time loop with interpolated
+       ;; parameters and have it expand into something like this.
        (lambda (in param)
          (let* ((_ (meta! in    '((name . "In")    (unit . ms) (min . 1)  (max . 1000))))
                 (_ (meta! param '((name . "Param") (unit . hz) (min . 20) (max . 20000))))
-                (dparam (D param))
+                (dparam (D param)) ;; Delayed parameter
                 (incparam (/ (- param dparam) (sizeof in))))
            (time
             (sizeof in)
@@ -136,10 +153,13 @@
                 ))))))
 
       ((loopinit)
+       ;; Spatial loop with separate state initializer.
        (lambda ()
          (loop 4
+               ;; Initialze the 2 state variables.
                (lambda ()
                  (values 123 456))
+               ;; Update the 2 state variables (identity nop here).
                (lambda (i s1 s2)
                  (values s1 s2)))))
 
@@ -149,10 +169,18 @@
              (((_ out)
                (loop 10
                      (lambda ()
-                       ;; FIXME: First fix the loop form, then the array form.
-                                        ;osc_inc
-                       (loop (sizeof osc_inc)
-                             (lambda (i) (ref osc_inc i)))
+                       ;; Test instantiates osc_init with 64 a element
+                       ;; vector.  Note that in the generated code the
+                       ;; initializer loop should appear before the
+                       ;; loop 0..9 starts.
+                       ;;
+                       ;; This explicit copy seems to work
+                       ;(loop (sizeof osc_inc) (lambda (i) (ref osc_inc i)))
+
+                       ;; But this does not: it puts the init inside
+                       ;; the loop.
+
+                       osc_inc
                        )
                      (lambda (i loopstate)
                        ;;(loop (sizeof loopstate)

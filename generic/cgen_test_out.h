@@ -64,6 +64,7 @@ struct sumramp_out {
 };
 static inline void sumramp_update(struct sumramp_state *s, const struct sumramp_in *i, struct sumramp_out *o) {
     // function body
+    // loop state init
     I n0 = zero();
     T l0;
     l0 = 0;
@@ -98,13 +99,15 @@ struct matrix_out {
 };
 static inline void matrix_update(struct matrix_state *s, const struct matrix_in *i, struct matrix_out *o) {
     // function body
+    // loop state init
     I n0 = zero();
-    // omit slice definition: T v2[3][4]
+    // omit slice definition: T v2[3][4] is in o0
     for(; n0 < 3; n0++) {
         // loop state snapshot
         // loop body
+        // loop state init
         I n1 = zero();
-        // omit slice definition: T v1[4]
+        // omit slice definition: T v1[4] is in o0
         for(; n1 < 4; n1++) {
             // loop state snapshot
             // loop body
@@ -117,29 +120,62 @@ static inline void matrix_update(struct matrix_state *s, const struct matrix_in 
         // loop body output as var
         // loop state update
         // loop output
-        // loop-out: treat assignment as equivalence: v2[n0] == v1
+        // loop-out: omit slice assigment: v2[n0] is v1
     }
     // function outputs
-    // top-out: treat assignment as equivalence: o->o0 == v2
+    // top-out: omit slice assigment: o->o0 is v2
 }
 
 /////////////////////////// timeloop
 #include "cgen_lib.h"
 struct timeloop_state {
     T s0;
+};
+struct timeloop_in {
+};
+struct timeloop_out {
+    T o0[64];
+};
+static inline void timeloop_update(struct timeloop_state *s, const struct timeloop_in *i, struct timeloop_out *o) {
+    // function body
+    // loop state init
+    I t0 = zero();
+    // omit slice definition: T v2[64] is in o0
+    for(; t0 < 64; t0++) {
+        // loop state snapshot
+        // loop body
+        // feedback state snapshot
+        T v0 = copy(s->s0);
+        // feedback body
+        T v1 = add(v0, 1);
+        // feedback state update
+        s->s0 = v1;
+        // loop body output as var
+        // loop state update
+        // loop output
+        o->o0[t0] = v0; // expanded from: v2[t0] = v0
+    }
+    // function outputs
+    // top-out: omit slice assigment: o->o0 is v2
+}
+
+/////////////////////////// timeloopparam
+#include "cgen_lib.h"
+struct timeloopparam_state {
+    T s0;
     T s1;
     T s2;
 };
-struct timeloop_in {
+struct timeloopparam_in {
     T i0[64];
     T i1;
 };
-struct timeloop_out {
+struct timeloopparam_out {
     T o0;
     T o1[64];
     T o2[64];
 };
-static inline void timeloop_update(struct timeloop_state *s, const struct timeloop_in *i, struct timeloop_out *o) {
+static inline void timeloopparam_update(struct timeloopparam_state *s, const struct timeloopparam_in *i, struct timeloopparam_out *o) {
     // function body
     // feedback state snapshot
     T v0 = copy(s->s0);
@@ -148,9 +184,10 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
     s->s0 = i->i1;
     T v1 = sub(i->i1, v0);
     T v2 = div(v1, 64);
+    // loop state init
     I t0 = zero();
-    // omit slice definition: T v10[64]
-    // omit slice definition: T v11[64]
+    // omit slice definition: T v10[64] is in o1
+    // omit slice definition: T v11[64] is in o2
     T l0;
     l0 = 0;
     for(; t0 < 64; t0++) {
@@ -180,8 +217,8 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
     }
     // function outputs
     o->o0 = l0;
-    // top-out: treat assignment as equivalence: o->o1 == v10
-    // top-out: treat assignment as equivalence: o->o2 == v11
+    // top-out: omit slice assigment: o->o1 is v10
+    // top-out: omit slice assigment: o->o2 is v11
 }
 
 /////////////////////////// loopinit
@@ -196,6 +233,7 @@ struct loopinit_out {
 };
 static inline void loopinit_update(struct loopinit_state *s, const struct loopinit_in *i, struct loopinit_out *o) {
     // function body
+    // loop state init
     I n0 = zero();
     T l0;
     T l1;
@@ -229,44 +267,35 @@ struct loopstateinit_out {
 };
 static inline void loopstateinit_update(struct loopstateinit_state *s, const struct loopstateinit_in *i, struct loopstateinit_out *o) {
     // function body
-    I n1 = zero();
-    // omit slice definition: T v5[10]
-    T l0[64];
+    // loop state init
     I n0 = zero();
-    // omit slice definition: T v1[64]
-    for(; n0 < 64; n0++) {
+    // omit slice definition: T v3[10] is in o0
+    T l0[64];
+    // ls-from!: omit slice assigment: l0 is i->i0
+    for(; n0 < 10; n0++) {
         // loop state snapshot
-        // loop body
-        // loop body output as var
-        T v0 = copy(i->i0[n0]);
-        // loop state update
-        // loop output
-        l0[n0] = v0; // expanded from: v1[n0] = v0
-    }
-    // ls-from!: treat assignment as equivalence: l0 == v1
-    for(; n1 < 10; n1++) {
-        // loop state snapshot
-        I n2 = zero();
-        // omit slice definition: T v3[64]
-        for(; n2 < 64; n2++) {
+        // loop state init
+        I n1 = zero();
+        // omit slice definition: T v1[64] is in l0
+        for(; n1 < 64; n1++) {
             // loop state snapshot
             // loop body
             // loop body output as var
-            T v2 = copy(l0[n2]);
+            T v0 = copy(l0[n1]);
             // loop state update
             // loop output
-            l0[n2] = v2; // expanded from: v3[n2] = v2
+            l0[n1] = v0; // expanded from: v1[n1] = v0
         }
         // loop body
         // loop body output as var
-        T v4 = copy(123);
+        T v2 = copy(123);
         // loop state update
-        // loop-state-update: treat assignment as equivalence: l0 == v3
+        // loop-state-update: omit slice assigment: l0 is v1
         // loop output
-        o->o0[n1] = v4; // expanded from: v5[n1] = v4
+        o->o0[n0] = v2; // expanded from: v3[n0] = v2
     }
     // function outputs
-    // top-out: treat assignment as equivalence: o->o0 == v5
+    // top-out: omit slice assigment: o->o0 is v3
 }
 
 /////////////////////////// interpol
@@ -284,6 +313,7 @@ struct interpol_out {
 static inline void interpol_update(struct interpol_state *s, const struct interpol_in *i, struct interpol_out *o) {
     // function body
     T v0 = div(1, 1024);
+    // loop state init
     I n0 = zero();
     T v5[64];
     for(; n0 < 64; n0++) {
@@ -302,11 +332,13 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         // loop output
         v5[n0] = v4;
     }
+    // loop state init
     I t0 = zero();
-    // omit slice definition: T v17[1024]
+    // omit slice definition: T v17[1024] is in o0
     T l0[64];
+    // loop state init
     I n1 = zero();
-    // omit slice definition: T v7[64]
+    // omit slice definition: T v7[64] is in l0
     for(; n1 < 64; n1++) {
         // loop state snapshot
         // loop body
@@ -316,9 +348,10 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         // loop output
         l0[n1] = v6; // expanded from: v7[n1] = v6
     }
-    // ls-from!: treat assignment as equivalence: l0 == v7
+    // ls-from!: omit slice assigment: l0 is v7
     for(; t0 < 1024; t0++) {
         // loop state snapshot
+        // loop state init
         I n2 = zero();
         T v9[64];
         for(; n2 < 64; n2++) {
@@ -331,8 +364,9 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
             v9[n2] = v8;
         }
         // loop body
+        // loop state init
         I n3 = zero();
-        // omit slice definition: T v16[64]
+        // omit slice definition: T v16[64] is in l0
         T l1;
         l1 = 0;
         for(; n3 < 64; n3++) {
@@ -356,11 +390,11 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         }
         // loop body output as var
         // loop state update
-        // loop-state-update: treat assignment as equivalence: l0 == v16
+        // loop-state-update: omit slice assigment: l0 is v16
         // loop output
         o->o0[t0] = l1; // expanded from: v17[t0] = l1
     }
     // function outputs
-    // top-out: treat assignment as equivalence: o->o0 == v17
+    // top-out: omit slice assigment: o->o0 is v17
 }
 

@@ -99,6 +99,7 @@
          [in    : (Listof var)]
          [code  : (Listof Code)]
          [out   : (Listof var)]
+         [meta  : (Listof (Pair var Any))]
          )
         #:transparent)
 
@@ -384,11 +385,12 @@
   ;; Similar to loop outputs
   (let*
       ((equivalence
-        (format "~a~a == ~a"
+        (format "~a~a is ~a"
                 (fmt-ref ro)
                 (fmt-array-index array-index)
                 (fmt-ref o)))
-       (msg (format "~a: treat assignment as equivalence: ~a" logtag equivalence)))
+       ;; Elements were updated in-place.
+       (msg (format "~a: omit slice assigment: ~a" logtag equivalence)))
     (def-slice! s o ro array-index)
     (comment msg)))
 
@@ -425,14 +427,16 @@
             (code! s (assign ro '() o)))
            ((var type dims tag nb)
             (slice-equiv! s "top-out" ro '() o))))
-
+    
     
     ;; Reverse state and code lists (stacks). The in and out lists are
     ;; already in the correct order.
     (function (reverse (cgen-state s))
               in
               (reverse (cgen-code s))
-              outvar)))
+              outvar
+              (reverse (cgen-meta s))
+              )))
 
 (: pp-function (-> function Void))
 (define (pp-function f)
@@ -440,7 +444,9 @@
   (display ";; state:\n") (pp (function-state f))
   (display ";; in:\n")    (pp (function-in f))
   (display ";; code:\n")  (for ((code (function-code f))) (pp code))
-  (display ";; out:\n")   (pp (function-out f)))
+  (display ";; out:\n")   (pp (function-out f))
+  (display ";; meta:\n")  (pp (function-meta f))
+)
 
 (: intersperse (All (S) (-> S (Listof S) (Listof S))))
 (define (intersperse between elems)
@@ -519,14 +525,23 @@
                (indent) (var-type r) (fmt-var r) op (fmt-args args)))
 
            ((array r)
-            (let ((slicedef
-                   (format "~a ~a~a"
-                           (var-type r)
-                           (fmt-var r)
-                           (fmt-array-size (map dim-size (var-dims r))))))
-              (if (maybe-slice s r)
-                  (w "~a// omit slice definition: ~a\n"
-                     (indent) slicedef)
+            (let* ((slicedef
+                    (format "~a ~a~a"
+                            (var-type r)
+                            (fmt-var r)
+                            (fmt-array-size (map dim-size (var-dims r)))))
+                   (maybe_slice (maybe-slice s r)))
+              (if maybe_slice
+                  (let-values (((var _coords) (expand-slice s maybe_slice)))
+                    ;; If an array variable is a slice, we do not
+                    ;; allocate temporary storage here and will
+                    ;; perform assigment to the underlying storage
+                    ;; directly.  See "expaned from" in the assign
+                    ;; case for assigment formatting.  Mention the
+                    ;; slice name (not visible from C) and the array
+                    ;; that contains it.
+                    (w "~a// omit slice definition: ~a is in ~a\n"
+                       (indent) slicedef (fmt-var var)))
                   (w "~a~a;\n"
                      (indent) slicedef))))
 
@@ -612,6 +627,7 @@
         (Listof Code)
         (Listof var))))
 (define (cgen-loop-state-from! s state-init)
+  (code! s (comment "loop state init"))
   (let*-values
       (;; Instantiate the state initialization code that goes before
        ;; the loop body.  This gives us a list of refs to use to
@@ -641,6 +657,12 @@
          ;; Can it just always do a slice equivalence?  I mean a
          ;; scalar variable is just a degenerate case of a grid
          ;; element variable.
+         ;;
+         ;; NO! This only works if a new array was created.  And is a
+         ;; bad hack anyway.  I currently do not see how to express
+         ;; the condition where an immutable variable can be promoted
+         ;; to a mutable one.  For scalars this is easy because they
+         ;; are always copied.
          (list
           (if (var? r)
               (slice-equiv-code! s "ls-from!" sv '() r)
