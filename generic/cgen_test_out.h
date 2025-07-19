@@ -16,8 +16,10 @@ static inline void integrator_update(struct integrator_state *s, const struct in
     // feedback body
     T v1 = add(v0, i->i0);
     // feedback state update
+    // dst: #(struct:assign #(struct:var T () s 0) () #(struct:var T () v 1))
     s->s0 = v1;
     // function outputs
+    // dst: #(struct:assign #(struct:var T () o 0) () #(struct:var T () v 0))
     o->o0 = v0;
 }
 
@@ -40,14 +42,17 @@ static inline void procproc_update(struct procproc_state *s, const struct procpr
     // feedback body
     T v1 = add(v0, i->i0);
     // feedback state update
+    // dst: #(struct:assign #(struct:var T () s 0) () #(struct:var T () v 1))
     s->s0 = v1;
     // feedback state snapshot
     T v2 = copy(s->s1);
     // feedback body
     T v3 = add(v2, v0);
     // feedback state update
+    // dst: #(struct:assign #(struct:var T () s 1) () #(struct:var T () v 3))
     s->s1 = v3;
     // function outputs
+    // dst: #(struct:assign #(struct:var T () o 0) () #(struct:var T () v 2))
     o->o0 = v2;
 }
 
@@ -67,6 +72,7 @@ static inline void sumramp_update(struct sumramp_state *s, const struct sumramp_
     // loop state init
     I n0 = zero();
     T l0;
+    // dst: #(struct:assign #(struct:var T () l 0) () 0)
     l0 = 0;
     for(; n0 < 3; n0++) {
         // loop state snapshot
@@ -77,14 +83,17 @@ static inline void sumramp_update(struct sumramp_state *s, const struct sumramp_
         // feedback body
         T v2 = add(v1, i->i0);
         // feedback state update
+        // dst: #(struct:assign #(struct:var T (#(struct:dim #(struct:var I () n 0) 3)) s 0) () #(struct:var T () v 2))
         s->s0[n0] = v2;
         T v3 = add(v0, v1);
         // loop body output as var
         // loop state update
+        // dst: #(struct:assign #(struct:var T () l 0) () #(struct:var T () v 3))
         l0 = v3;
         // loop output
     }
     // function outputs
+    // dst: #(struct:assign #(struct:var T () o 0) () #(struct:var T () l 0))
     o->o0 = l0;
 }
 
@@ -149,6 +158,7 @@ static inline void timeloop_update(struct timeloop_state *s, const struct timelo
         // feedback body
         T v1 = add(v0, 1);
         // feedback state update
+        // dst: #(struct:assign #(struct:var T () s 0) () #(struct:var T () v 1))
         s->s0 = v1;
         // loop body output as var
         // loop state update
@@ -181,6 +191,7 @@ static inline void timeloopparam_update(struct timeloopparam_state *s, const str
     T v0 = copy(s->s0);
     // feedback body
     // feedback state update
+    // dst: #(struct:assign #(struct:var T () s 0) () #(struct:var T () i 1))
     s->s0 = i->i1;
     T v1 = sub(i->i1, v0);
     T v2 = div(v1, 64);
@@ -189,6 +200,7 @@ static inline void timeloopparam_update(struct timeloopparam_state *s, const str
     // omit slice definition: T v10[64] is in o1
     // omit slice definition: T v11[64] is in o2
     T l0;
+    // dst: #(struct:assign #(struct:var T () l 0) () 0)
     l0 = 0;
     for(; t0 < 64; t0++) {
         // loop state snapshot
@@ -200,22 +212,26 @@ static inline void timeloopparam_update(struct timeloopparam_state *s, const str
         // feedback body
         T v6 = add(v5, v4);
         // feedback state update
+        // dst: #(struct:assign #(struct:var T () s 1) () #(struct:var T () v 6))
         s->s1 = v6;
         // feedback state snapshot
         T v7 = copy(s->s2);
         // feedback body
         T v8 = add(v7, v6);
         // feedback state update
+        // dst: #(struct:assign #(struct:var T () s 2) () #(struct:var T () v 8))
         s->s2 = v8;
         T v9 = add(v3, v2);
         // loop body output as var
         // loop state update
+        // dst: #(struct:assign #(struct:var T () l 0) () #(struct:var T () v 9))
         l0 = v9;
         // loop output
         o->o1[t0] = v6; // expanded from: v10[t0] = v6
         o->o2[t0] = v8; // expanded from: v11[t0] = v8
     }
     // function outputs
+    // dst: #(struct:assign #(struct:var T () o 0) () #(struct:var T () l 0))
     o->o0 = l0;
     // top-out: omit slice assigment: o->o1 is v10
     // top-out: omit slice assigment: o->o2 is v11
@@ -237,7 +253,9 @@ static inline void loopinit_update(struct loopinit_state *s, const struct loopin
     I n0 = zero();
     T l0;
     T l1;
+    // dst: #(struct:assign #(struct:var T () l 0) () 123)
     l0 = 123;
+    // dst: #(struct:assign #(struct:var T () l 1) () 456)
     l1 = 456;
     for(; n0 < 4; n0++) {
         // loop state snapshot
@@ -246,12 +264,16 @@ static inline void loopinit_update(struct loopinit_state *s, const struct loopin
         // loop body
         // loop body output as var
         // loop state update
+        // dst: #(struct:assign #(struct:var T () l 0) () #(struct:var T () v 0))
         l0 = v0;
+        // dst: #(struct:assign #(struct:var T () l 1) () #(struct:var T () v 1))
         l1 = v1;
         // loop output
     }
     // function outputs
+    // dst: #(struct:assign #(struct:var T () o 0) () #(struct:var T () l 0))
     o->o0 = l0;
+    // dst: #(struct:assign #(struct:var T () o 1) () #(struct:var T () l 1))
     o->o1 = l1;
 }
 
@@ -268,34 +290,50 @@ struct loopstateinit_out {
 static inline void loopstateinit_update(struct loopstateinit_state *s, const struct loopstateinit_in *i, struct loopstateinit_out *o) {
     // function body
     // loop state init
+    // old var, need copy:
+    // statevar: #(struct:var T (#(struct:dim #f 64)) l 0)
+    // ref:      #(struct:var T (#(struct:dim #f 64)) i 0)
+    // loop state init
     I n0 = zero();
-    // omit slice definition: T v3[10] is in o0
+    // omit slice definition: T v1[64] is in l0
+    for(; n0 < 64; n0++) {
+        // loop state snapshot
+        // loop body
+        // loop body output as var
+        T v0 = copy(i->i0[n0]);
+        // loop state update
+        // loop output
+        l0[n0] = v0; // expanded from: v1[n0] = v0
+    }
+    // new-r: #(struct:var T (#(struct:dim #(struct:var I () n 0) 64)) v 1)
+    I n1 = zero();
+    // omit slice definition: T v5[10] is in o0
     T l0[64];
-    // ls-from!: omit slice assigment: l0 is i->i0
-    for(; n0 < 10; n0++) {
+    // array-copy!: omit slice assigment: l0 is v1
+    for(; n1 < 10; n1++) {
         // loop state snapshot
         // loop state init
-        I n1 = zero();
-        // omit slice definition: T v1[64] is in l0
-        for(; n1 < 64; n1++) {
+        I n2 = zero();
+        // omit slice definition: T v3[64] is in l0
+        for(; n2 < 64; n2++) {
             // loop state snapshot
             // loop body
             // loop body output as var
-            T v0 = copy(l0[n1]);
+            T v2 = copy(l0[n2]);
             // loop state update
             // loop output
-            l0[n1] = v0; // expanded from: v1[n1] = v0
+            l0[n2] = v2; // expanded from: v3[n2] = v2
         }
         // loop body
         // loop body output as var
-        T v2 = copy(123);
+        T v4 = copy(123);
         // loop state update
-        // loop-state-update: omit slice assigment: l0 is v1
+        // loop-state-update: omit slice assigment: l0 is v3
         // loop output
-        o->o0[n0] = v2; // expanded from: v3[n0] = v2
+        o->o0[n1] = v4; // expanded from: v5[n1] = v4
     }
     // function outputs
-    // top-out: omit slice assigment: o->o0 is v3
+    // top-out: omit slice assigment: o->o0 is v5
 }
 
 /////////////////////////// interpol
@@ -324,15 +362,20 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         T v2 = copy(s->s0[n0]);
         // feedback body
         // feedback state update
+        // dst: #(struct:assign #(struct:var T (#(struct:dim #(struct:var I () n 0) 64)) s 0) () #(struct:var T () v 1))
         s->s0[n0] = v1;
         T v3 = sub(i->i0[n0], v2);
         T v4 = mul(v3, v0);
         // loop body output as var
         // loop state update
         // loop output
+        // dst: #(struct:assign #(struct:var T (#(struct:dim #(struct:var I () n 0) 64)) v 5) (#(struct:var I () n 0)) #(struct:var T () v 4))
         v5[n0] = v4;
     }
     // loop state init
+    // fresh var, create equivalence:
+    // statevar: #(struct:var T (#(struct:dim #(struct:var I () n 1) 64)) l 0)
+    // ref:      #(struct:var T (#(struct:dim #(struct:var I () n 1) 64)) v 7)
     I t0 = zero();
     // omit slice definition: T v17[1024] is in o0
     T l0[64];
@@ -348,7 +391,7 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         // loop output
         l0[n1] = v6; // expanded from: v7[n1] = v6
     }
-    // ls-from!: omit slice assigment: l0 is v7
+    // loop-state-from!: omit slice assigment: l0 is v7
     for(; t0 < 1024; t0++) {
         // loop state snapshot
         // loop state init
@@ -361,6 +404,7 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
             T v8 = copy(l0[n2]);
             // loop state update
             // loop output
+            // dst: #(struct:assign #(struct:var T (#(struct:dim #(struct:var I () n 2) 64)) v 9) (#(struct:var I () n 2)) #(struct:var T () v 8))
             v9[n2] = v8;
         }
         // loop body
@@ -368,6 +412,7 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
         I n3 = zero();
         // omit slice definition: T v16[64] is in l0
         T l1;
+        // dst: #(struct:assign #(struct:var T () l 1) () 0)
         l1 = 0;
         for(; n3 < 64; n3++) {
             // loop state snapshot
@@ -379,11 +424,13 @@ static inline void interpol_update(struct interpol_state *s, const struct interp
             // feedback body
             T v13 = add(v12, v11);
             // feedback state update
+            // dst: #(struct:assign #(struct:var T (#(struct:dim #(struct:var I () n 3) 64)) s 1) () #(struct:var T () v 13))
             s->s1[n3] = v13;
             T v14 = add(v10, v12);
             T v15 = add(v9[n3], v5[n3]);
             // loop body output as var
             // loop state update
+            // dst: #(struct:assign #(struct:var T () l 1) () #(struct:var T () v 14))
             l1 = v14;
             // loop output
             l0[n3] = v15; // expanded from: v16[n3] = v15

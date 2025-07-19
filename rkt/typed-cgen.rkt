@@ -7,6 +7,48 @@
  )
 (provide (all-defined-out))
 
+;; Structure is fairly straightforward:
+;;
+;; - Every primitive application creates a 'bind' instruction that
+;;   creates a new immutable variable.
+;;
+;; - Code is represented by higher order syntax (lambdas) that get
+;;   executed bound to generated variables to produce a compilation
+;;   result.
+;;
+;; - Code generation is sequential collection of primitive
+;;   instructions collected in seq or loop forms. ( Currently no
+;;   conditional execution yet! ).
+;;
+;; - Entering/leaving a new code sequence form will push/pop the
+;;   current code stack. 
+;;
+;; - Arrays are constructed linearly using the 'loop' construct.  Each
+;;   loop will add a varable to the current coordinate vector (dims)
+;;   which encodes the current coordinate for binding results into an
+;;   array slot.
+;;
+;; - Array construction uses slice equivalence (aliasing) to avoid
+;;   construction of temporary arrays when they can be initialized
+;;   in-place.
+;;
+
+
+;; Code is fairly straightforward except for the idea of slice
+;; equivalence which can be understood by checking how 'asssign' is
+;; implemented in the second pass fwrite-c-code, and working backwards
+;; from there to see how slice equivalence is recorded in the first
+;; pass.  Essentially some array variables are marked to be equivalent
+;; to concrete arrays serving as backing store.
+
+
+
+;; This that are messy:
+;; - Loop variables do use promotion to mutable variables
+;; - Instead of a mix of pure and mutable
+
+
+
 ;; TODO:
 ;; - Go over all Any, Symbol types
 
@@ -22,6 +64,7 @@
      't ;; Local time counter
      'l ;; Local loop state
      ))
+
 (define-type Opcode String)
 
 (struct var ([type : Symbol]
@@ -548,10 +591,18 @@
            ((assign dst coords src)
             (let (;;(_ (log/pp "assign-element" (list dst coords src)))
                   (slice (maybe-slice s dst))
-                  (assignment (format "~a~a = ~a"
-                                      (fmt-ref dst)
-                                      (fmt-array-index coords)
-                                      (fmt-ref src))))
+                  (assignment
+                   (format "~a~a = ~a"
+                           (fmt-ref dst)
+                           (fmt-array-index coords)
+                           (fmt-ref src)))
+                  ;; (memcpy
+                  ;;  (format "memcpy(&~a, &~a, sizeof(~a))"
+                  ;;          (fmt-ref dst)
+                  ;;          (fmt-ref src)
+                  ;;          ;; FIXME: coords are not used, assumed to be ().
+                  ;;          (fmt-ref dst)))
+                  )
               (if slice
                   ;; Recursively substitute slice names to partial
                   ;; array references and append the current
@@ -565,7 +616,17 @@
                        (fmt-ref src)
                        assignment
                        ))
-                  (w "~a~a;\n" (indent) assignment))))
+                  (begin
+                    (w "~a// dst: ~a\n" (indent) stmt)
+                    ;; FIXME: This is wrong.  The src dim needs to be
+                    ;; checked.  But maybe best to avoid this
+                    ;; altogether and generate a loop where necessary.
+                    ;; (if (zero? (length (var-dims dst)))
+                    ;;     (w "~a~a;\n" (indent) assignment)
+                    ;;     (w "~a~a;\n" (indent) memcpy)
+                    ;;     ))
+                    (w "~a~a;\n" (indent) assignment))
+                  )))
 
            ((loop iter stop code)
             (begin
@@ -614,12 +675,50 @@
   (apply list vars))
 
 
-;; For now there is only one datatype: the array.  There is one
-;; iteration: the iteration of a state machine.  State output acts as
-;; fold, other outputs are accumulated in arrays.  Here s0 is the
-;; initial state vector which can be omitted for zero init.  The f is
-;; the iterated procedure, n is the number of iterations.
+;; Generate code that copies an array.
 
+;; Insert a loop like this:
+;; (loop (sizeof osc_inc) (lambda (i) (ref osc_inc i)))
+;;
+;; Note:
+;;
+;; * Can't use sugar here.  Can use cgen-ref directly.
+;;
+;; * Also, can't use cgen-loop becuase that is defined in untyped-cgen
+;;   which depends on this module.  But we can use cgen-loop/list
+
+;; Split out the call to cgen-loop/list
+(: cgen-array-copy
+   (-> cgen
+       var
+       var))
+(define (cgen-array-copy s r)
+  (let* ((dim (car (var-dims r))) ;; FIXME: MULTIDIM NOT IMPLEMENTED!
+         (nb-iter (dim-size dim)))
+    (car ;; We know this has just one element (1)
+     (cgen-loop/list
+      s
+      #f ;; is-time
+      nb-iter
+      (lambda (s _noargs) (list)) ;; state-init, no state
+      (lambda (s index _noargs) ;; TargetLoopFunction
+        (list
+         ;; (1) Only one return value
+         (cgen-ref s r index)))
+      ))))
+
+(: array-copy!
+   (-> cgen
+       var
+       var
+       Code))
+(define (array-copy! s sv r)
+  (let* ((new-r : var (cgen-array-copy s r)))
+    (code! s (comment (format "new-r: ~a" new-r)))
+    (slice-equiv-code! s "array-copy!" sv '() new-r)
+    ))
+
+;; Generate initialization code for the loop state.
 (: cgen-loop-state-from!
    (-> cgen
        (-> cgen '() (Listof Ref))
@@ -629,12 +728,21 @@
 (define (cgen-loop-state-from! s state-init)
   (code! s (comment "loop state init"))
   (let*-values
-      (;; Instantiate the state initialization code that goes before
+       ;; Before instantiating the code, take a snapshot of all
+       ;; variables that have been defined up to now.
+      ((([varsnap : (Mutable-HashTable VarTag Integer)])
+        (make-hash (hash->list (cgen-next-var s))))
+
+       ;; Instantiate the state initialization code that goes before
        ;; the loop body.  This gives us a list of refs to use to
-       ;; initialize the state variables.
+       ;; initialize the state variables.  This part is pure.
        (([code : (Listof Code)]
          [ref : (Listof Ref)])
         (compile-block! s state-init))
+
+       ;; We now want to transform the pure references to in-place
+       ;; assigments.  We can do that through slice equivalences.
+       ;; First create the variables we want to initialize:
        (([statevar : (Listof var)])
         (for/list
          ((r : Ref ref))
@@ -644,34 +752,57 @@
               (var-dims r)
               '()) ;; FIXME: Is non-var always a scalar?
           'l)))
-       ;; There are few constraints on the initializer expressions,
-       ;; but we really need to make sure that slice equivalences are
-       ;; expressed such that the inner element-wise assigment is made
-       ;; to space allocated inside a state array.  For each of the
-       ;; state initializer expressions, determine if that is the
-       ;; case.
+
+       ;; Then impose equivalence between these variables and the
+       ;; references that are returned by the init code.  There are a
+       ;; couple of exceptions:
+       ;;
+       ;; - Scalars are always copied
+       ;;
+       ;; - If the variable that is referenced was not created as part
+       ;;   of (compile-block! s state-init)) then we have to copy.
+
+       ;; This is awkward to express.  One way to do it is to check if
+       ;; the variable existed before compiling the initiator code by
+       ;; snapshotting the next-var tables and checking if the
+       ;; variable was created during compilation.  This seems correct
+       ;; but I am not sure.  How to make this condition easier to
+       ;; express in a way that is obviously correct?
+
        (([initcode : (Listof (Listof Code))])
         (for/list
-         ((r : Ref ref)
-          (sv : var statevar))
-         ;; Can it just always do a slice equivalence?  I mean a
-         ;; scalar variable is just a degenerate case of a grid
-         ;; element variable.
-         ;;
-         ;; NO! This only works if a new array was created.  And is a
-         ;; bad hack anyway.  I currently do not see how to express
-         ;; the condition where an immutable variable can be promoted
-         ;; to a mutable one.  For scalars this is easy because they
-         ;; are always copied.
+         ((r  : Ref  ref)
+          (sv : var  statevar))
          (list
-          (if (var? r)
-              (slice-equiv-code! s "ls-from!" sv '() r)
-              ;; This happens e.g. for zero initializers.
-              ;; FIXME: Implement this path.  For now just let it pass.
-              ;; (comment (format "FIXME: non-var initcode: ~a ~a" sv r))
-              ;; FIXME: Is this always ok?
-              (assign sv '() r)
-              ))))
+          (match r
+            ((var type dims tag nb)
+             (let ((snap-nb (hash-ref varsnap tag)))
+               (if (>= nb snap-nb)
+                   ;; This is a freshly generated variable
+                   (begin
+                     (code! s (comment "fresh var, create equivalence:"))
+                     (code! s (comment (format "statevar: ~a" sv)))
+                     (code! s (comment (format "ref:      ~a" r)))
+                     (slice-equiv-code! s "loop-state-from!" sv '() r)
+                     )
+                   ;; This is an old variable so we can't make any
+                   ;; equivalences.
+                   (begin
+                     (code! s (comment "old var, need copy:"))
+                     (code! s (comment (format "statevar: ~a" sv)))
+                     (code! s (comment (format "ref:      ~a" r)))
+                     ;; (slice-equiv-code! s "loop-state-from!" sv '() r)
+                     ;; (assign sv '() r)
+                     ;; FIXME: This needs to become a copy
+                     (array-copy! s sv r)
+                     ))))
+            ((? number?)
+             ;; This happens e.g. for zero initializers.
+             ;; FIXME: Implement this path.  For now just let it pass.
+             ;; (comment (format "FIXME: non-var initcode: ~a ~a" sv r))
+             ;; FIXME: Is this always ok?
+             (assign sv '() r))
+            ))))
        )
     (values
      (append code (apply append initcode))
@@ -722,6 +853,11 @@
 ;; compiling the init body, convert array outputs to reference loops.
 ;; Make sure all outputs are new variables.  Then they can be reused
 ;; as state.
+
+;; For now there is only one datatype: the (nested) array.  There is
+;; one iteration: the iteration of a state machine that updates the
+;; state updates of the loop body during the iteration, and constructs
+;; one or more output arrays collecting the remaining output elements.
 
 (: cgen-loop/list
    (-> cgen
