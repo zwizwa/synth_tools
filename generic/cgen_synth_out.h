@@ -34,9 +34,6 @@ static inline void synth_update(struct synth_state *s, const struct synth_in *i,
         v5[n0] = v4;
     }
     // loop state init
-    // fresh var, create equivalence:
-    // statevar: #(struct:var T (#(struct:dim #(struct:var I () n 1) 64)) l 0)
-    // ref:      #(struct:var T (#(struct:dim #(struct:var I () n 1) 64)) v 7)
     I t0 = zero();
     // omit slice definition: T v18[64] is in o0
     T l0[64];

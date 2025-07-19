@@ -169,24 +169,18 @@
              (((_ out)
                (loop 10
                      (lambda ()
-                       ;; Test instantiates osc_init with 64 a element
-                       ;; vector.  Note that in the generated code the
-                       ;; initializer loop should appear before the
-                       ;; loop 0..9 starts.
-                       ;;
-                       ;; This explicit copy seems to work
                        ;(loop (sizeof osc_inc) (lambda (i) (ref osc_inc i)))
-
-                       ;; But this does not: it puts the init inside
-                       ;; the loop.
-
+                       ;; cgen now inserts copy so this works:
                        osc_inc
                        )
                      (lambda (i loopstate)
-                       ;;(loop (sizeof loopstate)
-                       ;;      (lambda (i) (+ 1 (ref loopstate i))))
-                       (values loopstate 123)
-                       )
+                       ;; Note that cgen creates a snapshot of the
+                       ;; loop state before the update, which seems
+                       ;; not necessary.
+                       (let ((loopstate1
+                              (loop (sizeof loopstate)
+                                    (lambda (i) (+ 1 (ref loopstate i))))))
+                         (values loopstate1 123)))
                      )))
            out)))
 

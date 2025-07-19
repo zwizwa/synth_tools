@@ -688,28 +688,41 @@
 ;;   which depends on this module.  But we can use cgen-loop/list
 
 ;; Split out the call to cgen-loop/list
-(: cgen-array-copy
+(: slice-equiv-copy-code!
    (-> cgen
        var
-       (Values
-        (Listof Code)
-        (Listof Ref))))
-(define (cgen-array-copy s r)
-  (let*
-      ((dim (car (var-dims r))) ;; FIXME: MULTIDIM NOT IMPLEMENTED!
-       (nb-iter (dim-size dim)))
-    (compile-block!
-     s (lambda (s _noargs)
-         (cgen-loop/list
-          s
-          #f ;; is-time
-          nb-iter
-          (lambda (s _noargs) (list)) ;; state-init, no state
-          (lambda (s index _noargs) ;; TargetLoopFunction
-            (list
-             ;; (1) Only one return value
-             (cgen-ref s r index)))
-          )))))
+       var
+       (Listof Code)))
+(define (slice-equiv-copy-code! s sv r)
+  (let*-values
+      (((dim) (car (var-dims r))) ;; FIXME: MULTIDIM NOT IMPLEMENTED!
+       ((nb-iter) (dim-size dim))
+       ((ac-code new-r-list)
+        (compile-block!
+         s (lambda (s _noargs)
+             (cgen-loop/list
+              s
+              #f ;; is-time
+              nb-iter
+              (lambda (s _noargs) (list)) ;; state-init, no state
+              (lambda (s index _noargs) ;; TargetLoopFunction
+                (list
+                 ;; (1) Only one return value
+                 (cgen-ref s r index)))
+              ))))
+       ((se-code)
+        (match new-r-list
+          ;; There is just one return value (1) and we know it is var
+          ;; Ref.  Use a match to narrow the type to var and mark
+          ;; slice equivalence.
+          ((list (? var?))
+           (slice-equiv-code!
+            s "array-copy!" sv '()
+            (car new-r-list)
+            )))))
+      (append ac-code (list se-code))))
+
+
 
 
 ;; Generate initialization code for the loop state.
@@ -771,38 +784,23 @@
             ((var type dims tag nb)
              (let ((snap-nb (hash-ref varsnap tag)))
                (if (>= nb snap-nb)
-                   ;; This is a freshly generated variable
+                   ;; This is a fresh variable generated inside the
+                   ;; init loop, so it can be marked as a slice
+                   ;; equivalent to the state variable.
                    (begin
-                     (code! s (comment "fresh var, create equivalence:"))
-                     (code! s (comment (format "statevar: ~a" sv)))
-                     (code! s (comment (format "ref:      ~a" r)))
+                     ;(code! s (comment "fresh var, create equivalence:"))
+                     ;(code! s (comment (format "statevar: ~a" sv)))
+                     ;(code! s (comment (format "ref:      ~a" r)))
                      (list (slice-equiv-code! s "loop-state-from!" sv '() r))
                      )
                    ;; This is an old variable so we can't make any
-                   ;; equivalences.
+                   ;; equivalences and need to insert a copy instead.
                    (begin
-                     (code! s (comment "old var, need copy:"))
-                     (code! s (comment (format "statevar: ~a" sv)))
-                     (code! s (comment (format "ref:      ~a" r)))
-                     ;; (slice-equiv-code! s "loop-state-from!" sv '() r)
-                     ;; (assign sv '() r)
-                     ;; FIXME: This needs to become a copy
-                     (let*-values
-                         (((ac-code new-r-list) (cgen-array-copy s r))
-                          ;; There is just 1 return value. See cgen-array-copy
-                          ((new-r) (car new-r-list))
-                          ((se-code)
-                           (match new-r
-                             ;; We know it is a variable reference.
-                             ((? var?)
-                              (slice-equiv-code!
-                               s "array-copy!" sv '()
-                               new-r
-                               )))))
-                       ;; (list code se-code)
-                       (append ac-code (list se-code))
-                       ))
-                   )))
+                     ;(code! s (comment "old var, need copy:"))
+                     ;(code! s (comment (format "statevar: ~a" sv)))
+                     ;(code! s (comment (format "ref:      ~a" r)))
+                     (slice-equiv-copy-code! s sv r)
+                     ))))
                    
             ((? number?)
              ;; This happens e.g. for zero initializers.
