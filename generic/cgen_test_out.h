@@ -293,6 +293,9 @@ static inline void loopstateinit_update(struct loopstateinit_state *s, const str
     // old var, need copy:
     // statevar: #(struct:var T (#(struct:dim #f 64)) l 0)
     // ref:      #(struct:var T (#(struct:dim #f 64)) i 0)
+    I n1 = zero();
+    // omit slice definition: T v5[10] is in o0
+    T l0[64];
     // loop state init
     I n0 = zero();
     // omit slice definition: T v1[64] is in l0
@@ -305,10 +308,6 @@ static inline void loopstateinit_update(struct loopstateinit_state *s, const str
         // loop output
         l0[n0] = v0; // expanded from: v1[n0] = v0
     }
-    // new-r: #(struct:var T (#(struct:dim #(struct:var I () n 0) 64)) v 1)
-    I n1 = zero();
-    // omit slice definition: T v5[10] is in o0
-    T l0[64];
     // array-copy!: omit slice assigment: l0 is v1
     for(; n1 < 10; n1++) {
         // loop state snapshot

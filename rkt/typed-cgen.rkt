@@ -691,32 +691,26 @@
 (: cgen-array-copy
    (-> cgen
        var
-       var))
+       (Values
+        (Listof Code)
+        (Listof Ref))))
 (define (cgen-array-copy s r)
-  (let* ((dim (car (var-dims r))) ;; FIXME: MULTIDIM NOT IMPLEMENTED!
-         (nb-iter (dim-size dim)))
-    (car ;; We know this has just one element (1)
-     (cgen-loop/list
-      s
-      #f ;; is-time
-      nb-iter
-      (lambda (s _noargs) (list)) ;; state-init, no state
-      (lambda (s index _noargs) ;; TargetLoopFunction
-        (list
-         ;; (1) Only one return value
-         (cgen-ref s r index)))
-      ))))
+  (let*
+      ((dim (car (var-dims r))) ;; FIXME: MULTIDIM NOT IMPLEMENTED!
+       (nb-iter (dim-size dim)))
+    (compile-block!
+     s (lambda (s _noargs)
+         (cgen-loop/list
+          s
+          #f ;; is-time
+          nb-iter
+          (lambda (s _noargs) (list)) ;; state-init, no state
+          (lambda (s index _noargs) ;; TargetLoopFunction
+            (list
+             ;; (1) Only one return value
+             (cgen-ref s r index)))
+          )))))
 
-(: array-copy!
-   (-> cgen
-       var
-       var
-       Code))
-(define (array-copy! s sv r)
-  (let* ((new-r : var (cgen-array-copy s r)))
-    (code! s (comment (format "new-r: ~a" new-r)))
-    (slice-equiv-code! s "array-copy!" sv '() new-r)
-    ))
 
 ;; Generate initialization code for the loop state.
 (: cgen-loop-state-from!
@@ -773,7 +767,6 @@
         (for/list
          ((r  : Ref  ref)
           (sv : var  statevar))
-         (list
           (match r
             ((var type dims tag nb)
              (let ((snap-nb (hash-ref varsnap tag)))
@@ -783,7 +776,7 @@
                      (code! s (comment "fresh var, create equivalence:"))
                      (code! s (comment (format "statevar: ~a" sv)))
                      (code! s (comment (format "ref:      ~a" r)))
-                     (slice-equiv-code! s "loop-state-from!" sv '() r)
+                     (list (slice-equiv-code! s "loop-state-from!" sv '() r))
                      )
                    ;; This is an old variable so we can't make any
                    ;; equivalences.
@@ -794,15 +787,30 @@
                      ;; (slice-equiv-code! s "loop-state-from!" sv '() r)
                      ;; (assign sv '() r)
                      ;; FIXME: This needs to become a copy
-                     (array-copy! s sv r)
-                     ))))
+                     (let*-values
+                         (((ac-code new-r-list) (cgen-array-copy s r))
+                          ;; There is just 1 return value. See cgen-array-copy
+                          ((new-r) (car new-r-list))
+                          ((se-code)
+                           (match new-r
+                             ;; We know it is a variable reference.
+                             ((? var?)
+                              (slice-equiv-code!
+                               s "array-copy!" sv '()
+                               new-r
+                               )))))
+                       ;; (list code se-code)
+                       (append ac-code (list se-code))
+                       ))
+                   )))
+                   
             ((? number?)
              ;; This happens e.g. for zero initializers.
              ;; FIXME: Implement this path.  For now just let it pass.
              ;; (comment (format "FIXME: non-var initcode: ~a ~a" sv r))
              ;; FIXME: Is this always ok?
-             (assign sv '() r))
-            ))))
+             (list (assign sv '() r)))
+            )))
        )
     (values
      (append code (apply append initcode))
