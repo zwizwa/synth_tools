@@ -18,14 +18,14 @@ import Prelude hiding (take, const)
 
 import Data.Reify
 
+-- Primitive types can be inserted as constants.
 class DSLConst r t where
   const :: t -> r t
 
 class DSL r where
   signal  :: r s -> (r s -> (r s, r t)) -> r t
   add     :: Num t => r t -> r t -> r t
-  --lam    :: (r a -> r b) -> r (a -> b)
-  --app    :: r (a -> b) -> r a -> r b
+  sub     :: Num t => r t -> r t -> r t
 
 data Eval t = Eval (Stream t)
   deriving (Functor)
@@ -37,8 +37,12 @@ instance Applicative Eval where
 instance DSLConst Eval Int where
   const = Eval . pure
 
+instance DSLConst Eval Float where
+  const = Eval . pure
+
 instance DSL Eval where
   add = liftA2 (+)
+  sub = liftA2 (-)
   signal init update = v where
     -- Note that the initial value is encoded as a stream where we
     -- sample the first value.  This is done in order to avoid having
@@ -60,13 +64,16 @@ data Number = I Int | F Float
 data VarType = State
   deriving (Show)
 
-data Stx = Add Stx Stx
+data Prim2 = Add | Sub
+  deriving (Show)
+
+data Stx = Op2 Prim2 Stx Stx
          | Const Number
          | Var VarType
          | Signal Stx Stx Stx Stx
   deriving (Show)
 
-data StxNode s = GAdd s s
+data StxNode s = GOp2 Prim2 s s
                | GConst Number
                | GVar VarType
                | GSignal s s s s
@@ -76,8 +83,8 @@ data StxNode s = GAdd s s
 instance MuRef Stx where
   type DeRef Stx = StxNode
   mapDeRef f (Const v)        = pure $ GConst v
-  mapDeRef f (Add a b)        = GAdd <$> f a <*> f b
   mapDeRef f (Var t)          = pure $ GVar t
+  mapDeRef f (Op2 o a b)      = GOp2 o <$> f a <*> f b
   mapDeRef f (Signal i v s o) = GSignal <$> f i <*> f v <*> f s <*> f o
   
   
@@ -89,20 +96,15 @@ instance DSLConst Comp Int where
 data Comp t = Comp Stx
   deriving (Show, Functor)
 
---instance DSLConst Comp where
---  const = Comp . Pure 
+comp2 op (Comp a) (Comp b) = Comp $ Op2 op a b
 
 instance DSL Comp where
-  add (Comp a) (Comp b) = Comp $ Add a b
+  add = comp2 Add
+  sub = comp2 Sub
 
   signal (Comp init) update = Comp $ Signal init var state out where
     var = Var State
     (Comp state, Comp out) = update $ Comp var
-
-
-  -- signal (Comp update) (Comp init) = Comp $ sig init where
-  --   sig s = Cons v $ sig s' where
-  --     (s', v) = update s
  
 
 main = do
