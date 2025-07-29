@@ -117,8 +117,7 @@ data Number = StxInt     Int
 data VarType = State
   deriving (Show)
 
-
--- TODO: Add type annotations.
+-- Tree type
 data Stx = Op1 Prim1 Stx
          | Op2 Prim2 Stx Stx
          | Const Number
@@ -126,25 +125,24 @@ data Stx = Op1 Prim1 Stx
          | Signal Stx Stx Stx Stx
   deriving (Show)
 
-data StxNode s = GOp1 Prim1 s
-               | GOp2 Prim2 s s
-               | GConst Number
-               | GVar
-               | GSignal s s s s
-               deriving (Show)
+-- Graph node type
+data Node s = Op1N Prim1 s
+            | Op2N Prim2 s s
+            | ConstN Number
+            | VarN
+            | SignalN s s s s
+            deriving (Show)
 
 -- Not clear how to use generic Foldable, Traversable.  Just make it explicit.
 instance MuRef Stx where
-  type DeRef Stx = StxNode
-  mapDeRef f (Const v)        = pure $ GConst v
-  mapDeRef f (Var _)          = pure $ GVar
-  mapDeRef f (Op1 o a)        = GOp1 o <$> f a
-  mapDeRef f (Op2 o a b)      = GOp2 o <$> f a <*> f b
-  mapDeRef f (Signal i v s o) = GSignal <$> f i <*> f v <*> f s <*> f o
+  type DeRef Stx = Node
+  mapDeRef f (Const v)        = pure $ ConstN v
+  mapDeRef f (Var _)          = pure $ VarN
+  mapDeRef f (Op1 o a)        = Op1N o <$> f a
+  mapDeRef f (Op2 o a b)      = Op2N o <$> f a <*> f b
+  mapDeRef f (Signal i v s o) = SignalN <$> f i <*> f v <*> f s <*> f o
   
-  
--- instance NewVar (Comp t) where
-  
+
 instance DSLConst Comp Int     where  const = Comp . Const . StxInt
 instance DSLConst Comp Float   where  const = Comp . Const . StxFloat
 
