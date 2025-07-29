@@ -7,25 +7,34 @@
 -- 1. Typed haskell source
 -- 2. Tree with shared nodes (Comp Stx)
 -- 3. Explicit graph with backreferences (StxNode)
--- 4. Loop construction traversal (state and intermediate allocation)
+-- 4. Loop construction traversal (state and intermediate allocation) TODO
+
+-- TODO:
+-- Language needs data constructors.
+-- Propagate type annotations
+-- Simplify pragmas
 
 
 
-
-
-{-# LANGUAGE DeriveFunctor, DeriveAnyClass #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE TypeFamilies #-} -- For type level functions
-{-# LANGUAGE ExistentialQuantification #-} -- For state hiding in Comp
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
+
+-- Why are these necessary?
 {-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
+
+-- No longer needed
+-- {-# LANGUAGE ExistentialQuantification #-}
+-- {-# LANGUAGE DeriveAnyClass #-}
+
 
 import Data.Stream
 import Data.Functor
 import Data.Dynamic
 import Control.Applicative hiding (Const)
-import Prelude hiding (take, const)
+import Prelude hiding (take, const, zipWith)
 
 
 import Data.Reify
@@ -41,6 +50,8 @@ class DSL r where
   signal  :: (Typeable s, Typeable t) => r s -> (r s -> (r s, r t)) -> r t
   op2     :: Num t => Prim2 -> r t -> r t -> r t
   op1     :: Num t => Prim1 -> r t -> r t
+  pack    :: r a -> r b -> r (a, b)
+  unpack  :: r (a, b) -> (r a, r b)
 
 
 -- These can just be library functions.  But they can be left out
@@ -64,7 +75,7 @@ instance (Num t, DSL r, DSLConst r t) => Num (r t) where
   (*) = op2 Mul
   abs = op1 Abs
   signum = op1 Sig
-  fromInteger i = const $ fromInteger i
+  fromInteger = const . fromInteger
   
 
 
@@ -72,12 +83,19 @@ instance (Num t, DSL r, DSLConst r t) => Num (r t) where
 ramp :: (DSL r, Typeable t, DSLConst r t, Num t) => t -> r t
 ramp init = signal (const init) (\s -> (s + 1, s))
 
+-- Test fuction for composite state
+swap :: (DSL r, Typeable t, DSLConst r t, Num t) => t -> t -> r t
+swap ia ib = signal iab update where
+  iab = pack (const ia) (const ib)
+  update s =
+    let (sa, sb) = unpack s
+        s' = pack sb sa  -- flip states
+        out = sa
+    in (s', out)
 
-
-data Eval t = Eval (Stream t)
+data Eval t = Eval { unEval :: Stream t }
   deriving (Functor)
 
-unEval (Eval s) = s 
 
 instance Applicative Eval where
   pure = Eval . pure
@@ -106,6 +124,10 @@ instance DSL Eval where
     -- Given init0 we can just tie the knot
     (Eval s, v) = update $ Eval $ Cons init0 s
 
+  -- Attempt to give _some_ semantics to data structures before
+  -- implementing Comp instance.
+  pack (Eval a) (Eval b) = Eval $ zipWith (,) a b
+  unpack (Eval ab) = (Eval $ fmap fst ab, Eval $ fmap snd ab)
 
 -- Comp has phantom type to be able to implement the DSL.
 
@@ -123,6 +145,7 @@ data Stx = Op1 Prim1 Stx
          | Const Number
          | Var Dynamic
          | Signal Stx Stx Stx Stx
+         | Pair Stx Stx | Fst Stx | Snd Stx
   deriving (Show)
 
 -- Graph node type
@@ -131,6 +154,7 @@ data Node s = Op1N Prim1 s
             | ConstN Number
             | VarN
             | SignalN s s s s
+            | PairN s s | FstN s | SndN s
             deriving (Show)
 
 -- Not clear how to use generic Foldable, Traversable.  Just make it explicit.
@@ -141,15 +165,17 @@ instance MuRef Stx where
   mapDeRef f (Op1 o a)        = Op1N o <$> f a
   mapDeRef f (Op2 o a b)      = Op2N o <$> f a <*> f b
   mapDeRef f (Signal i v s o) = SignalN <$> f i <*> f v <*> f s <*> f o
+  -- Need both construcors and destructors
+  mapDeRef f (Pair a b)       = PairN <$> f a <*> f b
+  mapDeRef f (Fst ab)         = FstN <$> f ab
+  mapDeRef f (Snd ab)         = SndN <$> f ab
   
 
 instance DSLConst Comp Int     where  const = Comp . Const . StxInt
 instance DSLConst Comp Float   where  const = Comp . Const . StxFloat
 
-data Comp t = Comp Stx
+data Comp t = Comp { unComp :: Stx }
   deriving (Show, Functor)
-
-unComp (Comp stx) = stx
 
 comp1 op1 (Comp a)          = Comp $ Op1 op1 a
 comp2 op2 (Comp a) (Comp b) = Comp $ Op2 op2 a b
@@ -163,7 +189,8 @@ instance DSL Comp where
     var = Var $ uniqueTag
     (Comp state, Comp out) = update $ Comp var
  
-
+  pack (Comp a) (Comp b) = Comp $ Pair a b
+  unpack (Comp ab) = (Comp $ Fst ab, Comp $ Snd ab)
 
 main = do
   putStrLn "synth-tools.hs"
@@ -190,6 +217,7 @@ testComp = do
       s3 = ramp 0 :: Comp Int
       s4 = ramp 1 :: Comp Int
       s5 = s3 + s4
+      s6 = swap 0 1 :: Comp Int
 
       test (Comp s) = do
         --putStrLn "Comp tree:"
@@ -201,6 +229,7 @@ testComp = do
   test s2
   test s3
   test s5
+  test s6
 
 
   
