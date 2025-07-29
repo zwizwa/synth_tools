@@ -21,6 +21,9 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 
+-- {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds #-}
+
 -- Why are these necessary?
 {-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -34,6 +37,7 @@ import Data.Stream
 import Data.Functor
 import Data.Dynamic
 import Control.Applicative hiding (Const)
+import GHC.TypeLits
 import Prelude hiding (take, const, zipWith)
 
 
@@ -52,7 +56,6 @@ class DSL r where
   op1     :: Num t => Prim1 -> r t -> r t
   pack    :: r a -> r b -> r (a, b)
   unpack  :: r (a, b) -> (r a, r b)
-
 
 -- These can just be library functions.  But they can be left out
 -- completely and just implemented by the Num instance.
@@ -77,6 +80,14 @@ instance (Num t, DSL r, DSLConst r t) => Num (r t) where
   signum = op1 Sig
   fromInteger = const . fromInteger
   
+
+
+class DSLArray r a t where
+  array :: Typeable t => (r Int -> r t) -> r (a t)
+  ref   :: r (a t) -> r Int -> r t
+
+-- This is just a tag??
+data Arr (n :: Nat) a = Arr
 
 
 -- Library functions
@@ -129,7 +140,8 @@ instance DSL Eval where
   pack (Eval a) (Eval b) = Eval $ zipWith (,) a b
   unpack (Eval ab) = (Eval $ fmap fst ab, Eval $ fmap snd ab)
 
--- Comp has phantom type to be able to implement the DSL.
+
+
 
 
 data Number = StxInt     Int
@@ -146,6 +158,7 @@ data Stx = Op1 Prim1 Stx
          | Var Dynamic
          | Signal Stx Stx Stx Stx
          | Pair Stx Stx | Fst Stx | Snd Stx
+         | Array Stx Stx | Ref Stx Stx
   deriving (Show)
 
 -- Graph node type
@@ -155,6 +168,7 @@ data Node s = Op1N Prim1 s
             | VarN
             | SignalN s s s s
             | PairN s s | FstN s | SndN s
+            | ArrayN s s | RefN s s
             deriving (Show)
 
 -- Not clear how to use generic Foldable, Traversable.  Just make it explicit.
@@ -169,11 +183,15 @@ instance MuRef Stx where
   mapDeRef f (Pair a b)       = PairN <$> f a <*> f b
   mapDeRef f (Fst ab)         = FstN <$> f ab
   mapDeRef f (Snd ab)         = SndN <$> f ab
+  -- Remove pairs and use arrays instead
+  mapDeRef f (Array i v)      = ArrayN <$> f i <*> f v
+  mapDeRef f (Ref a i)        = RefN   <$> f a <*> f i
   
 
 instance DSLConst Comp Int     where  const = Comp . Const . StxInt
 instance DSLConst Comp Float   where  const = Comp . Const . StxFloat
 
+-- Comp has phantom type to be able to implement the DSL.
 data Comp t = Comp { unComp :: Stx }
   deriving (Show, Functor)
 
@@ -191,6 +209,16 @@ instance DSL Comp where
  
   pack (Comp a) (Comp b) = Comp $ Pair a b
   unpack (Comp ab) = (Comp $ Fst ab, Comp $ Snd ab)
+
+instance DSLArray Comp (Arr n) t where
+  array f = a where
+    uniqueTag = toDyn f
+    var = Var $ uniqueTag
+    Comp val = f $ Comp var
+    a = Comp $ Array var val
+  ref (Comp a) (Comp i) = Comp $ Ref a i
+
+
 
 main = do
   putStrLn "synth-tools.hs"
@@ -218,6 +246,8 @@ testComp = do
       s4 = ramp 1 :: Comp Int
       s5 = s3 + s4
       s6 = swap 0 1 :: Comp Int
+      s7 = (array $ \i -> i + 1) :: Comp (Arr 3 Int)
+      s8 = ref s7 $ 0
 
       test (Comp s) = do
         --putStrLn "Comp tree:"
@@ -230,6 +260,9 @@ testComp = do
   test s3
   test s5
   test s6
+
+  test s7
+  test s8
 
 
   
