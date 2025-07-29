@@ -23,10 +23,12 @@
 
 -- {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- Why are these necessary?
 {-# LANGUAGE IncoherentInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
+-- {-# LANGUAGE UndecidableInstances #-}
 
 -- No longer needed
 -- {-# LANGUAGE ExistentialQuantification #-}
@@ -37,7 +39,9 @@ import Data.Stream
 import Data.Functor
 import Data.Dynamic
 import Control.Applicative hiding (Const)
-import GHC.TypeLits
+import Data.Proxy
+-- import GHC.TypeLits
+import GHC.TypeNats
 import Prelude hiding (take, const, zipWith)
 
 
@@ -86,9 +90,11 @@ class DSLArray r a t where
   array :: Typeable t => (r Int -> r t) -> r (a t)
   ref   :: r (a t) -> r Int -> r t
 
--- This is just a tag??
-data Arr (n :: Nat) a = Arr
+-- This is just a phantom tag
+data Arr (n :: Nat) a
 
+arrLength :: forall (n :: Nat) a. KnownNat n => Arr n a -> Natural
+arrLength _ = natVal (Proxy :: Proxy n)
 
 -- Library functions
 ramp :: (DSL r, Typeable t, DSLConst r t, Num t) => t -> r t
@@ -141,7 +147,12 @@ instance DSL Eval where
   unpack (Eval ab) = (Eval $ fmap fst ab, Eval $ fmap snd ab)
 
 
-
+instance DSLArray Eval (Arr n) t where
+  array f = Eval a where
+    n = arrLength a
+    a = undefined
+  ref = error ""
+  
 
 
 data Number = StxInt     Int
