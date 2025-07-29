@@ -17,6 +17,9 @@
 {-# LANGUAGE TypeFamilies #-} -- For type level functions
 {-# LANGUAGE ExistentialQuantification #-} -- For state hiding in Comp
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE IncoherentInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 import Data.Stream
 import Data.Functor
@@ -31,38 +34,73 @@ import Data.Reify
 class DSLConst r t where
   const :: t -> r t
 
+data Prim2 = Add | Sub | Mul deriving (Show)
+data Prim1 = Abs | Sig       deriving (Show)
+
 class DSL r where
   signal  :: (Typeable s, Typeable t) => r s -> (r s -> (r s, r t)) -> r t
-  add     :: Num t => r t -> r t -> r t
-  sub     :: Num t => r t -> r t -> r t
+  op2     :: Num t => Prim2 -> r t -> r t -> r t
+  op1     :: Num t => Prim1 -> r t -> r t
 
 
+-- These can just be library functions.  But they can be left out
+-- completely and just implemented by the Num instance.
 
+-- add :: (Num t, DSL r) => r t -> r t -> r t
+-- add = op2 Add
+
+-- sub :: (Num t, DSL r) => r t -> r t -> r t
+-- sub = op2 Sub
+
+-- mul :: (Num t, DSL r) => r t -> r t -> r t
+-- mul = op2 Mul
+
+-- neg :: (Num t, DSL r) => r t -> r t
+-- neg = op1 Neg
+
+instance (Num t, DSL r, DSLConst r t) => Num (r t) where
+  (+) = op2 Add
+  (-) = op2 Sub
+  (*) = op2 Mul
+  abs = op1 Abs
+  signum = op1 Sig
+  fromInteger i = const $ fromInteger i
+  
+
+
+-- Library functions
+ramp :: (DSL r, Typeable t, DSLConst r t, Num t) => t -> r t
+ramp init = signal (const init) (\s -> (s + 1, s))
 
 
 
 data Eval t = Eval (Stream t)
   deriving (Functor)
 
+unEval (Eval s) = s 
+
 instance Applicative Eval where
   pure = Eval . pure
   (Eval f) <*> (Eval a) = Eval $ f <*> a
 
-instance DSLConst Eval Int where
-  const = Eval . pure
+instance DSLConst Eval Int     where const = Eval . pure
+instance DSLConst Eval Float   where const = Eval . pure
 
-instance DSLConst Eval Float where
-  const = Eval . pure
+eval2 Add = (+)
+eval2 Sub = (-)
+
+eval1 Abs = abs
 
 instance DSL Eval where
-  add = liftA2 (+)
-  sub = liftA2 (-)
+  op1 = fmap   . eval1
+  op2 = liftA2 . eval2
+
   signal init update = v where
     -- Note that the initial value is encoded as a stream where we
     -- sample the first value.  This is done in order to avoid having
     -- to represent both scalars and streams in the language which
-    -- really complicates things.  In the Comp language this can be
-    -- expressed more directly.
+    -- really complicates things at this point.  Maybe later when data
+    -- representation is handled better this can be changed.
     Eval (Cons init0 _) = init
     
     -- Given init0 we can just tie the knot
@@ -72,23 +110,24 @@ instance DSL Eval where
 -- Comp has phantom type to be able to implement the DSL.
 
 
-data Number = StxInt Int | StxFloat Float
+data Number = StxInt     Int
+            | StxFloat   Float
   deriving (Show)
 
 data VarType = State
   deriving (Show)
 
-data Prim2 = Add | Sub
-  deriving (Show)
 
 -- TODO: Add type annotations.
-data Stx = Op2 Prim2 Stx Stx
+data Stx = Op1 Prim1 Stx
+         | Op2 Prim2 Stx Stx
          | Const Number
          | Var Dynamic
          | Signal Stx Stx Stx Stx
   deriving (Show)
 
-data StxNode s = GOp2 Prim2 s s
+data StxNode s = GOp1 Prim1 s
+               | GOp2 Prim2 s s
                | GConst Number
                | GVar
                | GSignal s s s s
@@ -98,33 +137,34 @@ data StxNode s = GOp2 Prim2 s s
 instance MuRef Stx where
   type DeRef Stx = StxNode
   mapDeRef f (Const v)        = pure $ GConst v
-  mapDeRef f (Var t)          = pure $ GVar
+  mapDeRef f (Var _)          = pure $ GVar
+  mapDeRef f (Op1 o a)        = GOp1 o <$> f a
   mapDeRef f (Op2 o a b)      = GOp2 o <$> f a <*> f b
   mapDeRef f (Signal i v s o) = GSignal <$> f i <*> f v <*> f s <*> f o
   
   
 -- instance NewVar (Comp t) where
   
-instance DSLConst Comp Int where
-  const = Comp . Const . StxInt
+instance DSLConst Comp Int     where  const = Comp . Const . StxInt
+instance DSLConst Comp Float   where  const = Comp . Const . StxFloat
 
 data Comp t = Comp Stx
   deriving (Show, Functor)
 
-comp2 op (Comp a) (Comp b) = Comp $ Op2 op a b
+unComp (Comp stx) = stx
+
+comp1 op1 (Comp a)          = Comp $ Op1 op1 a
+comp2 op2 (Comp a) (Comp b) = Comp $ Op2 op2 a b
 
 instance DSL Comp where
-  add = comp2 Add
-  sub = comp2 Sub
+  op1 = comp1
+  op2 = comp2
 
   signal (Comp init) update = Comp $ Signal init var state out where
     uniqueTag = toDyn (init, update)
     var = Var $ uniqueTag
     (Comp state, Comp out) = update $ Comp var
  
--- Library functions
-ramp :: (DSL r, Typeable t, DSLConst r t, Num t) => t -> r t
-ramp init = signal (const init) (\s -> (add s $ const 1, s))
 
 
 main = do
@@ -133,30 +173,36 @@ main = do
   testComp
 
 testEval = do
-  let s1 = (const 1) :: Eval Int
-      Eval s2 = add s1 s1
-      Eval s3 = ramp 0 :: Eval Int
-  putStrLn $ show $ take 10 s2
-  putStrLn $ show $ take 10 s3
+  let s1 = 1 :: Eval Int
+      s2 = s1 + s1
+      s3 = ramp 0 :: Eval Int
+
+      test (Eval s) = do
+        putStrLn "Eval:"
+        putStrLn $ show $ take 10 $ s
+
+  test s2
+  test s3
 
 
 
 testComp = do
-  let s1 = (const 1) :: Comp Int
-      Comp s2 = add s1 s1
-      Comp s3 = ramp 0 :: Comp Int
-      Comp s4 = ramp 1 :: Comp Int
-      Comp s5 = add (Comp s3) (Comp s4)
-      
-  putStrLn $ show s2
-  s2' <- reifyGraph s2
-  putStrLn $ show $ s2'
+  let s1 = 1 :: Comp Int
+      s2 = s1 + s1 -- add s1 s1
+      s3 = ramp 0 :: Comp Int
+      s4 = ramp 1 :: Comp Int
+      s5 = s3 + s4
 
-  s3' <- reifyGraph s3
-  putStrLn $ show $ s3'
+      test (Comp s) = do
+        --putStrLn "Comp tree:"
+        --putStrLn $ show $ s
+        s' <- reifyGraph $ s
+        putStrLn "Comp graph:"
+        putStrLn $ show $ s'
 
-  s5' <- reifyGraph s5
-  putStrLn $ show $ s5'
+  test s2
+  test s3
+  test s5
 
 
   
