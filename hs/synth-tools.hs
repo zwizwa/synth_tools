@@ -3,8 +3,15 @@
 -- https://ku-fpg.github.io/files/Gill-09-TypeSafeReification.pdf
 -- https://hackage.haskell.org/package/data-reify
 
--- Next: make functions observable in the data structure? Or do I just
--- do this in the Comp implementation?
+-- Compiler passes / intermediate forms:
+-- 1. Typed haskell source
+-- 2. Tree with shared nodes (Comp Stx)
+-- 3. Explicit graph with backreferences (StxNode)
+-- 4. Loop construction traversal (state and intermediate allocation)
+
+
+
+
 
 {-# LANGUAGE DeriveFunctor, DeriveAnyClass #-}
 {-# LANGUAGE TypeFamilies #-} -- For type level functions
@@ -13,8 +20,10 @@
 
 import Data.Stream
 import Data.Functor
+import Data.Dynamic
 import Control.Applicative hiding (Const)
 import Prelude hiding (take, const)
+
 
 import Data.Reify
 
@@ -23,9 +32,14 @@ class DSLConst r t where
   const :: t -> r t
 
 class DSL r where
-  signal  :: r s -> (r s -> (r s, r t)) -> r t
+  signal  :: (Typeable s, Typeable t) => r s -> (r s -> (r s, r t)) -> r t
   add     :: Num t => r t -> r t -> r t
   sub     :: Num t => r t -> r t -> r t
+
+
+
+
+
 
 data Eval t = Eval (Stream t)
   deriving (Functor)
@@ -58,7 +72,7 @@ instance DSL Eval where
 -- Comp has phantom type to be able to implement the DSL.
 
 
-data Number = I Int | F Float
+data Number = StxInt Int | StxFloat Float
   deriving (Show)
 
 data VarType = State
@@ -67,15 +81,16 @@ data VarType = State
 data Prim2 = Add | Sub
   deriving (Show)
 
+-- TODO: Add type annotations.
 data Stx = Op2 Prim2 Stx Stx
          | Const Number
-         | Var VarType
+         | Var Dynamic
          | Signal Stx Stx Stx Stx
   deriving (Show)
 
 data StxNode s = GOp2 Prim2 s s
                | GConst Number
-               | GVar VarType
+               | GVar
                | GSignal s s s s
                deriving (Show)
 
@@ -83,7 +98,7 @@ data StxNode s = GOp2 Prim2 s s
 instance MuRef Stx where
   type DeRef Stx = StxNode
   mapDeRef f (Const v)        = pure $ GConst v
-  mapDeRef f (Var t)          = pure $ GVar t
+  mapDeRef f (Var t)          = pure $ GVar
   mapDeRef f (Op2 o a b)      = GOp2 o <$> f a <*> f b
   mapDeRef f (Signal i v s o) = GSignal <$> f i <*> f v <*> f s <*> f o
   
@@ -91,7 +106,7 @@ instance MuRef Stx where
 -- instance NewVar (Comp t) where
   
 instance DSLConst Comp Int where
-  const = Comp . Const . I
+  const = Comp . Const . StxInt
 
 data Comp t = Comp Stx
   deriving (Show, Functor)
@@ -103,9 +118,14 @@ instance DSL Comp where
   sub = comp2 Sub
 
   signal (Comp init) update = Comp $ Signal init var state out where
-    var = Var State
+    uniqueTag = toDyn (init, update)
+    var = Var $ uniqueTag
     (Comp state, Comp out) = update $ Comp var
  
+-- Library functions
+ramp :: (DSL r, Typeable t, DSLConst r t, Num t) => t -> r t
+ramp init = signal (const init) (\s -> (add s $ const 1, s))
+
 
 main = do
   putStrLn "synth-tools.hs"
@@ -113,16 +133,20 @@ main = do
   testComp
 
 testEval = do
-  let s = (const 1) :: Eval Int
-      Eval s2 = add s s
-      Eval s3 = signal (const 0) (\s -> (add s $ const (1 :: Int), s))
+  let s1 = (const 1) :: Eval Int
+      Eval s2 = add s1 s1
+      Eval s3 = ramp 0 :: Eval Int
   putStrLn $ show $ take 10 s2
   putStrLn $ show $ take 10 s3
 
+
+
 testComp = do
-  let s = (const 1) :: Comp Int
-      Comp s2 = add s s
-      Comp s3 = signal (const 0) (\s -> (add s $ const (1 :: Int), s))
+  let s1 = (const 1) :: Comp Int
+      Comp s2 = add s1 s1
+      Comp s3 = ramp 0 :: Comp Int
+      Comp s4 = ramp 1 :: Comp Int
+      Comp s5 = add (Comp s3) (Comp s4)
       
   putStrLn $ show s2
   s2' <- reifyGraph s2
@@ -130,6 +154,9 @@ testComp = do
 
   s3' <- reifyGraph s3
   putStrLn $ show $ s3'
+
+  s5' <- reifyGraph s5
+  putStrLn $ show $ s5'
 
 
   
