@@ -27,12 +27,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- Why are these necessary?
-{-# LANGUAGE IncoherentInstances #-}
--- {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE IncoherentInstances #-}  -- for Num (r t) instance
 
 -- No longer needed
 -- {-# LANGUAGE ExistentialQuantification #-}
 -- {-# LANGUAGE DeriveAnyClass #-}
+-- {-# LANGUAGE UndecidableInstances #-}  -- Rearranged const implementation
 
 
 import Data.Stream
@@ -47,17 +47,27 @@ import Prelude hiding (take, const, zipWith)
 
 import Data.Reify
 
--- Primitive types can be inserted as constants.
-class DSLConst r t where
-  const :: t -> r t
+-- Number types need to be representable in C.  This class ensures
+-- that.  Note that in Eval semantics the Haskell type is used.  Also
+-- add the Typeable constraint here needed by toDyn for Data.Reify
+
+class (Typeable t, Num t) => DSLNum t where
+  dslnum :: t -> CNum
+
+data CNum = I Int | F Float
+  deriving (Show)
+
+instance DSLNum Int   where dslnum = I
+instance DSLNum Float where dslnum = F
 
 data Prim2 = Add | Sub | Mul deriving (Show)
 data Prim1 = Abs | Sig       deriving (Show)
 
 class DSL r where
   signal  :: (Typeable s, Typeable t) => r s -> (r s -> (r s, r t)) -> r t
-  op2     :: Num t => Prim2 -> r t -> r t -> r t
+  const   :: DSLNum t => t -> r t
   op1     :: Num t => Prim1 -> r t -> r t
+  op2     :: Num t => Prim2 -> r t -> r t -> r t
   pack    :: r a -> r b -> r (a, b)
   unpack  :: r (a, b) -> (r a, r b)
 
@@ -76,7 +86,7 @@ class DSL r where
 -- neg :: (Num t, DSL r) => r t -> r t
 -- neg = op1 Neg
 
-instance (Num t, DSL r, DSLConst r t) => Num (r t) where
+instance (DSLNum t, DSL r) => Num (r t) where
   (+) = op2 Add
   (-) = op2 Sub
   (*) = op2 Mul
@@ -97,11 +107,18 @@ arrLength :: forall (n :: Nat) a. KnownNat n => Arr n a -> Natural
 arrLength _ = natVal (Proxy :: Proxy n)
 
 -- Library functions
-ramp :: (DSL r, Typeable t, DSLConst r t, Num t) => t -> r t
+
+-- This needs IncoherentInstances for Num
+ramp :: (DSL r, DSLNum t) => t -> r t
 ramp init = signal (const init) (\s -> (s + 1, s))
 
+-- ramp :: DSL r => Int -> r Int
+-- ramp init = signal (const init) (\s -> (s + 1, s))
+
+
+
 -- Test fuction for composite state
-swap :: (DSL r, Typeable t, DSLConst r t, Num t) => t -> t -> r t
+swap :: (DSL r, Typeable t, DSLNum t) => t -> t -> r t
 swap ia ib = signal iab update where
   iab = pack (const ia) (const ib)
   update s =
@@ -118,8 +135,6 @@ instance Applicative Eval where
   pure = Eval . pure
   (Eval f) <*> (Eval a) = Eval $ f <*> a
 
-instance DSLConst Eval Int     where const = Eval . pure
-instance DSLConst Eval Float   where const = Eval . pure
 
 eval2 Add = (+)
 eval2 Sub = (-)
@@ -146,18 +161,16 @@ instance DSL Eval where
   pack (Eval a) (Eval b) = Eval $ zipWith (,) a b
   unpack (Eval ab) = (Eval $ fmap fst ab, Eval $ fmap snd ab)
 
+  const = Eval . pure
+
 
 instance DSLArray Eval (Arr n) t where
   array f = Eval a where
-    n = arrLength a
+    -- n = arrLength a
     a = undefined
   ref = error ""
   
 
-
-data Number = StxInt     Int
-            | StxFloat   Float
-  deriving (Show)
 
 data VarType = State
   deriving (Show)
@@ -165,7 +178,7 @@ data VarType = State
 -- Tree type
 data Stx = Op1 Prim1 Stx
          | Op2 Prim2 Stx Stx
-         | Const Number
+         | Const CNum
          | Var Dynamic
          | Signal Stx Stx Stx Stx
          | Pair Stx Stx | Fst Stx | Snd Stx
@@ -175,12 +188,14 @@ data Stx = Op1 Prim1 Stx
 -- Graph node type
 data Node s = Op1N Prim1 s
             | Op2N Prim2 s s
-            | ConstN Number
+            | ConstN CNum
             | VarN
             | SignalN s s s s
             | PairN s s | FstN s | SndN s
             | ArrayN s s | RefN s s
             deriving (Show)
+
+
 
 -- Not clear how to use generic Foldable, Traversable.  Just make it explicit.
 instance MuRef Stx where
@@ -197,10 +212,7 @@ instance MuRef Stx where
   -- Remove pairs and use arrays instead
   mapDeRef f (Array i v)      = ArrayN <$> f i <*> f v
   mapDeRef f (Ref a i)        = RefN   <$> f a <*> f i
-  
 
-instance DSLConst Comp Int     where  const = Comp . Const . StxInt
-instance DSLConst Comp Float   where  const = Comp . Const . StxFloat
 
 -- Comp has phantom type to be able to implement the DSL.
 data Comp t = Comp { unComp :: Stx }
@@ -220,6 +232,8 @@ instance DSL Comp where
  
   pack (Comp a) (Comp b) = Comp $ Pair a b
   unpack (Comp ab) = (Comp $ Fst ab, Comp $ Snd ab)
+
+  const = Comp . Const . dslnum
 
 instance DSLArray Comp (Arr n) t where
   array f = a where
