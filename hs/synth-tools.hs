@@ -39,6 +39,7 @@ import Data.Stream
 import Data.Functor
 import Data.Dynamic
 import Control.Applicative hiding (Const)
+import Control.Monad.Writer.Lazy
 import Data.Proxy
 import qualified Data.IntMap.Lazy as IntMap
 
@@ -47,7 +48,8 @@ import GHC.TypeNats
 import Prelude hiding (take, const, zipWith)
 
 
-import Data.Reify
+import qualified Data.Reify as Reify
+import qualified Data.Graph as Graph
 
 -- Number types need to be representable in C.  This class ensures
 -- that.  Note that in Eval semantics the Haskell type is used.  Also
@@ -203,7 +205,7 @@ instance Show Stx where
   show (In n) = show n
 
 -- Generic MuRef for Stx -> Graph Node conversion
-instance Traversable a => MuRef (Mu a) where
+instance Traversable a => Reify.MuRef (Mu a) where
   type DeRef (Mu a) = a
   mapDeRef f (In expr) = traverse f expr
 
@@ -214,12 +216,17 @@ data Comp t = Comp { unComp :: Stx }
 instance DSL Comp where
   op1 = comp1
   op2 = comp2
-  signal (Comp init) update = Comp $ In $ Signal init var state out where
+  
+  signal (Comp init) update = sig where
     uniqueTag = toDyn (init, update)
     var = In $ Var $ uniqueTag
     (Comp state, Comp out) = update $ Comp var
+    sig = Comp $ In $ Signal init var state out
+    
   pack (Comp a) (Comp b) = Comp $ In $ Pair a b
-  unpack (Comp ab) = (Comp $ In $ Fst ab, Comp $ In $ Snd ab)
+  
+  unpack (Comp ab) = (Comp $ In $ Fst ab,
+                      Comp $ In $ Snd ab)
   const = Comp . In . Const . dslnum
 
 instance DSLArr Comp (Arr n) t where
@@ -234,24 +241,22 @@ comp1 op1 (Comp a)          = Comp $ In $ Op1 op1 a
 comp2 op2 (Comp a) (Comp b) = Comp $ In $ Op2 op2 a b
 
 -- Wrap the Unique type (Int) to allow for Show instance
-data WrapU = WrapU Unique
-instance Show WrapU where
-  show (WrapU u) = "r" ++ show u
+data Reg = Reg Int
+instance Show Reg where
+  show (Reg u) = "r" ++ show u
 -- Override the generic Graph Show instance
-instance {-# OVERLAPPING #-} Show (Graph Node) where
-  show (Graph bindings return) = str where
+data Let = Let (Reify.Graph Node)
+
+instance Show Let where
+  show (Let (Reify.Graph bindings return)) = str where
     str = "let\n" ++ concat bs ++ r
-    bs = fmap showB bindings
+    bs = fmap showB $ reverse bindings
     showB (node, nodeop) =
       "  " ++
-      show (WrapU node) ++ " = " ++
-      show (fmap WrapU nodeop) ++ "\n"
-    r = "in " ++ show (WrapU return) ++ "\n"
+      show (Reg node) ++ " = " ++
+      show (fmap Reg nodeop) ++ "\n"
+    r = "in " ++ show (Reg return) ++ "\n"
     
-
--- main = do
---   putStrLn "synth-tools.hs main disabled"
-
 main = do
   putStrLn "synth-tools.hs"
   testEval
@@ -269,12 +274,34 @@ testEval = do
   test s2
   test s3
 
--- Topological sort
-tsort (Graph assoc init) = rv where
-  intmap = IntMap.fromList assoc
-  node = lookup intmap
-  rv = error "NI"
-  
+
+
+-- Perform topological sort using Data.Graph.  It does seem that the
+-- output of Reify.reifyGraph is already topologically sorted.
+
+tsort (Let (Reify.Graph assoc ret)) = Let $ Reify.Graph assoc' ret where
+  -- Convert to Data.Graph representation
+  (graph, unVertex, _) = Graph.graphFromEdges $
+    fmap (\(key, node) -> (node, key, edges node)) $ reverse assoc
+  edges (Op1 _ a)        = [a]
+  edges (Op2 _ a b)      = [a, b]
+  edges (Signal a b c d) = [a, b, c, d]
+  edges (Array a b)      = [a, b]
+  edges (Ref a b)        = [a, b]
+  edges (Pair a b)       = [a, b]
+  edges (Fst a)          = [a]
+  edges (Snd a)          = [a]
+  edges _                = []
+
+  -- Sort
+  vs = Graph.topSort graph
+
+  -- Convert back
+  assoc' = fmap f vs
+  f v = (key, n) where
+    (n, key, _) = unVertex v
+
+
 
 testComp = do
   let s1 = 1 :: Comp Int
@@ -289,13 +316,15 @@ testComp = do
       test (Comp s) = do
         --putStrLn "Comp tree:"
         --putStrLn $ show $ s
-        s' <- reifyGraph $ s
+        s' <- Reify.reifyGraph $ s
         putStrLn "Comp graph:"
-        putStrLn $ show $ s'
-        let (Graph assoc init) = s'
+        putStr $ show $ Let s'
+        let (Reify.Graph assoc init) = s'
             intmap = IntMap.fromList assoc
         --putStrLn "IntMap:"
         --putStrLn $ show $ intmap
+        putStrLn "Comp graph sorted:"
+        putStrLn $ show $ tsort $ Let s'
         return ()
 
       
