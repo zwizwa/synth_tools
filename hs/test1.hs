@@ -40,18 +40,11 @@ data Node s = Op1N Prim1 s
 
 type Stx = Mu Node
 
--- traverseMu :: (Mu a -> f n) -> (Mu a) -> f (a n)
--- traverseMu = traverse
+instance Traversable a => MuRef (Mu a) where
+  type DeRef (Mu a) = a
+  mapDeRef f (In expr) = traverse f expr
 
--- instance (Traversable a) => MuRef (Mu a) where
---   type DeRef (Mu a) = a
---   mapDeRef = traverseMu
 
-instance MuRef (Mu Node) where
-   type DeRef (Mu Node) = Node
-   mapDeRef f (In expr) = traverse f expr
-
-  
 
 main = do
   putStrLn "test1.hs"
