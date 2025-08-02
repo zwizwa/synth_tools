@@ -25,6 +25,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 -- Why are these necessary?
 
@@ -40,7 +41,6 @@
 import Data.Stream
 import Data.Functor
 import Data.Dynamic
-import Data.Fix
 import Control.Applicative hiding (Const)
 import Data.Proxy
 import qualified Data.IntMap.Lazy as IntMap
@@ -186,73 +186,49 @@ data Node s = Op1N Prim1 s
             | SignalN s s s s
             | PairN s s | FstN s | SndN s
             | ArrayN s s | RefN s s
-            deriving (Show, Functor, Foldable)
--- Functor and Foldable can be derived.
+            deriving (Show, Functor, Foldable, Traversable)
 
--- newtype Stx = Mu Node
---             deriving (Show)
+newtype Mu a = In (a (Mu a))
 
--- instance MuRef Stx where
---   type DeRef Stx = Node
+type Stx = Mu Node
+instance Show Stx where
+  show (In n) = show n
 
-
--- Tree type
-data Stx = Op1 Prim1 Stx
-         | Op2 Prim2 Stx Stx
-         | Const CNum
-         | Var Dynamic
-         | Signal Stx Stx Stx Stx
-         | Pair Stx Stx | Fst Stx | Snd Stx
-         | Array Stx Stx | Ref Stx Stx
-  deriving (Show)
-
--- type Stx = Mu Node
-
--- Not clear how to use generic Foldable, Traversable.  Just make it explicit.
 instance MuRef Stx where
   type DeRef Stx = Node
-  mapDeRef f (Const v)        = pure $ ConstN v
-  mapDeRef f (Var _)          = pure $ VarN $ toDyn ()
-  mapDeRef f (Op1 o a)        = Op1N o <$> f a
-  mapDeRef f (Op2 o a b)      = Op2N o <$> f a <*> f b
-  mapDeRef f (Signal i v s o) = SignalN <$> f i <*> f v <*> f s <*> f o
-  -- Need both construcors and destructors
-  mapDeRef f (Pair a b)       = PairN <$> f a <*> f b
-  mapDeRef f (Fst ab)         = FstN <$> f ab
-  mapDeRef f (Snd ab)         = SndN <$> f ab
-  -- Remove pairs and use arrays instead
-  mapDeRef f (Array i v)      = ArrayN <$> f i <*> f v
-  mapDeRef f (Ref a i)        = RefN   <$> f a <*> f i
+  mapDeRef f (In expr) = traverse f expr
+
+
 
 
 -- Comp has phantom type to be able to implement the DSL.
 data Comp t = Comp { unComp :: Stx }
   deriving (Show, Functor)
 
-comp1 op1 (Comp a)          = Comp $ Op1 op1 a
-comp2 op2 (Comp a) (Comp b) = Comp $ Op2 op2 a b
+comp1 op1 (Comp a)          = Comp $ In $ Op1N op1 a
+comp2 op2 (Comp a) (Comp b) = Comp $ In $ Op2N op2 a b
 
 instance DSL Comp where
   op1 = comp1
   op2 = comp2
 
-  signal (Comp init) update = Comp $ Signal init var state out where
+  signal (Comp init) update = Comp $ In $ SignalN init var state out where
     uniqueTag = toDyn (init, update)
-    var = Var $ uniqueTag
+    var = In $ VarN $ uniqueTag
     (Comp state, Comp out) = update $ Comp var
  
-  pack (Comp a) (Comp b) = Comp $ Pair a b
-  unpack (Comp ab) = (Comp $ Fst ab, Comp $ Snd ab)
+  pack (Comp a) (Comp b) = Comp $ In $ PairN a b
+  unpack (Comp ab) = (Comp $ In $ FstN ab, Comp $ In $ SndN ab)
 
-  const = Comp . Const . dslnum
+  const = Comp . In . ConstN . dslnum
 
 instance DSLArr Comp (Arr n) t where
   array f = a where
     uniqueTag = toDyn f
-    var = Var $ uniqueTag
+    var = In $ VarN $ uniqueTag
     Comp val = f $ Comp var
-    a = Comp $ Array var val
-  ref (Comp a) (Comp i) = Comp $ Ref a i
+    a = Comp $ In $ ArrayN var val
+  ref (Comp a) (Comp i) = Comp $ In $ RefN a i
 
 -- main = do
 --   putStrLn "synth-tools.hs main disabled"
