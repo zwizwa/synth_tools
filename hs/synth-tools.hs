@@ -14,18 +14,15 @@
 -- Propagate type annotations
 -- Simplify pragmas
 
-
-
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE TypeFamilies #-} -- For type level functions
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances #-}
-
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE TypeFamilies #-} -- data Arr (n :: Nat)
+{-# LANGUAGE MultiParamTypeClasses #-} -- DSLArr r a t
+{-# LANGUAGE FlexibleInstances #-} -- Num (r t)
+{-# LANGUAGE DataKinds #-} -- Arr 3
+{-# LANGUAGE ScopedTypeVariables #-} -- arrLength
+
 
 -- Why are these necessary?
 
@@ -172,63 +169,85 @@ instance DSLArr Eval (Arr n) t where
   
 
 
+
+
+-- Graph node type
+--
+-- . Comp t phantom type wraps Stx tree type.
+--
+-- . Stx tree type is defined as Mu Node with generic MuRef instance
+--   from data-reify to allow translation to Graph Node.
+--
+-- . Using Mu approach from the data-reify paper to be able to use a
+--   generic MuRef implementation.  Note that the paper appears to be
+--   missing the In deconstruction for traverse.
+
+data Node s = Op1 Prim1 s
+            | Op2 Prim2 s s
+            | Const CNum
+            | Var Dynamic
+            | Signal s s s s
+            -- Multiple of the same, representable for C base type.
+            | Array s s | Ref s s
+            -- For heterogeneous collections.
+            | Pair s s | Fst s | Snd s
+            deriving (Show, Functor, Foldable, Traversable)
+
 data VarType = State
   deriving (Show)
 
--- Note that the Dynamic in Var constructor is used for node equality
--- by reifyGraph.  If not needed it can just be set to 'todyn ()'
-
--- Graph node type
-data Node s = Op1N Prim1 s
-            | Op2N Prim2 s s
-            | ConstN CNum
-            | VarN Dynamic
-            | SignalN s s s s
-            | PairN s s | FstN s | SndN s
-            | ArrayN s s | RefN s s
-            deriving (Show, Functor, Foldable, Traversable)
-
+-- Stx as fixed point of Node
 newtype Mu a = In (a (Mu a))
-
 type Stx = Mu Node
 instance Show Stx where
   show (In n) = show n
 
-instance MuRef Stx where
-  type DeRef Stx = Node
+-- Generic MuRef for Stx -> Graph Node conversion
+instance Traversable a => MuRef (Mu a) where
+  type DeRef (Mu a) = a
   mapDeRef f (In expr) = traverse f expr
 
-
-
-
--- Comp has phantom type to be able to implement the DSL.
+-- Comp phantom type wrapper implements DSL for Stx
 data Comp t = Comp { unComp :: Stx }
   deriving (Show, Functor)
-
-comp1 op1 (Comp a)          = Comp $ In $ Op1N op1 a
-comp2 op2 (Comp a) (Comp b) = Comp $ In $ Op2N op2 a b
 
 instance DSL Comp where
   op1 = comp1
   op2 = comp2
-
-  signal (Comp init) update = Comp $ In $ SignalN init var state out where
+  signal (Comp init) update = Comp $ In $ Signal init var state out where
     uniqueTag = toDyn (init, update)
-    var = In $ VarN $ uniqueTag
+    var = In $ Var $ uniqueTag
     (Comp state, Comp out) = update $ Comp var
- 
-  pack (Comp a) (Comp b) = Comp $ In $ PairN a b
-  unpack (Comp ab) = (Comp $ In $ FstN ab, Comp $ In $ SndN ab)
-
-  const = Comp . In . ConstN . dslnum
+  pack (Comp a) (Comp b) = Comp $ In $ Pair a b
+  unpack (Comp ab) = (Comp $ In $ Fst ab, Comp $ In $ Snd ab)
+  const = Comp . In . Const . dslnum
 
 instance DSLArr Comp (Arr n) t where
   array f = a where
     uniqueTag = toDyn f
-    var = In $ VarN $ uniqueTag
+    var = In $ Var $ uniqueTag
     Comp val = f $ Comp var
-    a = Comp $ In $ ArrayN var val
-  ref (Comp a) (Comp i) = Comp $ In $ RefN a i
+    a = Comp $ In $ Array var val
+  ref (Comp a) (Comp i) = Comp $ In $ Ref a i
+
+comp1 op1 (Comp a)          = Comp $ In $ Op1 op1 a
+comp2 op2 (Comp a) (Comp b) = Comp $ In $ Op2 op2 a b
+
+-- Wrap the Unique type (Int) to allow for Show instance
+data WrapU = WrapU Unique
+instance Show WrapU where
+  show (WrapU u) = "r" ++ show u
+-- Override the generic Graph Show instance
+instance {-# OVERLAPPING #-} Show (Graph Node) where
+  show (Graph bindings return) = str where
+    str = "let\n" ++ concat bs ++ r
+    bs = fmap showB bindings
+    showB (node, nodeop) =
+      "  " ++
+      show (WrapU node) ++ " = " ++
+      show (fmap WrapU nodeop) ++ "\n"
+    r = "in " ++ show (WrapU return) ++ "\n"
+    
 
 -- main = do
 --   putStrLn "synth-tools.hs main disabled"
