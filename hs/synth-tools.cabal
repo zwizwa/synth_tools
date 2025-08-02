@@ -1,11 +1,11 @@
 name: synth-tools
 version: 1.0.0
-cabal-version: >= 1.18
 build-type: Simple
 license: BSD3
+cabal-version: >= 1.10
 
 executable synth-tools
-    build-depends: base, Stream, data-reify
+    build-depends: base, Stream, data-reify, containers
     main-is: synth-tools.hs
     default-language: Haskell2010
     ghc-options: -fprint-potential-instances

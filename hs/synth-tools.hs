@@ -21,18 +21,20 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 
--- {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+{-# LANGUAGE DeriveFoldable #-}
+
 -- Why are these necessary?
-{-# LANGUAGE IncoherentInstances #-}  -- for Num (r t) instance
 
 -- No longer needed
+-- {-# LANGUAGE UndecidableInstances #-}  -- Rearranged const implementation
+-- {-# LANGUAGE IncoherentInstances #-}  -- Num (r t) constraint in e.g. ramp
+-- {-# LANGUAGE TypeOperators #-}
 -- {-# LANGUAGE ExistentialQuantification #-}
 -- {-# LANGUAGE DeriveAnyClass #-}
--- {-# LANGUAGE UndecidableInstances #-}  -- Rearranged const implementation
+-- {-# LANGUAGE RankNTypes #-}
 
 
 import Data.Stream
@@ -40,6 +42,8 @@ import Data.Functor
 import Data.Dynamic
 import Control.Applicative hiding (Const)
 import Data.Proxy
+import qualified Data.IntMap.Lazy as IntMap
+
 -- import GHC.TypeLits
 import GHC.TypeNats
 import Prelude hiding (take, const, zipWith)
@@ -93,10 +97,8 @@ instance (DSLNum t, DSL r) => Num (r t) where
   abs = op1 Abs
   signum = op1 Sig
   fromInteger = const . fromInteger
-  
 
-
-class DSLArray r a t where
+class DSLArr r a t where
   array :: Typeable t => (r Int -> r t) -> r (a t)
   ref   :: r (a t) -> r Int -> r t
 
@@ -108,13 +110,10 @@ arrLength _ = natVal (Proxy :: Proxy n)
 
 -- Library functions
 
--- This needs IncoherentInstances for Num
-ramp :: (DSL r, DSLNum t) => t -> r t
+-- Note that if Num (r t) constraint is not made explicit it will
+-- complain that IncoherentInstances is necessry.
+ramp :: (DSL r, DSLNum t, Num (r t)) => t -> r t
 ramp init = signal (const init) (\s -> (s + 1, s))
-
--- ramp :: DSL r => Int -> r Int
--- ramp init = signal (const init) (\s -> (s + 1, s))
-
 
 
 -- Test fuction for composite state
@@ -164,7 +163,7 @@ instance DSL Eval where
   const = Eval . pure
 
 
-instance DSLArray Eval (Arr n) t where
+instance DSLArr Eval (Arr n) t where
   array f = Eval a where
     -- n = arrLength a
     a = undefined
@@ -174,6 +173,9 @@ instance DSLArray Eval (Arr n) t where
 
 data VarType = State
   deriving (Show)
+
+-- Note that the Dynamic in Var constructor is used for node equality
+-- by reifyGraph.  If not needed it can just be set to 'todyn ()'
 
 -- Tree type
 data Stx = Op1 Prim1 Stx
@@ -189,11 +191,13 @@ data Stx = Op1 Prim1 Stx
 data Node s = Op1N Prim1 s
             | Op2N Prim2 s s
             | ConstN CNum
-            | VarN
+            | VarN Dynamic
             | SignalN s s s s
             | PairN s s | FstN s | SndN s
             | ArrayN s s | RefN s s
-            deriving (Show)
+            deriving (Show, Functor, Foldable)
+-- Functor and Foldable can be derived.
+
 
 
 
@@ -201,7 +205,7 @@ data Node s = Op1N Prim1 s
 instance MuRef Stx where
   type DeRef Stx = Node
   mapDeRef f (Const v)        = pure $ ConstN v
-  mapDeRef f (Var _)          = pure $ VarN
+  mapDeRef f (Var _)          = pure $ VarN $ toDyn ()
   mapDeRef f (Op1 o a)        = Op1N o <$> f a
   mapDeRef f (Op2 o a b)      = Op2N o <$> f a <*> f b
   mapDeRef f (Signal i v s o) = SignalN <$> f i <*> f v <*> f s <*> f o
@@ -235,7 +239,7 @@ instance DSL Comp where
 
   const = Comp . Const . dslnum
 
-instance DSLArray Comp (Arr n) t where
+instance DSLArr Comp (Arr n) t where
   array f = a where
     uniqueTag = toDyn f
     var = Var $ uniqueTag
@@ -262,7 +266,12 @@ testEval = do
   test s2
   test s3
 
-
+-- Topological sort
+tsort (Graph assoc init) = rv where
+  intmap = IntMap.fromList assoc
+  node = lookup intmap
+  rv = error "NI"
+  
 
 testComp = do
   let s1 = 1 :: Comp Int
@@ -280,6 +289,13 @@ testComp = do
         s' <- reifyGraph $ s
         putStrLn "Comp graph:"
         putStrLn $ show $ s'
+        let (Graph assoc init) = s'
+            intmap = IntMap.fromList assoc
+        --putStrLn "IntMap:"
+        --putStrLn $ show $ intmap
+        return ()
+
+      
 
   test s2
   test s3
