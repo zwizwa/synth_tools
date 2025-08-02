@@ -40,6 +40,7 @@
 import Data.Stream
 import Data.Functor
 import Data.Dynamic
+import Data.Fix
 import Control.Applicative hiding (Const)
 import Data.Proxy
 import qualified Data.IntMap.Lazy as IntMap
@@ -177,16 +178,6 @@ data VarType = State
 -- Note that the Dynamic in Var constructor is used for node equality
 -- by reifyGraph.  If not needed it can just be set to 'todyn ()'
 
--- Tree type
-data Stx = Op1 Prim1 Stx
-         | Op2 Prim2 Stx Stx
-         | Const CNum
-         | Var Dynamic
-         | Signal Stx Stx Stx Stx
-         | Pair Stx Stx | Fst Stx | Snd Stx
-         | Array Stx Stx | Ref Stx Stx
-  deriving (Show)
-
 -- Graph node type
 data Node s = Op1N Prim1 s
             | Op2N Prim2 s s
@@ -198,8 +189,24 @@ data Node s = Op1N Prim1 s
             deriving (Show, Functor, Foldable)
 -- Functor and Foldable can be derived.
 
+-- newtype Stx = Mu Node
+--             deriving (Show)
+
+-- instance MuRef Stx where
+--   type DeRef Stx = Node
 
 
+-- Tree type
+data Stx = Op1 Prim1 Stx
+         | Op2 Prim2 Stx Stx
+         | Const CNum
+         | Var Dynamic
+         | Signal Stx Stx Stx Stx
+         | Pair Stx Stx | Fst Stx | Snd Stx
+         | Array Stx Stx | Ref Stx Stx
+  deriving (Show)
+
+-- type Stx = Mu Node
 
 -- Not clear how to use generic Foldable, Traversable.  Just make it explicit.
 instance MuRef Stx where
@@ -247,7 +254,8 @@ instance DSLArr Comp (Arr n) t where
     a = Comp $ Array var val
   ref (Comp a) (Comp i) = Comp $ Ref a i
 
-
+-- main = do
+--   putStrLn "synth-tools.hs main disabled"
 
 main = do
   putStrLn "synth-tools.hs"
