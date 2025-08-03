@@ -184,7 +184,7 @@ instance DSLArr Eval (Arr n) t where
 --   generic MuRef implementation.  Note that the paper appears to be
 --   missing the In deconstruction for traverse.
 
-data Node s = Op1 Prim1 s
+data Term s = Op1 Prim1 s
             | Op2 Prim2 s s
             | Const CNum
             | Var Dynamic
@@ -195,12 +195,12 @@ data Node s = Op1 Prim1 s
             | Pair s s | Fst s | Snd s
             deriving (Show, Functor, Foldable, Traversable)
 
-data Type = TFloat | TInt
+data Type = TFloat | TInt | TAny
           deriving (Show)
 
 
-data TNode s = TNode (Type, Node s)
-             deriving (Show, Functor, Foldable, Traversable)
+data Node s = Node Type (Term s)
+            deriving (Show, Functor, Foldable, Traversable)
   
 
 data VarType = State
@@ -231,15 +231,15 @@ instance DSL Comp where
     Comp init = compInit
     -- stateType = compType compInit  -- FIXME: not working yet
     uniqueTag = toDyn (init, update)
-    var = In $ Var $ uniqueTag
+    var = In $ Node TAny $ Var $ uniqueTag
     (Comp state, Comp out) = update $ Comp var
-    sig = Comp $ In $ Signal init var state out
+    sig = Comp $ In $ Node TAny $ Signal init var state out
     
-  pack (Comp a) (Comp b) = Comp $ In $ Pair a b
+  pack (Comp a) (Comp b) = Comp $ In $ Node TAny $ Pair a b
   
-  unpack (Comp ab) = (Comp $ In $ Fst ab,
-                      Comp $ In $ Snd ab)
-  const = Comp . In . Const . dslnum
+  unpack (Comp ab) = (Comp $ In $ Node TAny $ Fst ab,
+                      Comp $ In $ Node TAny $ Snd ab)
+  const c = Comp $ In $ Node TAny $ Const $ dslnum c
 
 -- Implementable types.
 class Typeable t => DSLType t where
@@ -251,13 +251,13 @@ instance DSLType (Comp Float) where compType _ = TFloat
 instance DSLArr Comp (Arr n) t where
   array f = a where
     uniqueTag = toDyn f
-    var = In $ Var $ uniqueTag
+    var = In $ Node TAny $ Var $ uniqueTag
     Comp val = f $ Comp var
-    a = Comp $ In $ Array var val
-  ref (Comp a) (Comp i) = Comp $ In $ Ref a i
+    a = Comp $ In $ Node TAny $ Array var val
+  ref (Comp a) (Comp i) = Comp $ In $ Node TAny $ Ref a i
 
-comp1 op1 (Comp a)          = Comp $ In $ Op1 op1 a
-comp2 op2 (Comp a) (Comp b) = Comp $ In $ Op2 op2 a b
+comp1 op1 (Comp a)          = Comp $ In $ Node TAny $ Op1 op1 a
+comp2 op2 (Comp a) (Comp b) = Comp $ In $ Node TAny $ Op2 op2 a b
 
 -- Wrap the Unique type (Int) to allow for Show instance
 data Reg = Reg Int
@@ -271,10 +271,11 @@ instance Show Let where
   show (Let (Reify.Graph bindings return)) = str where
     str = "let\n" ++ concat bs ++ r
     bs = fmap showB $ reverse bindings
-    showB (node, nodeop) =
+    showB (node, Node typ term) =
       "  " ++
+      show typ ++ " " ++
       show (Reg node) ++ " = " ++
-      show (fmap Reg nodeop) ++ "\n"
+      show (fmap Reg term) ++ "\n"
     r = "in " ++ show (Reg return) ++ "\n"
     
 main = do
@@ -302,7 +303,8 @@ testEval = do
 tsort (Let (Reify.Graph assoc ret)) = Let $ Reify.Graph assoc' ret where
   -- Convert to Data.Graph representation
   (graph, unVertex, _) = Graph.graphFromEdges $
-    fmap (\(key, node) -> (node, key, edges node)) $ reverse assoc
+    fmap (\(key, node) -> (node, key, edges' node)) $ reverse assoc
+  edges' (Node _ t) = edges t
   edges (Op1 _ a)        = [a]
   edges (Op2 _ a b)      = [a, b]
   edges (Signal a b c d) = [a, b, c, d]
