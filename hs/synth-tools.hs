@@ -195,6 +195,14 @@ data Node s = Op1 Prim1 s
             | Pair s s | Fst s | Snd s
             deriving (Show, Functor, Foldable, Traversable)
 
+data Type = TFloat | TInt
+          deriving (Show)
+
+
+data TNode s = TNode (Type, Node s)
+             deriving (Show, Functor, Foldable, Traversable)
+  
+
 data VarType = State
   deriving (Show)
 
@@ -213,11 +221,15 @@ instance Traversable a => Reify.MuRef (Mu a) where
 data Comp t = Comp { unComp :: Stx }
   deriving (Show, Functor)
 
+
+
 instance DSL Comp where
   op1 = comp1
   op2 = comp2
   
-  signal (Comp init) update = sig where
+  signal compInit update = sig where
+    Comp init = compInit
+    -- stateType = compType compInit  -- FIXME: not working yet
     uniqueTag = toDyn (init, update)
     var = In $ Var $ uniqueTag
     (Comp state, Comp out) = update $ Comp var
@@ -228,6 +240,13 @@ instance DSL Comp where
   unpack (Comp ab) = (Comp $ In $ Fst ab,
                       Comp $ In $ Snd ab)
   const = Comp . In . Const . dslnum
+
+-- Implementable types.
+class Typeable t => DSLType t where
+  compType :: t -> Type
+instance DSLType (Comp Int)   where compType _ = TInt
+instance DSLType (Comp Float) where compType _ = TFloat
+
 
 instance DSLArr Comp (Arr n) t where
   array f = a where
@@ -244,6 +263,7 @@ comp2 op2 (Comp a) (Comp b) = Comp $ In $ Op2 op2 a b
 data Reg = Reg Int
 instance Show Reg where
   show (Reg u) = "r" ++ show u
+
 -- Override the generic Graph Show instance
 data Let = Let (Reify.Graph Node)
 
@@ -301,8 +321,6 @@ tsort (Let (Reify.Graph assoc ret)) = Let $ Reify.Graph assoc' ret where
   f v = (key, n) where
     (n, key, _) = unVertex v
 
-
-
 testComp = do
   let s1 = 1 :: Comp Int
       s2 = s1 + s1 -- add s1 s1
@@ -321,13 +339,9 @@ testComp = do
         putStr $ show $ Let s'
         let (Reify.Graph assoc init) = s'
             intmap = IntMap.fromList assoc
-        --putStrLn "IntMap:"
-        --putStrLn $ show $ intmap
-        putStrLn "Comp graph sorted:"
-        putStrLn $ show $ tsort $ Let s'
+        --putStrLn "Comp graph sorted:"
+        --putStrLn $ show $ tsort $ Let s'
         return ()
-
-      
 
   test s2
   test s3
