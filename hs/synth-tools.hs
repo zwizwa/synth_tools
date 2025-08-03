@@ -275,8 +275,10 @@ instance Show Let where
       "  " ++
       show typ ++ " " ++
       show (Reg node) ++ " = " ++
-      show (fmap Reg term) ++ "\n"
+      showTerm (fmap Reg term) ++ "\n"
     r = "in " ++ show (Reg return) ++ "\n"
+    showTerm (Var _) = "Var" -- Don't print the Dynamic tag
+    showTerm t = show t
     
 main = do
   putStrLn "synth-tools.hs"
@@ -323,7 +325,19 @@ tsort (Let (Reify.Graph assoc ret)) = Let $ Reify.Graph assoc' ret where
   f v = (key, n) where
     (n, key, _) = unVertex v
 
+
+compile :: Comp t -> IO Let
+compile (Comp s) = do
+  s' <- Reify.reifyGraph $ s
+  let s'' = Let s'
+  -- topological sort doesn't seem to be necessary, reifyGraph seems
+  -- to produce sorted ouput
+  -- let s''' = tsort s''
+  return s''
+    
+
 testComp = do
+  -- Define some Comp terms with sharing
   let s1 = 1 :: Comp Int
       s2 = s1 + s1 -- add s1 s1
       s3 = ramp 0 :: Comp Int
@@ -331,25 +345,21 @@ testComp = do
       s5 = s3 + s4
       s6 = swap 0 1 :: Comp Int
       s7 = (array $ \i -> i + 1) :: Comp (Arr 3 Int)
-      s8 = ref s7 $ 0
+      s8 = ref s7 0
 
-      test (Comp s) = do
+      test s = do
         --putStrLn "Comp tree:"
-        --putStrLn $ show $ s
-        s' <- Reify.reifyGraph $ s
+        --putStrLn $ show $ unComp s
+        s' <- compile s
         putStrLn "Comp graph:"
-        putStr $ show $ Let s'
-        let (Reify.Graph assoc init) = s'
-            intmap = IntMap.fromList assoc
-        --putStrLn "Comp graph sorted:"
-        --putStrLn $ show $ tsort $ Let s'
-        return ()
+        putStr $ show $ s'
+        return s'
 
+  -- Compile and print them
   test s2
   test s3
   test s5
   test s6
-
   test s7
   test s8
 
