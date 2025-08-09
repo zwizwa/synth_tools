@@ -22,6 +22,7 @@
 {-# LANGUAGE FlexibleInstances #-} -- Num (r t)
 {-# LANGUAGE DataKinds #-} -- Arr 3
 {-# LANGUAGE ScopedTypeVariables #-} -- arrLength
+{-# LANGUAGE FlexibleContexts #-} -- constraint DSLType r (t, t)
 
 
 -- Why are these necessary?
@@ -78,16 +79,26 @@ data Type = TFloat | TInt | TAny
           | TPair Type Type
           deriving (Show)
 
-class DSLType r t where
+class Typeable t => DSLType r t where
   dslType :: r t -> Type
 
+  -- Implementable types.
+instance DSLType r Int   where dslType _ = TInt
+instance DSLType r Float where dslType _ = TFloat
+
+instance (DSLType r a, DSLType r b) => DSLType r (a, b) where
+  dslType _ = TPair (dslType a') (dslType b') where
+    a' = undefined :: r a
+    b' = undefined :: r b
+
+
 class DSL r where
-  signal  :: (Typeable s, Typeable t) => r s -> (r s -> (r s, r t)) -> r t
-  const   :: DSLNum t => t -> r t
+  signal  :: (DSLType r s, DSLType r t) => r s -> (r s -> (r s, r t)) -> r t
+  const   :: (DSLType r t, DSLNum t) => t -> r t
   op1     :: (DSLType r t, Num t) => Prim1 -> r t -> r t
-  op2     :: Num t => Prim2 -> r t -> r t -> r t
-  pack    :: r a -> r b -> r (a, b)
-  unpack  :: r (a, b) -> (r a, r b)
+  op2     :: (DSLType r t, Num t) => Prim2 -> r t -> r t -> r t
+  pack    :: (DSLType r a, DSLType r b) => r a -> r b -> r (a, b)
+  unpack  :: (DSLType r a, DSLType r b) => r (a, b) -> (r a, r b)
 
 class DSLArr r a t where
   array :: Typeable t => (r Int -> r t) -> r (a t)
@@ -129,12 +140,12 @@ arrLength _ = natVal (Proxy :: Proxy n)
 
 -- Note that if Num (r t) constraint is not made explicit it will
 -- complain that IncoherentInstances is necessry.
-ramp :: (DSL r, DSLNum t, Num (r t)) => t -> r t
+ramp :: (DSL r, DSLType r t, DSLNum t, Num (r t)) => t -> r t
 ramp init = signal (const init) (\s -> (s + 1, s))
 
 
 -- Test fuction for composite state
-swap :: (DSL r, Typeable t, DSLNum t) => t -> t -> r t
+swap :: (DSL r, DSLType r t, DSLType r (t, t), Typeable t, DSLNum t) => t -> t -> r t
 swap ia ib = signal iab update where
   iab = pack (const ia) (const ib)
   update s =
@@ -239,27 +250,31 @@ data Comp t = Comp { unComp :: Stx }
 
 
 instance DSL Comp where
-  op1 = comp1
-  op2 = comp2
+
+  op1 op a   = Comp $ In $ Node (dslType a) $ Op1 op (unComp a)
+  op2 op a b = Comp $ In $ Node (dslType b) $ Op2 op (unComp a) (unComp b)
   
   signal compInit update = sig where
     Comp init = compInit
-    -- stateType = compType compInit  -- FIXME: not working yet
     uniqueTag = toDyn (init, update)
-    typ = TAny
-    var = In $ Node typ $ Var $ uniqueTag
-    (Comp state, Comp out) = update $ Comp var
-    sig = Comp $ In $ Node TAny $ Signal init var state out
+    varType = dslType compVar
+    outType = dslType compOut
+    var = In $ Node varType $ Var $ uniqueTag
+    compVar = Comp var
+    (Comp state, compOut) = update compVar
+    Comp out = compOut
+    sig = Comp $ In $ Node outType $ Signal init var state out
     
-  pack (Comp a) (Comp b) = Comp $ In $ Node TAny $ Pair a b
+  pack a b = Comp $ In $ Node typ $ Pair (unComp a) (unComp b) where
+    typ = TPair (dslType a) (dslType b)
   
-  unpack (Comp ab) = (Comp $ In $ Node TAny $ Fst ab,
-                      Comp $ In $ Node TAny $ Snd ab)
-  const c = Comp $ In $ Node TAny $ Const $ dslnum c
-
--- Implementable types.
-instance DSLType Comp Int   where dslType _ = TInt
-instance DSLType Comp Float where dslType _ = TFloat
+  unpack (Comp ab) = (fst, snd) where
+    fst = Comp $ In $ Node (dslType fst) $ Fst ab
+    snd = Comp $ In $ Node (dslType snd) $ Snd ab
+    
+  const c = compc where
+    typ = dslType compc
+    compc = Comp $ In $ Node typ $ Const $ dslnum c
 
 
 instance DSLArr Comp (Arr n) t where
@@ -270,10 +285,8 @@ instance DSLArr Comp (Arr n) t where
     a = Comp $ In $ Node TAny $ Array var val
   ref (Comp a) (Comp i) = Comp $ In $ Node TAny $ Ref a i
 
-comp1 op1 (Comp a)          = Comp $ In $ Node TAny $ Op1 op1 a
-comp2 op2 (Comp a) (Comp b) = Comp $ In $ Node TAny $ Op2 op2 a b
 
-instance DSLType Eval Int where dslType _ = TInt
+
 
 -- Wrap the Unique type (Int) to allow for Show instance
 data Reg = Reg Int
@@ -289,6 +302,7 @@ instance Show Let where
     bs = fmap showB $ reverse bindings
     showB (node, Node typ term) =
       "  " ++
+      -- TODO implement show for DSLType
       show typ ++ " " ++
       show (Reg node) ++ " = " ++
       showTerm (fmap Reg term) ++ "\n"
