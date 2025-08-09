@@ -27,7 +27,7 @@
 -- Why are these necessary?
 
 -- No longer needed
--- {-# LANGUAGE UndecidableInstances #-}  -- Rearranged const implementation
+{-# LANGUAGE UndecidableInstances #-}  -- Rearranged const implementation
 -- {-# LANGUAGE IncoherentInstances #-}  -- Num (r t) constraint in e.g. ramp
 -- {-# LANGUAGE TypeOperators #-}
 -- {-# LANGUAGE ExistentialQuantification #-}
@@ -67,13 +67,33 @@ instance DSLNum Float where dslnum = F
 data Prim2 = Add | Sub | Mul deriving (Show)
 data Prim1 = Abs | Sig       deriving (Show)
 
+-- The ability to reify a represented type needs to be a property of
+-- the DSL not just the implementation, because the class constraint
+-- will need to go in the definition of the class members.  For Eval
+-- this is unused but can be toDyn.  For Comp it is essential as types
+-- will need to be representable in C eventually.
+
+data Type = TFloat | TInt | TAny
+          | TArray Int Type
+          | TPair Type Type
+          deriving (Show)
+
+class DSLType r t where
+  dslType :: r t -> Type
+
 class DSL r where
   signal  :: (Typeable s, Typeable t) => r s -> (r s -> (r s, r t)) -> r t
   const   :: DSLNum t => t -> r t
-  op1     :: Num t => Prim1 -> r t -> r t
+  op1     :: (DSLType r t, Num t) => Prim1 -> r t -> r t
   op2     :: Num t => Prim2 -> r t -> r t -> r t
   pack    :: r a -> r b -> r (a, b)
   unpack  :: r (a, b) -> (r a, r b)
+
+class DSLArr r a t where
+  array :: Typeable t => (r Int -> r t) -> r (a t)
+  ref   :: r (a t) -> r Int -> r t
+
+
 
 -- These can just be library functions.  But they can be left out
 -- completely and just implemented by the Num instance.
@@ -90,7 +110,7 @@ class DSL r where
 -- neg :: (Num t, DSL r) => r t -> r t
 -- neg = op1 Neg
 
-instance (DSLNum t, DSL r) => Num (r t) where
+instance (DSLType r t, DSLNum t, DSL r) => Num (r t) where
   (+) = op2 Add
   (-) = op2 Sub
   (*) = op2 Mul
@@ -98,9 +118,6 @@ instance (DSLNum t, DSL r) => Num (r t) where
   signum = op1 Sig
   fromInteger = const . fromInteger
 
-class DSLArr r a t where
-  array :: Typeable t => (r Int -> r t) -> r (a t)
-  ref   :: r (a t) -> r Int -> r t
 
 -- This is just a phantom tag
 data Arr (n :: Nat) a
@@ -195,8 +212,6 @@ data Term s = Op1 Prim1 s
             | Pair s s | Fst s | Snd s
             deriving (Show, Functor, Foldable, Traversable)
 
-data Type = TFloat | TInt | TAny
-          deriving (Show)
 
 
 data Node s = Node Type (Term s)
@@ -231,7 +246,8 @@ instance DSL Comp where
     Comp init = compInit
     -- stateType = compType compInit  -- FIXME: not working yet
     uniqueTag = toDyn (init, update)
-    var = In $ Node TAny $ Var $ uniqueTag
+    typ = TAny
+    var = In $ Node typ $ Var $ uniqueTag
     (Comp state, Comp out) = update $ Comp var
     sig = Comp $ In $ Node TAny $ Signal init var state out
     
@@ -242,10 +258,8 @@ instance DSL Comp where
   const c = Comp $ In $ Node TAny $ Const $ dslnum c
 
 -- Implementable types.
-class Typeable t => DSLType t where
-  compType :: t -> Type
-instance DSLType (Comp Int)   where compType _ = TInt
-instance DSLType (Comp Float) where compType _ = TFloat
+instance DSLType Comp Int   where dslType _ = TInt
+instance DSLType Comp Float where dslType _ = TFloat
 
 
 instance DSLArr Comp (Arr n) t where
@@ -258,6 +272,8 @@ instance DSLArr Comp (Arr n) t where
 
 comp1 op1 (Comp a)          = Comp $ In $ Node TAny $ Op1 op1 a
 comp2 op2 (Comp a) (Comp b) = Comp $ In $ Node TAny $ Op2 op2 a b
+
+instance DSLType Eval Int where dslType _ = TInt
 
 -- Wrap the Unique type (Int) to allow for Show instance
 data Reg = Reg Int
