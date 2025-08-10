@@ -94,36 +94,27 @@ instance (DSLType r a, DSLType r b) => DSLType r (a, b) where
     a' = undefined :: r a
     b' = undefined :: r b
 
-arrLength :: forall (n :: Nat) a. KnownNat n => Arr n a -> Natural
+arrLength :: forall (n :: Nat) a r. KnownNat n => r (Arr n a) -> Natural
 arrLength _ = natVal (Proxy :: Proxy n)
 
-arrLengthr :: forall (n :: Nat) a r. KnownNat n => r (Arr n a) -> Natural
-arrLengthr _ = natVal (Proxy :: Proxy n)
-
-
-instance (KnownNat n, DSLType r t) => DSLType r (Arr n t) where
-  dslType a = TArray size t where
-    t = TAny
-    size = fromIntegral $ arrLengthr a
+instance (KnownNat n, DSL r, DSLType r t) => DSLType r (Arr n t) where
+  dslType a = TArray size typ where
+    -- Separate type level function mapping Arr to base type is not
+    -- needed because we already have ref in DSL.
+    rt = ref undefined undefined :: r t
+    typ = dslType rt
+    size = fromIntegral $ arrLength a
 
 
 class DSL r where
   signal  :: (DSLType r s, DSLType r t) => r s -> (r s -> (r s, r t)) -> r t
-  const   :: (DSLType r t, DSLNum t) => t -> r t
-  op1     :: (DSLType r t, Num t) => Prim1 -> r t -> r t
-  op2     :: (DSLType r t, Num t) => Prim2 -> r t -> r t -> r t
+  const   :: (DSLType r t, DSLNum t)    => t -> r t
+  op1     :: (DSLType r t, Num t)       => Prim1 -> r t -> r t
+  op2     :: (DSLType r t, Num t)       => Prim2 -> r t -> r t -> r t
   pack    :: (DSLType r a, DSLType r b) => r a -> r b -> r (a, b)
   unpack  :: (DSLType r a, DSLType r b) => r (a, b) -> (r a, r b)
-  array1  :: (DSLType r t, KnownNat n) => (r Int -> r t) -> r (Arr n t)
-  ref1    :: (DSLType r t) =>  r (Arr n t) -> r Int -> r t
-
--- FIXME: I think this should not be a generic type a but a concrete
--- type like in the (,) case.
-
-class DSLArr r a t where
-  array :: Typeable t => (r Int -> r t) -> r (a t)
-  ref   :: r (a t) -> r Int -> r t
-
+  array   :: (DSLType r t, KnownNat n)  => (r Int -> r t) -> r (Arr n t)
+  ref     :: (DSLType r t)              => r (Arr n t) -> r Int -> r t
 
 
 -- These can just be library functions.  But they can be left out
@@ -209,18 +200,12 @@ instance DSL Eval where
 
   const = Eval . pure
 
-  array1 f = Eval a where
-    -- n = arrLength a
-    a = undefined
-  ref1 = error ""
-
-
-instance DSLArr Eval (Arr n) t where
   array f = Eval a where
     -- n = arrLength a
     a = undefined
   ref = error ""
-  
+
+
 
 
 
@@ -300,9 +285,8 @@ instance DSL Comp where
     typ = dslType compc
     compc = Comp $ In $ Node typ $ Const $ dslnum c
 
-  array1 f = a where
+  array f = a where
     uniqueTag = toDyn f
-    typ = TAny
     var = In $ Node varType $ Var $ uniqueTag
     compVar = Comp var
     varType = dslType compVar
@@ -310,21 +294,11 @@ instance DSL Comp where
     arrType = dslType a
     a = Comp $ In $ Node arrType $ Array var val
     
-  ref1 (Comp a) (Comp i) = rv where
+  ref (Comp a) (Comp i) = rv where
     typ = dslType rv
     rv = Comp $ In $ Node typ $ Ref a i
 
 
-instance DSLArr Comp (Arr n) t where
-  array f = a where
-    uniqueTag = toDyn f
-    var = In $ Node TAny $ Var $ uniqueTag
-    Comp val = f $ Comp var
-    a = Comp $ In $ Node TAny $ Array var val
-  ref (Comp a) (Comp i) = rv where
-    typ = TAny
-    -- typ = dslType rv
-    rv = Comp $ In $ Node typ $ Ref a i
 
 
 
@@ -415,8 +389,9 @@ testComp = do
       s4 = ramp 1 :: Comp Int
       s5 = s3 + s4
       s6 = swap 0 1 :: Comp Int
-      s7 = (array1 $ \i -> i + 1) :: Comp (Arr 3 Int)
-      s8 = ref1 s7 0
+      s7 = (array $ \i -> i + 1) :: Comp (Arr 3 Int)
+      s8 = ref s7 0
+      s9 = (array $ \i -> array $ \j -> i + j) :: Comp (Arr 4 (Arr 5 Int))
 
       test s = do
         --putStrLn "Comp tree:"
@@ -433,6 +408,7 @@ testComp = do
   test s6
   test s7
   test s8
+  test s9
 
 
   
