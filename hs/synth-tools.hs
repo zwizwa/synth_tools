@@ -28,7 +28,7 @@
 -- Why are these necessary?
 
 -- No longer needed
--- {-# LANGUAGE UndecidableInstances #-}  -- Rearranged const implementation
+-- {-# LANGUAGE UndecidableInstances #-}  -- Rearranged implementation (repeatedly)
 -- {-# LANGUAGE IncoherentInstances #-}  -- Num (r t) constraint in e.g. ramp
 -- {-# LANGUAGE TypeOperators #-}
 -- {-# LANGUAGE ExistentialQuantification #-}
@@ -56,9 +56,6 @@ import qualified Data.Graph as Graph
 -- that.  Note that in Eval semantics the Haskell type is used.  Also
 -- add the Typeable constraint here needed by toDyn for Data.Reify
 
-data CNum = I Int | F Float
-  deriving (Show)
-
 data Prim2 = Add | Sub | Mul deriving (Show)
 data Prim1 = Abs | Sig       deriving (Show)
 
@@ -79,24 +76,12 @@ data Arr (n :: Nat) a
 class (DSL r, Typeable t) => DSLType r t where
   dslType :: r t -> Type
 
-  -- Implementable types.
-
--- instance (DSL r, DSLNum t) => DSLType r t where
---   dslType a = num n where
---     n = dslnum a
---     num (I _) = TInt
---     num (F _) = TFloat
-  
---instance DSL r => DSLType r Int   where dslType _ = TInt
---instance DSL r => DSLType r Float where dslType _ = TFloat
-
 instance (DSLType r a, DSLType r b) => DSLType r (a, b) where
   dslType _ = TPair (dslType a') (dslType b') where
     a' = undefined :: r a
     b' = undefined :: r b
 
 instance DSL r => DSLType r Int   where dslType _ = TInt
-
 instance DSL r => DSLType r Float where dslType _ = TFloat
 
 
@@ -112,37 +97,27 @@ instance (KnownNat n, DSL r, DSLType r t) => DSLType r (Arr n t) where
     size = fromIntegral $ arrLength a
 
 
+-- FIXME: For op1, op2 create a DSLPrimType r t constraint instead.
+
+-- Structural
 class DSL r where
   signal  :: (DSLType r s, DSLType r t) => r s -> (r s -> (r s, r t)) -> r t
-  op1     :: (DSLType r t, Num t)       => Prim1 -> r t -> r t
-  op2     :: (DSLType r t, Num t)       => Prim2 -> r t -> r t -> r t
   pack    :: (DSLType r a, DSLType r b) => r a -> r b -> r (a, b)
   unpack  :: (DSLType r a, DSLType r b) => r (a, b) -> (r a, r b)
   array   :: (DSLType r t, KnownNat n)  => (r Int -> r t) -> r (Arr n t)
   ref     :: (DSLType r t)              => r (Arr n t) -> r Int -> r t
 
-class DSLConst r t where
-  const :: t -> r t
+-- Primitive constants
+class DSLType r t => DSLConst r t where
+  const   ::                               t -> r t
+
+-- Primitive operations
+class DSLType r t => DSLPrim r t where
+  op1     :: (DSLType r t)              => Prim1 -> r t -> r t
+  op2     :: (DSLType r t)              => Prim2 -> r t -> r t -> r t
+  
   
 
-
--- These can just be library functions.  But they can be left out
--- completely and just implemented by the Num instance.
-
-add :: (Num t, DSLType r t) => r t -> r t -> r t
-add = op2 Add
-
-sub :: (Num t, DSLType r t) => r t -> r t -> r t
-sub = op2 Sub
-
-mul :: (Num t, DSLType r t) => r t -> r t -> r t
-mul = op2 Mul
-
-dslabs :: (Num t, DSLType r t) => r t -> r t
-dslabs = op1 Abs
-
-sig :: (Num t, DSLType r t) => r t -> r t
-sig = op1 Sig
 
 
 
@@ -156,14 +131,12 @@ sig = op1 Sig
 
 -- Library functions
 
--- Note that if Num (r t) constraint is not made explicit it will
--- complain that IncoherentInstances is necessry.
-ramp :: (DSL r, DSLType r t, DSLConst r t, Num (r t)) => t -> r t
+ramp :: (DSLConst r t, Num (r t)) => t -> r t
 ramp init = signal (const init) (\s -> (s + 1, s))
 
 
 -- Test fuction for composite state
-swap :: (DSL r, DSLType r t, DSLType r (t, t), Typeable t, DSLConst r t)
+swap :: (DSLType r (t, t), DSLConst r t)
      => t -> t -> r t
 swap ia ib = signal iab update where
   iab = pack (const ia) (const ib)
@@ -182,14 +155,14 @@ instance Applicative Eval where
   (Eval f) <*> (Eval a) = Eval $ f <*> a
 
 
-eval2 Add = (+)
-eval2 Sub = (-)
+eval2 Add = liftA2 (+)
+eval1 Abs = fmap abs
 
-eval1 Abs = abs
+instance DSLPrim Eval Int   where op1 = eval1 ; op2 = eval2
+instance DSLPrim Eval Float where op1 = eval1 ; op2 = eval2
+
 
 instance DSL Eval where
-  op1 = fmap   . eval1
-  op2 = liftA2 . eval2
 
   signal init update = v where
     -- Note that the initial value is encoded as a stream where we
@@ -217,14 +190,41 @@ instance DSLConst Eval Int   where const = Eval . pure
 instance DSLConst Eval Float where const = Eval . pure
 
 
+-- Generic numeric primitive functions and Num instances.  It seems
+-- simplest to just spell these out in concrete form to avoid the need
+-- for InconsistentInstances.  Also dependencies on Num are kept out
+-- of the base language classes.
+
+add :: (DSLPrim r t) => r t -> r t -> r t
+add = op2 Add
+
+sub :: (DSLPrim r t) => r t -> r t -> r t
+sub = op2 Sub
+
+mul :: (DSLPrim r t) => r t -> r t -> r t
+mul = op2 Mul
+
+dslAbs :: (DSLPrim r t) => r t -> r t
+dslAbs = op1 Abs
+
+sig :: (DSLPrim r t) => r t -> r t
+sig = op1 Sig
+
 instance Num (Eval Int) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = dslabs
+  (+) = add ; (-) = sub ; (*) = mul ; abs = dslAbs
   signum = sig ; fromInteger = const . fromInteger
 
 instance Num (Eval Float) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = dslabs
+  (+) = add ; (-) = sub ; (*) = mul ; abs = dslAbs
   signum = sig ; fromInteger = const . fromInteger
 
+instance Num (Comp Int) where
+  (+) = add ; (-) = sub ; (*) = mul ; abs = dslAbs
+  signum = sig ; fromInteger = const . fromInteger
+
+instance Num (Comp Float) where
+  (+) = add ; (-) = sub ; (*) = mul ; abs = dslAbs
+  signum = sig ; fromInteger = const . fromInteger
 
 
 -- Graph node type
@@ -238,9 +238,13 @@ instance Num (Eval Float) where
 --   generic MuRef implementation.  Note that the paper appears to be
 --   missing the In deconstruction for traverse.
 
+data TermNum = I Int | F Float
+  deriving (Show)
+
+
 data Term s = Op1 Prim1 s
             | Op2 Prim2 s s
-            | Const CNum
+            | Const TermNum
             | Var Dynamic
             | Signal s s s s
             -- Multiple of the same, representable for C base type.
@@ -274,11 +278,14 @@ data Comp t = Comp { unComp :: Stx }
   deriving (Show, Functor)
 
 
+compOp1 op a   = Comp $ In $ Node (dslType a) $ Op1 op (unComp a)
+compOp2 op a b = Comp $ In $ Node (dslType b) $ Op2 op (unComp a) (unComp b)
+
+instance DSLPrim Comp Int   where op1 = compOp1 ; op2 = compOp2
+instance DSLPrim Comp Float where op1 = compOp1 ; op2 = compOp2
+
 
 instance DSL Comp where
-
-  op1 op a   = Comp $ In $ Node (dslType a) $ Op1 op (unComp a)
-  op2 op a b = Comp $ In $ Node (dslType b) $ Op2 op (unComp a) (unComp b)
   
   signal compInit update = sig where
     Comp init = compInit
@@ -324,13 +331,6 @@ instance DSLConst Comp Float where
 
 
 
-instance Num (Comp Int) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = dslabs
-  signum = sig ; fromInteger = const . fromInteger
-
-instance Num (Comp Float) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = dslabs
-  signum = sig ; fromInteger = const . fromInteger
 
 
 
