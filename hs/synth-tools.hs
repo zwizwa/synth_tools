@@ -100,6 +100,9 @@ class DSL r where
   pack    :: (DSLType r a, DSLType r b) => r a -> r b -> r (a, b)
   unpack  :: (DSLType r a, DSLType r b) => r (a, b) -> (r a, r b)
 
+-- FIXME: I think this should not be a generic type a but a concrete
+-- type like in the (,) case.
+
 class DSLArr r a t where
   array :: Typeable t => (r Int -> r t) -> r (a t)
   ref   :: r (a t) -> r Int -> r t
@@ -283,7 +286,8 @@ instance DSLArr Comp (Arr n) t where
     var = In $ Node TAny $ Var $ uniqueTag
     Comp val = f $ Comp var
     a = Comp $ In $ Node TAny $ Array var val
-  ref (Comp a) (Comp i) = Comp $ In $ Node TAny $ Ref a i
+  ref (Comp a) (Comp i) = rv where
+    rv = Comp $ In $ Node (dslType rv) $ Ref a i
 
 
 
