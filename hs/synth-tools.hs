@@ -57,7 +57,7 @@ import qualified Data.Graph as Graph
 -- add the Typeable constraint here needed by toDyn for Data.Reify
 
 data Prim2 = Add | Sub | Mul deriving (Show)
-data Prim1 = Abs | Sig       deriving (Show)
+data Prim1 = Abs | Signum    deriving (Show)
 
 -- The ability to reify a represented type needs to be a property of
 -- the DSL not just the implementation, because the class constraint
@@ -111,8 +111,12 @@ class DSL r where
 class DSLType r t => DSLConst r t where
   const   ::                               t -> r t
 
+class DSLPrimType t
+instance DSLPrimType Int
+instance DSLPrimType Float
+
 -- Primitive operations
-class DSLType r t => DSLPrim r t where
+class (DSLType r t, DSLPrimType t) => DSLPrim r t where
   op1     :: (DSLType r t)              => Prim1 -> r t -> r t
   op2     :: (DSLType r t)              => Prim2 -> r t -> r t -> r t
   
@@ -156,7 +160,10 @@ instance Applicative Eval where
 
 
 eval2 Add = liftA2 (+)
-eval1 Abs = fmap abs
+eval2 Sub = liftA2 (-)
+eval2 Mul = liftA2 (*)
+eval1 Abs    = fmap abs
+eval1 Signum = fmap signum
 
 instance DSLPrim Eval Int   where op1 = eval1 ; op2 = eval2
 instance DSLPrim Eval Float where op1 = eval1 ; op2 = eval2
@@ -185,46 +192,42 @@ instance DSL Eval where
     a = undefined
   ref = error ""
 
-
 instance DSLConst Eval Int   where const = Eval . pure
 instance DSLConst Eval Float where const = Eval . pure
 
 
 -- Generic numeric primitive functions and Num instances.  It seems
--- simplest to just spell these out in concrete form to avoid the need
--- for InconsistentInstances.  Also dependencies on Num are kept out
--- of the base language classes.
-
-add :: (DSLPrim r t) => r t -> r t -> r t
-add = op2 Add
-
-sub :: (DSLPrim r t) => r t -> r t -> r t
-sub = op2 Sub
-
-mul :: (DSLPrim r t) => r t -> r t -> r t
-mul = op2 Mul
-
-abs' :: (DSLPrim r t) => r t -> r t
-abs' = op1 Abs
-
-signum' :: (DSLPrim r t) => r t -> r t
-signum' = op1 Sig
-
+-- simplest to just spell out the Num instances to avoid the need for
+-- InconsistentInstances.  I don't know how else to constrain them in
+-- generic Num (r t) form to avoid duplication. Also dependencies on
+-- Num are kept out of the base language classes.
+ 
 instance Num (Eval Int) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = abs'
+  (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
   signum = signum' ; fromInteger = const . fromInteger
 
 instance Num (Eval Float) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = abs'
+  (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
   signum = signum' ; fromInteger = const . fromInteger
 
 instance Num (Comp Int) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = abs'
+  (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
   signum = signum' ; fromInteger = const . fromInteger
 
 instance Num (Comp Float) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = abs'
+  (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
   signum = signum' ; fromInteger = const . fromInteger
+
+type DSLOp1 r t = r t -> r t
+type DSLOp2 r t = r t -> r t -> r t
+
+add'    :: (DSLPrim r t) => DSLOp2 r t ; add'    = op2 Add
+sub'    :: (DSLPrim r t) => DSLOp2 r t ; sub'    = op2 Sub
+mul'    :: (DSLPrim r t) => DSLOp2 r t ; mul'    = op2 Mul
+abs'    :: (DSLPrim r t) => DSLOp1 r t ; abs'    = op1 Abs
+signum' :: (DSLPrim r t) => DSLOp1 r t ; signum' = op1 Signum
+
+
 
 
 -- Graph node type
