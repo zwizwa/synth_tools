@@ -28,7 +28,7 @@
 -- Why are these necessary?
 
 -- No longer needed
-{-# LANGUAGE UndecidableInstances #-}  -- Rearranged const implementation
+-- {-# LANGUAGE UndecidableInstances #-}  -- Rearranged const implementation
 -- {-# LANGUAGE IncoherentInstances #-}  -- Num (r t) constraint in e.g. ramp
 -- {-# LANGUAGE TypeOperators #-}
 -- {-# LANGUAGE ExistentialQuantification #-}
@@ -56,14 +56,8 @@ import qualified Data.Graph as Graph
 -- that.  Note that in Eval semantics the Haskell type is used.  Also
 -- add the Typeable constraint here needed by toDyn for Data.Reify
 
-class (Typeable t, Num t) => DSLNum t where
-  dslnum :: t -> CNum
-
 data CNum = I Int | F Float
   deriving (Show)
-
-instance DSLNum Int   where dslnum = I
-instance DSLNum Float where dslnum = F
 
 data Prim2 = Add | Sub | Mul deriving (Show)
 data Prim1 = Abs | Sig       deriving (Show)
@@ -82,17 +76,29 @@ data Type = TFloat | TInt | TAny
 -- Phantom tag for fixed length arrays
 data Arr (n :: Nat) a
 
-class Typeable t => DSLType r t where
+class (DSL r, Typeable t) => DSLType r t where
   dslType :: r t -> Type
 
   -- Implementable types.
-instance DSLType r Int   where dslType _ = TInt
-instance DSLType r Float where dslType _ = TFloat
+
+-- instance (DSL r, DSLNum t) => DSLType r t where
+--   dslType a = num n where
+--     n = dslnum a
+--     num (I _) = TInt
+--     num (F _) = TFloat
+  
+--instance DSL r => DSLType r Int   where dslType _ = TInt
+--instance DSL r => DSLType r Float where dslType _ = TFloat
 
 instance (DSLType r a, DSLType r b) => DSLType r (a, b) where
   dslType _ = TPair (dslType a') (dslType b') where
     a' = undefined :: r a
     b' = undefined :: r b
+
+instance DSL r => DSLType r Int   where dslType _ = TInt
+
+instance DSL r => DSLType r Float where dslType _ = TFloat
+
 
 arrLength :: forall (n :: Nat) a r. KnownNat n => r (Arr n a) -> Natural
 arrLength _ = natVal (Proxy :: Proxy n)
@@ -108,7 +114,6 @@ instance (KnownNat n, DSL r, DSLType r t) => DSLType r (Arr n t) where
 
 class DSL r where
   signal  :: (DSLType r s, DSLType r t) => r s -> (r s -> (r s, r t)) -> r t
-  const   :: (DSLType r t, DSLNum t)    => t -> r t
   op1     :: (DSLType r t, Num t)       => Prim1 -> r t -> r t
   op2     :: (DSLType r t, Num t)       => Prim2 -> r t -> r t -> r t
   pack    :: (DSLType r a, DSLType r b) => r a -> r b -> r (a, b)
@@ -116,29 +121,32 @@ class DSL r where
   array   :: (DSLType r t, KnownNat n)  => (r Int -> r t) -> r (Arr n t)
   ref     :: (DSLType r t)              => r (Arr n t) -> r Int -> r t
 
+class DSLConst r t where
+  const :: t -> r t
+  
+
 
 -- These can just be library functions.  But they can be left out
 -- completely and just implemented by the Num instance.
 
--- add :: (Num t, DSL r) => r t -> r t -> r t
--- add = op2 Add
+add :: (Num t, DSLType r t) => r t -> r t -> r t
+add = op2 Add
 
--- sub :: (Num t, DSL r) => r t -> r t -> r t
--- sub = op2 Sub
+sub :: (Num t, DSLType r t) => r t -> r t -> r t
+sub = op2 Sub
 
--- mul :: (Num t, DSL r) => r t -> r t -> r t
--- mul = op2 Mul
+mul :: (Num t, DSLType r t) => r t -> r t -> r t
+mul = op2 Mul
 
--- neg :: (Num t, DSL r) => r t -> r t
--- neg = op1 Neg
+dslabs :: (Num t, DSLType r t) => r t -> r t
+dslabs = op1 Abs
 
-instance (DSLType r t, DSLNum t, DSL r) => Num (r t) where
-  (+) = op2 Add
-  (-) = op2 Sub
-  (*) = op2 Mul
-  abs = op1 Abs
-  signum = op1 Sig
-  fromInteger = const . fromInteger
+sig :: (Num t, DSLType r t) => r t -> r t
+sig = op1 Sig
+
+
+
+
 
 
 
@@ -150,12 +158,13 @@ instance (DSLType r t, DSLNum t, DSL r) => Num (r t) where
 
 -- Note that if Num (r t) constraint is not made explicit it will
 -- complain that IncoherentInstances is necessry.
-ramp :: (DSL r, DSLType r t, DSLNum t, Num (r t)) => t -> r t
+ramp :: (DSL r, DSLType r t, DSLConst r t, Num (r t)) => t -> r t
 ramp init = signal (const init) (\s -> (s + 1, s))
 
 
 -- Test fuction for composite state
-swap :: (DSL r, DSLType r t, DSLType r (t, t), Typeable t, DSLNum t) => t -> t -> r t
+swap :: (DSL r, DSLType r t, DSLType r (t, t), Typeable t, DSLConst r t)
+     => t -> t -> r t
 swap ia ib = signal iab update where
   iab = pack (const ia) (const ib)
   update s =
@@ -198,15 +207,23 @@ instance DSL Eval where
   pack (Eval a) (Eval b) = Eval $ zipWith (,) a b
   unpack (Eval ab) = (Eval $ fmap fst ab, Eval $ fmap snd ab)
 
-  const = Eval . pure
-
   array f = Eval a where
     -- n = arrLength a
     a = undefined
   ref = error ""
 
 
+instance DSLConst Eval Int   where const = Eval . pure
+instance DSLConst Eval Float where const = Eval . pure
 
+
+instance Num (Eval Int) where
+  (+) = add ; (-) = sub ; (*) = mul ; abs = dslabs
+  signum = sig ; fromInteger = const . fromInteger
+
+instance Num (Eval Float) where
+  (+) = add ; (-) = sub ; (*) = mul ; abs = dslabs
+  signum = sig ; fromInteger = const . fromInteger
 
 
 
@@ -281,10 +298,6 @@ instance DSL Comp where
     fst = Comp $ In $ Node (dslType fst) $ Fst ab
     snd = Comp $ In $ Node (dslType snd) $ Snd ab
     
-  const c = compc where
-    typ = dslType compc
-    compc = Comp $ In $ Node typ $ Const $ dslnum c
-
   array f = a where
     uniqueTag = toDyn f
     var = In $ Node varType $ Var $ uniqueTag
@@ -297,6 +310,28 @@ instance DSL Comp where
   ref (Comp a) (Comp i) = rv where
     typ = dslType rv
     rv = Comp $ In $ Node typ $ Ref a i
+
+
+instance DSLConst Comp Int where
+  const c = compc where
+    typ = dslType compc
+    compc = Comp $ In $ Node typ $ Const $ I c
+
+instance DSLConst Comp Float where
+  const c = compc where
+    typ = dslType compc
+    compc = Comp $ In $ Node typ $ Const $ F c
+
+
+
+instance Num (Comp Int) where
+  (+) = add ; (-) = sub ; (*) = mul ; abs = dslabs
+  signum = sig ; fromInteger = const . fromInteger
+
+instance Num (Comp Float) where
+  (+) = add ; (-) = sub ; (*) = mul ; abs = dslabs
+  signum = sig ; fromInteger = const . fromInteger
+
 
 
 
@@ -375,8 +410,11 @@ compile :: Comp t -> IO Let
 compile (Comp s) = do
   s' <- Reify.reifyGraph $ s
   let s'' = Let s'
-  -- topological sort doesn't seem to be necessary, reifyGraph seems
-  -- to produce sorted ouput
+  -- A topological sort doesn't seem to be necessary, reifyGraph seems
+  -- to produce sorted ouput.  This is not explicitly mentioned in the
+  -- documentation but it will be very obvious in the compiled output
+  -- if this condition ever breaks.
+  --
   -- let s''' = tsort s''
   return s''
     
