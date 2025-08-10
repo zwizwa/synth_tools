@@ -204,27 +204,27 @@ sub = op2 Sub
 mul :: (DSLPrim r t) => r t -> r t -> r t
 mul = op2 Mul
 
-dslAbs :: (DSLPrim r t) => r t -> r t
-dslAbs = op1 Abs
+abs' :: (DSLPrim r t) => r t -> r t
+abs' = op1 Abs
 
-sig :: (DSLPrim r t) => r t -> r t
-sig = op1 Sig
+signum' :: (DSLPrim r t) => r t -> r t
+signum' = op1 Sig
 
 instance Num (Eval Int) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = dslAbs
-  signum = sig ; fromInteger = const . fromInteger
+  (+) = add ; (-) = sub ; (*) = mul ; abs = abs'
+  signum = signum' ; fromInteger = const . fromInteger
 
 instance Num (Eval Float) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = dslAbs
-  signum = sig ; fromInteger = const . fromInteger
+  (+) = add ; (-) = sub ; (*) = mul ; abs = abs'
+  signum = signum' ; fromInteger = const . fromInteger
 
 instance Num (Comp Int) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = dslAbs
-  signum = sig ; fromInteger = const . fromInteger
+  (+) = add ; (-) = sub ; (*) = mul ; abs = abs'
+  signum = signum' ; fromInteger = const . fromInteger
 
 instance Num (Comp Float) where
-  (+) = add ; (-) = sub ; (*) = mul ; abs = dslAbs
-  signum = sig ; fromInteger = const . fromInteger
+  (+) = add ; (-) = sub ; (*) = mul ; abs = abs'
+  signum = signum' ; fromInteger = const . fromInteger
 
 
 -- Graph node type
