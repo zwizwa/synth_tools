@@ -28,7 +28,7 @@
 -- Why are these necessary?
 
 -- No longer needed
--- {-# LANGUAGE UndecidableInstances #-}  -- Rearranged implementation (repeatedly)
+{-# LANGUAGE UndecidableInstances #-}  -- Rearranged implementation (repeatedly)
 -- {-# LANGUAGE IncoherentInstances #-}  -- Num (r t) constraint in e.g. ramp
 -- {-# LANGUAGE TypeOperators #-}
 -- {-# LANGUAGE ExistentialQuantification #-}
@@ -111,12 +111,8 @@ class DSL r where
 class DSLType r t => DSLConst r t where
   const   ::                               t -> r t
 
-class DSLPrimType t
-instance DSLPrimType Int
-instance DSLPrimType Float
-
 -- Primitive operations
-class (DSLType r t, DSLPrimType t) => DSLPrim r t where
+class DSLType r t => DSLPrim r t where
   op1     :: (DSLType r t)              => Prim1 -> r t -> r t
   op2     :: (DSLType r t)              => Prim2 -> r t -> r t -> r t
   
@@ -198,10 +194,17 @@ instance DSLConst Eval Float where const = Eval . pure
 
 -- Generic numeric primitive functions and Num instances.  It seems
 -- simplest to just spell out the Num instances to avoid the need for
--- InconsistentInstances.  I don't know how else to constrain them in
+-- UndecidableInstances.  I don't know how else to constrain them in
 -- generic Num (r t) form to avoid duplication. Also dependencies on
 -- Num are kept out of the base language classes.
- 
+
+---- This needs UndecidableInstances.  Probably ok, but might hide
+---- other problems so let's not.
+--
+-- instance (Num t, DSLPrim r t, DSLConst r t) => Num (r t) where
+--   (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
+--   signum = signum' ; fromInteger = const . fromInteger
+
 instance Num (Eval Int) where
   (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
   signum = signum' ; fromInteger = const . fromInteger
