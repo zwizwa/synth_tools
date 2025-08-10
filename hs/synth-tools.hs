@@ -79,6 +79,9 @@ data Type = TFloat | TInt | TAny
           | TPair Type Type
           deriving (Show)
 
+-- Phantom tag for fixed length arrays
+data Arr (n :: Nat) a
+
 class Typeable t => DSLType r t where
   dslType :: r t -> Type
 
@@ -91,6 +94,18 @@ instance (DSLType r a, DSLType r b) => DSLType r (a, b) where
     a' = undefined :: r a
     b' = undefined :: r b
 
+arrLength :: forall (n :: Nat) a. KnownNat n => Arr n a -> Natural
+arrLength _ = natVal (Proxy :: Proxy n)
+
+arrLengthr :: forall (n :: Nat) a r. KnownNat n => r (Arr n a) -> Natural
+arrLengthr _ = natVal (Proxy :: Proxy n)
+
+
+instance (KnownNat n, DSLType r t) => DSLType r (Arr n t) where
+  dslType a = TArray size t where
+    t = TAny
+    size = fromIntegral $ arrLengthr a
+
 
 class DSL r where
   signal  :: (DSLType r s, DSLType r t) => r s -> (r s -> (r s, r t)) -> r t
@@ -99,6 +114,8 @@ class DSL r where
   op2     :: (DSLType r t, Num t) => Prim2 -> r t -> r t -> r t
   pack    :: (DSLType r a, DSLType r b) => r a -> r b -> r (a, b)
   unpack  :: (DSLType r a, DSLType r b) => r (a, b) -> (r a, r b)
+  array1  :: (DSLType r t, KnownNat n) => (r Int -> r t) -> r (Arr n t)
+  ref1    :: (DSLType r t) =>  r (Arr n t) -> r Int -> r t
 
 -- FIXME: I think this should not be a generic type a but a concrete
 -- type like in the (,) case.
@@ -133,11 +150,10 @@ instance (DSLType r t, DSLNum t, DSL r) => Num (r t) where
   fromInteger = const . fromInteger
 
 
--- This is just a phantom tag
-data Arr (n :: Nat) a
 
-arrLength :: forall (n :: Nat) a. KnownNat n => Arr n a -> Natural
-arrLength _ = natVal (Proxy :: Proxy n)
+
+
+
 
 -- Library functions
 
@@ -192,6 +208,11 @@ instance DSL Eval where
   unpack (Eval ab) = (Eval $ fmap fst ab, Eval $ fmap snd ab)
 
   const = Eval . pure
+
+  array1 f = Eval a where
+    -- n = arrLength a
+    a = undefined
+  ref1 = error ""
 
 
 instance DSLArr Eval (Arr n) t where
@@ -279,6 +300,20 @@ instance DSL Comp where
     typ = dslType compc
     compc = Comp $ In $ Node typ $ Const $ dslnum c
 
+  array1 f = a where
+    uniqueTag = toDyn f
+    typ = TAny
+    var = In $ Node varType $ Var $ uniqueTag
+    compVar = Comp var
+    varType = dslType compVar
+    Comp val = f $ compVar
+    arrType = dslType a
+    a = Comp $ In $ Node arrType $ Array var val
+    
+  ref1 (Comp a) (Comp i) = rv where
+    typ = dslType rv
+    rv = Comp $ In $ Node typ $ Ref a i
+
 
 instance DSLArr Comp (Arr n) t where
   array f = a where
@@ -287,7 +322,9 @@ instance DSLArr Comp (Arr n) t where
     Comp val = f $ Comp var
     a = Comp $ In $ Node TAny $ Array var val
   ref (Comp a) (Comp i) = rv where
-    rv = Comp $ In $ Node (dslType rv) $ Ref a i
+    typ = TAny
+    -- typ = dslType rv
+    rv = Comp $ In $ Node typ $ Ref a i
 
 
 
@@ -307,7 +344,7 @@ instance Show Let where
     showB (node, Node typ term) =
       "  " ++
       -- TODO implement show for DSLType
-      show typ ++ " " ++
+      show typ ++ " : " ++
       show (Reg node) ++ " = " ++
       showTerm (fmap Reg term) ++ "\n"
     r = "in " ++ show (Reg return) ++ "\n"
@@ -378,8 +415,8 @@ testComp = do
       s4 = ramp 1 :: Comp Int
       s5 = s3 + s4
       s6 = swap 0 1 :: Comp Int
-      s7 = (array $ \i -> i + 1) :: Comp (Arr 3 Int)
-      s8 = ref s7 0
+      s7 = (array1 $ \i -> i + 1) :: Comp (Arr 3 Int)
+      s8 = ref1 s7 0
 
       test s = do
         --putStrLn "Comp tree:"
