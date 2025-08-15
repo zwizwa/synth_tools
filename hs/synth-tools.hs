@@ -23,12 +23,12 @@
 {-# LANGUAGE DataKinds #-} -- Arr 3
 {-# LANGUAGE ScopedTypeVariables #-} -- arrLength
 {-# LANGUAGE FlexibleContexts #-} -- constraint DSLType r (t, t)
-
-
--- Why are these necessary?
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- No longer needed
-{-# LANGUAGE UndecidableInstances #-}  -- Rearranged implementation (repeatedly)
+-- {-# LANGUAGE UndecidableInstances #-}  -- Rearranged implementation (repeatedly)
 -- {-# LANGUAGE IncoherentInstances #-}  -- Num (r t) constraint in e.g. ramp
 -- {-# LANGUAGE TypeOperators #-}
 -- {-# LANGUAGE ExistentialQuantification #-}
@@ -36,28 +36,36 @@
 -- {-# LANGUAGE RankNTypes #-}
 
 
-import Data.Stream
+import Data.Stream hiding (fromList)
 import Data.Functor
 import Data.Dynamic
+import qualified Data.List as List
 import Control.Applicative hiding (Const)
-import Control.Monad.Writer.Lazy
+import Control.Monad.State
+import Control.Monad.Reader
+import Control.Monad.Writer
+import Control.Monad
 import Data.Proxy
-import qualified Data.IntMap.Lazy as IntMap
+import Data.IntMap.Lazy
+
 
 -- import GHC.TypeLits
 import GHC.TypeNats
-import Prelude hiding (take, const, zipWith)
-
+import Prelude hiding (take, const, zipWith, lookup)
 
 import qualified Data.Reify as Reify
 import qualified Data.Graph as Graph
+
+import Control.Lens hiding (Const)
+import Control.Lens.TH
+
+
 
 -- Number types need to be representable in C.  This class ensures
 -- that.  Note that in Eval semantics the Haskell type is used.  Also
 -- add the Typeable constraint here needed by toDyn for Data.Reify
 
-data Prim2 = Add | Sub | Mul deriving (Show)
-data Prim1 = Abs | Signum    deriving (Show)
+data Prim = Add | Sub | Mul | Abs | Signum deriving (Show)
 
 -- The ability to reify a represented type needs to be a property of
 -- the DSL not just the implementation, because the class constraint
@@ -65,13 +73,14 @@ data Prim1 = Abs | Signum    deriving (Show)
 -- this is unused but can be toDyn.  For Comp it is essential as types
 -- will need to be representable in C eventually.
 
-data Type = TFloat | TInt | TAny
+data Type = TFloat | TInt
           | TArray Int Type
           | TPair Type Type
           deriving (Show)
 
--- Phantom tag for fixed length arrays
-data Arr (n :: Nat) a
+-- Phantom tag for fixed length arrays.  Used as concrete
+-- representation in Eval so we do need a constructor.
+data Arr (n :: Nat) a = Arr [a]
 
 class (DSL r, Typeable t) => DSLType r t where
   dslType :: r t -> Type
@@ -113,8 +122,8 @@ class DSLType r t => DSLConst r t where
 
 -- Primitive operations
 class DSLType r t => DSLPrim r t where
-  op1     :: (DSLType r t)              => Prim1 -> r t -> r t
-  op2     :: (DSLType r t)              => Prim2 -> r t -> r t -> r t
+  op1     :: (DSLType r t)              => Prim -> r t -> r t
+  op2     :: (DSLType r t)              => Prim -> r t -> r t -> r t
   
   
 
@@ -158,6 +167,7 @@ instance Applicative Eval where
 eval2 Add = liftA2 (+)
 eval2 Sub = liftA2 (-)
 eval2 Mul = liftA2 (*)
+
 eval1 Abs    = fmap abs
 eval1 Signum = fmap signum
 
@@ -183,10 +193,15 @@ instance DSL Eval where
   pack (Eval a) (Eval b) = Eval $ zipWith (,) a b
   unpack (Eval ab) = (Eval $ fmap fst ab, Eval $ fmap snd ab)
 
-  array f = Eval a where
-    -- n = arrLength a
-    a = undefined
-  ref = error ""
+  array f = arr where
+    arr = Eval $ fmap Arr streams
+    len = fromIntegral $ arrLength arr
+    streams = distribute $ fmap stream $ [0..len-1]
+    stream i = s where Eval s = f $ const i
+  
+  ref (Eval as) (Eval is) = Eval es where
+    es = liftA2 ref' as is
+    ref' (Arr a) i = a Prelude.!! i
 
 instance DSLConst Eval Int   where const = Eval . pure
 instance DSLConst Eval Float where const = Eval . pure
@@ -248,15 +263,17 @@ data TermNum = I Int | F Float
   deriving (Show)
 
 
-data Term s = Op1 Prim1 s
-            | Op2 Prim2 s s
+data Term s = Op Prim [s]
             | Const TermNum
             | Var Dynamic
-            | Signal s s s s
+            | Signal { sigInit :: s, sigVar :: s, sigState :: s, sigOut :: s }
             -- Multiple of the same, representable for C base type.
-            | Array s s | Ref s s
+            | Array { arrVar :: s, arrVal :: s }
+            | Ref s s
             -- For heterogeneous collections.
-            | Pair s s | Fst s | Snd s
+            | Pair s s
+            | Fst s
+            | Snd s
             deriving (Show, Functor, Foldable, Traversable)
 
 
@@ -284,8 +301,8 @@ data Comp t = Comp { unComp :: Stx }
   deriving (Show, Functor)
 
 
-compOp1 op a   = Comp $ In $ Node (dslType a) $ Op1 op (unComp a)
-compOp2 op a b = Comp $ In $ Node (dslType b) $ Op2 op (unComp a) (unComp b)
+compOp1 op a   = Comp $ In $ Node (dslType a) $ Op op [(unComp a)]
+compOp2 op a b = Comp $ In $ Node (dslType b) $ Op op [(unComp a), (unComp b)]
 
 instance DSLPrim Comp Int   where op1 = compOp1 ; op2 = compOp2
 instance DSLPrim Comp Float where op1 = compOp1 ; op2 = compOp2
@@ -366,11 +383,6 @@ instance Show Let where
     showTerm (Var _) = "Var" -- Don't print the Dynamic tag
     showTerm t = show t
     
-main = do
-  putStrLn "synth-tools.hs"
-  testEval
-  testComp
-
 testEval = do
   let s1 = 1 :: Eval Int
       s2 = s1 + s1
@@ -393,8 +405,7 @@ tsort (Let (Reify.Graph assoc ret)) = Let $ Reify.Graph assoc' ret where
   (graph, unVertex, _) = Graph.graphFromEdges $
     fmap (\(key, node) -> (node, key, edges' node)) $ reverse assoc
   edges' (Node _ t) = edges t
-  edges (Op1 _ a)        = [a]
-  edges (Op2 _ a b)      = [a, b]
+  edges (Op _ as)        = as
   edges (Signal a b c d) = [a, b, c, d]
   edges (Array a b)      = [a, b]
   edges (Ref a b)        = [a, b]
@@ -412,8 +423,8 @@ tsort (Let (Reify.Graph assoc ret)) = Let $ Reify.Graph assoc' ret where
     (n, key, _) = unVertex v
 
 
-compile :: Comp t -> IO Let
-compile (Comp s) = do
+reify :: Comp t -> IO Let
+reify (Comp s) = do
   s' <- Reify.reifyGraph $ s
   let s'' = Let s'
   -- A topological sort doesn't seem to be necessary, reifyGraph seems
@@ -423,26 +434,194 @@ compile (Comp s) = do
   --
   -- let s''' = tsort s''
   return s''
+
+
+-- Compile the graph directly to (pseudo) C and refactor when it
+-- becomes clear.
+
+-- Variable location is determined by the comp pass.  The type
+-- information is available in the bindings map.
+
+data VarLoc = StateVar | LocalVar | LoopVar
+
+data ToCState = ToCState {
+  _variables :: IntMap VarLoc,      -- Currently visible variables
+  _bindings  :: IntMap (Node Int),  -- All syntax nodes
+  _loopVars  :: [Int]               -- Current loop nesting    
+  }
+newtype ToCM t = ToCM (WriterT String
+                      (State ToCState)
+                      t)
+               deriving (Functor, Applicative, Monad,
+                         MonadWriter String,
+                         MonadState ToCState)
+
+instance MonadFail ToCM where
+  fail = error "MonadFail ToCM"
+
+
+$(makeLenses ''ToCState)
+
+
+fmtVar :: Int -> ToCM String
+fmtVar var = do
+  sv' <- use variables
+  let Just varLoc = lookup var sv'
+  return $
+    case varLoc of
+      StateVar -> "s->s" ++ show var
+      LocalVar -> "r"    ++ show var
+      LoopVar  -> "l"    ++ show var
+
+      
+
+fmtVarDecl :: Type -> Int -> ToCM String
+fmtVarDecl t var = do
+  let (baseType, arrayType) = fmtType t 
+  fmtVar' <- fmtVar var
+  return $ baseType ++ " " ++ fmtVar' ++ arrayType
+
+fmtType TFloat = ("float","")
+fmtType TInt   = ("int","")
+fmtType (TArray size baseType) = (bt, at' ++ at) where
+  at' = "[" ++ show size ++ "]"
+  (bt,at) = fmtType baseType
+
+fmtArgs :: [Int] -> ToCM String
+fmtArgs rands = do
+  rands' <- traverse fmtVar rands
+  return $ concat $ List.intersperse ", " rands'
+
+node :: Int -> ToCM (Node Int)
+node key = do
+  bindings' <- use bindings
+  let (Just node) = lookup key bindings'
+  return node
+
+toC :: Let -> String
+toC (Let (Reify.Graph bindings' retval)) = codeString where
+  (ToCM m) = need retval
+  state0 = ToCState mempty (fromList bindings') []
+  (((), codeString), _state) = runState (runWriterT m) state0
+
+
+-- Note that the Node struct doesn't have much internal
+-- structure. We we rely on the construction of the graph by typed
+-- code that ensure the direct matches of ref results will succeed.
+
+-- Probably should add variables to the environment and define them
+-- locally if they are not yet defined.  I am not sure if I just
+-- completely lost the structure here, i.e. where should the
+-- variable definitions go when there is nesting?
+
+defined var = do
+  variables' <- use variables
+  case lookup var variables' of
+    Just _  -> return True
+    Nothing -> return False
     
+need var = do
+  -- Compile if it's not in the dictionary yet.
+  defined' <- defined var
+  when (not defined') $ do
+    node' <- node var
+    variables %= insert var LocalVar
+    emit var node'
+
+indent :: ToCM ()
+indent = do
+  loopVars' <- use loopVars
+  let n = length loopVars'
+  tell $ concat $ replicate n "  "
+
+fmtPrim TInt Add = "addi"
+fmtConst (I i) = show i
+fmtConst (F f) = show f ++ "f"
+
+tell' = tell . concat
+
+-- Terminal node, nothing to compile.
+emit n (Node _ (Var _)) = return ()
+
+emit n (Node t (Const c)) = do
+  decl <- fmtVarDecl t n
+  indent ; tell $ decl ++ " = " ++ fmtConst c ++ ";\n"
+
+emit n (Node t (Op p as)) = do
+  traverse need as
+  decl <- fmtVarDecl t n
+  as'  <- fmtArgs as
+  indent ; tell $ decl ++ " = " ++ fmtPrim t p ++ "(" ++ as' ++ ");\n"
+
+emit n (Node outType (Signal _init stateVar stateVal outVal)) = do
+  -- Ignore _init which is in a distinct pass for the init code
+
+  -- Declare the state variable.
+  variables %= insert stateVar StateVar
+
+  -- Recurse into arguments to ensure that all intermediate variables
+  -- are defined.
+  need stateVal
+  need outVal
+    
+  -- Emit the update code.
+  -- FIXME: Can we guarantee that state is not read anymore until the
+  -- next iteration?
+  -- FIXME: State is loop-dependent
+  stateVar' <- fmtVar stateVar
+  stateVal' <- fmtVar stateVal
+  tell $ stateVar' ++ " = " ++ stateVal' ++ ";\n"
+
+emit n (Node t@(TArray size baseType) (Array var val)) = do
+  -- Save variable environment and loop nesting before entering the loop.
+  snapVariables  <- use variables
+  snapLoopVars   <- use loopVars
+  -- Introduce the variable before it is used in formatting below.
+  variables %= insert var LoopVar
+  -- Format the loop head.
+  arr  <- fmtVarDecl t n
+  arr' <- fmtVar n
+  var' <- fmtVar var
+  decl <- fmtVarDecl TInt var
+  indent ; tell' [arr,";\n"]
+  indent ; tell' ["for(",decl," = 0; ",var'," < ",show size,"; ",var', "++) {\n"]
+  loopVars %= (++[var])
+  -- Recurse into the loop body that computes the array element.
+  need val
+  val' <- fmtVar val
+  indent ; tell' [arr',"[",var',"] = ",val',";\n"]
+  -- Restore variable environment and loop nesting after leaving the
+  -- loop.  Variables that were declared inside the loop are no longer
+  -- visible.
+  variables .= snapVariables
+  loopVars  .= snapLoopVars
+  indent ; tell $ "}\n"
+
+emit _ _ = do
+  tell $ "// TODO toC match\n"
+
+
 
 testComp = do
   -- Define some Comp terms with sharing
   let s1 = 1 :: Comp Int
-      s2 = s1 + s1 -- add s1 s1
+      s2 = s1 + s1
       s3 = ramp 0 :: Comp Int
       s4 = ramp 1 :: Comp Int
       s5 = s3 + s4
       s6 = swap 0 1 :: Comp Int
       s7 = (array $ \i -> i + 1) :: Comp (Arr 3 Int)
       s8 = ref s7 0
-      s9 = (array $ \i -> array $ \j -> i + j) :: Comp (Arr 4 (Arr 5 Int))
+      s9 = (array $ \i ->
+            array $ \j -> i + j) :: Comp (Arr 4 (Arr 5 Int))
 
       test s = do
         --putStrLn "Comp tree:"
         --putStrLn $ show $ unComp s
-        s' <- compile s
+        s' <- reify s
         putStrLn "Comp graph:"
         putStr $ show $ s'
+        putStr $ toC s'
         return s'
 
   -- Compile and print them
@@ -456,3 +635,8 @@ testComp = do
 
 
   
+main = do
+  putStrLn "synth-tools.hs"
+  testEval
+  testComp
+

@@ -5,7 +5,7 @@ license: BSD3
 cabal-version: >= 1.10
 
 executable synth-tools
-    build-depends: base, Stream, data-reify, containers, data-fix, mtl
+    build-depends: base, Stream, data-reify, containers, data-fix, mtl, lens
     main-is: synth-tools.hs
     default-language: Haskell2010
     ghc-options: -fprint-potential-instances
