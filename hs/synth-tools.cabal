@@ -9,6 +9,10 @@ executable synth-tools
     main-is: synth-tools.hs
     default-language: Haskell2010
     ghc-options: -fprint-potential-instances
+    other-modules: SynthTools.DSL
+                   SynthTools.Eval
+                   SynthTools.Comp
+                   SynthTools.ToC
 
 
 executable test1
