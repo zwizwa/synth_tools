@@ -155,7 +155,7 @@ emit outVar (Node t (Op p as)) = do
   as'             <- fmtArgs as
   emitC [outVarDecl'," = ",fmtPrim t p,"(",as',")"]
 
-emit outVar (Node outType (Signal _init stateVar stateVal outVal)) = do
+emit sigOutVar (Node outType (Signal _init stateVar nextStateVar outVar)) = do
   -- Ignore _init which is in a distinct pass for the init code
 
   -- Declare the state variable.
@@ -163,22 +163,22 @@ emit outVar (Node outType (Signal _init stateVar stateVal outVal)) = do
 
   -- Recurse into arguments to ensure that all intermediate variables
   -- are defined.
-  need stateVal
-  need outVal
+  need nextStateVar
+  need outVar
     
   -- Emit the update code.
   -- FIXME: State is loop-dependent
-  stateVal' <- fmtVar stateVal
-  outVal'   <- fmtVar outVal
-  stateVar' <- fmtVar stateVar
-  (outVarDecl', outVar') <- fmtVarDecl outType outVar
+  nextStateVar' <- fmtVar nextStateVar
+  outVar'       <- fmtVar outVar
+  stateVar'     <- fmtVar stateVar
+  (sigOutVarDecl', sigOutVar') <- fmtVarDecl outType sigOutVar
   
-  emitC [outVarDecl'," = ",outVal',  ";"]
+  emitC [sigOutVarDecl'," = ",outVar',  ";"]
   -- TO CHECK: I think it is enough to put the state assignment last
   -- because it will not be referenced in any more in the current
   -- state update interation.  If output refers state it would have
   -- been copied into a different variable by now.
-  emitC [stateVar',  " = ",stateVal',";"]
+  emitC [stateVar',  " = ",nextStateVar',";"]
 
 -- FIXME: this emits array assigments and needs to be translated to
 -- use slices.
@@ -218,25 +218,25 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
   need resultVar
   resultVar' <- fmtVar resultVar
   
-  -- Store the result in an array.
+  -- Store resultVar in arrVar[loopVar].
   -- 3 Things can happen here:
   resultSlice <- maybeSlice resultVar
-  let sliceAssign = [arrVar',"[",loopVar',"] = ",resultVar',";"]
+  let sliceAssign = concat $ [arrVar',"[",loopVar',"] = ",resultVar',";"]
   case (arrSlice, resultSlice) of
-    -- If result is a slice: omit assignment
+    -- If result is a slice: omit assignment.  Element-wise assignment
+    -- has already happened inside the inner loop.
     (_,Just _) -> do
-      emitC $ ["// omit assignment: "] ++ sliceAssign
-    -- If arr is a slice: recursive slice substitution assigment
-    (Just (parentArr, parentVar),_) -> do
-      parentArr' <- fmtVar parentArr
-      parentVar' <- fmtVar parentVar
+      emitC $ ["// omit assignment: ", sliceAssign]
+    -- If arr is a slice and result is not a slice: this is scalar
+    -- inner loop assigment.  We perform recursive slice substitution
+    -- to find the storage cell.
+    (Just _,_) -> do
       slice' <- fmtSlice arrVar
-      emitC $ ["// use ",arrVar'," == ", slice', " to implement "] ++ sliceAssign
+      emitC $ ["// use ",arrVar'," == ", slice', " to implement ", sliceAssign]
       emitC $ [slice', "[",loopVar',"] = ",resultVar',";"]
-    -- Otherwise: normal single-element array assignment
+    -- Otherwise: normal scalar to array cell assignment.
     (_,_) ->
-      emitC sliceAssign
-
+      emitC [sliceAssign]
       
   -- Restore variable environment and loop nesting after leaving the
   -- loop.  Variables that were declared inside the loop are no longer
