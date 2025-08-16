@@ -1,3 +1,5 @@
+-- Evaluator instance for DSL class
+
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE MultiParamTypeClasses #-} -- DSLArr r a t
 {-# LANGUAGE FlexibleInstances #-} -- Num (r t)

@@ -1,3 +1,5 @@
+-- DSL class and generic DSL library code
+
 {-# LANGUAGE TypeFamilies #-} -- data Arr (n :: Nat)
 {-# LANGUAGE MultiParamTypeClasses #-} -- DSLArr r a t
 {-# LANGUAGE FlexibleInstances #-} -- Num (r t)

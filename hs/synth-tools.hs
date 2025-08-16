@@ -90,14 +90,20 @@ testComp = do
       s7 = (array $ \i -> i + 1) :: Comp (Arr 3 Int)
       s8 = ref s7 0
       s9 = (array $ \i ->
-            array $ \j -> i + j) :: Comp (Arr 4 (Arr 5 Int))
+            array $ \j ->
+            i + j) :: Comp (Arr 4 (Arr 5 Int))
+      s10 = (array $ \i ->
+             array $ \j ->
+             array $ \k ->
+             i + j + k) :: Comp (Arr 4 (Arr 5 (Arr 6 Int)))
 
       test s = do
         --putStrLn "Comp tree:"
         --putStrLn $ show $ unComp s
         s' <- reify s
-        putStrLn "Comp graph:"
+        putStrLn "\n** Node graph:"
         putStr $ show $ s'
+        putStrLn "\n** ToC string:"
         putStr $ toC s'
         return s'
 
@@ -109,8 +115,7 @@ testComp = do
   test s7
   test s8
   test s9
-
-
+  test s10
   
 main = do
   putStrLn "synth-tools.hs"

@@ -1,3 +1,8 @@
+-- Compilation instance for DSL class.
+-- Compiles the final tagless code to concreate datastructure Reify.Graph Node Int
+-- This is the first pass towards compilation to C.
+-- See SynthTools.ToC for monadic syntax traversal that implements the second pass.
+
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TypeFamilies #-} -- data Arr (n :: Nat)
