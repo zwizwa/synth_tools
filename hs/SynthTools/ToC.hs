@@ -203,7 +203,7 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
   -- surrounding code.  In that case we need to omit the declaration.
   arrSlice <- maybeSlice arrVar
   case arrSlice of
-    (Just _) -> emitC ["// omit array declaration ",arrVarDecl']
+    (Just _) -> emitC ["// omit declaration: ",arrVarDecl']
     Nothing  -> emitC [arrVarDecl',";"]
   emitC ["for(",loopVarDecl'," = 0; ",loopVar'," < ",show size,"; ",loopVar', "++) {"]
   loopVars %= (++[loopVar])
@@ -214,7 +214,7 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
   resultType <- typeOf resultVar
   when (isTArray resultType) $ do
     slices %= insert resultVar (arrVar, loopVar)
-    emitC ["// define slice ",resultVar'," == ",arrVar',"[",loopVar',"]"]
+    emitC ["// define slice: ",resultVar'," == ",arrVar',"[",loopVar',"]"]
   need resultVar
   resultVar' <- fmtVar resultVar
   
@@ -223,21 +223,20 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
   resultSlice <- maybeSlice resultVar
   let sliceAssign = [arrVar',"[",loopVar',"] = ",resultVar',";"]
   case (arrSlice, resultSlice) of
-    -- If arr is a slice: Slice substitution assignment. FIXME: Recurse slice.
+    -- If result is a slice: omit assignment
+    (_,Just _) -> do
+      emitC $ ["// omit assignment: "] ++ sliceAssign
+    -- If arr is a slice: recursive slice substitution assigment
     (Just (parentArr, parentVar),_) -> do
       parentArr' <- fmtVar parentArr
       parentVar' <- fmtVar parentVar
       slice' <- fmtSlice arrVar
       emitC $ ["// use ",arrVar'," == ", slice', " to implement "] ++ sliceAssign
       emitC $ [slice', "[",loopVar',"] = ",resultVar',";"]
-    -- If result is a slice: omit assignment
-    (_,Just _) -> do
-      emitC $ ["// omit slice assignment "] ++ sliceAssign
-    -- Otherwise normal single-element array assignment
+    -- Otherwise: normal single-element array assignment
     (_,_) ->
       emitC sliceAssign
 
-  -- FIXME: s10 test does not omit middle slice assignment
       
   -- Restore variable environment and loop nesting after leaving the
   -- loop.  Variables that were declared inside the loop are no longer
