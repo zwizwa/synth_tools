@@ -5,6 +5,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE BlockArguments #-}
 
 module SynthTools.ToC where
 
@@ -68,11 +69,16 @@ fmtVar :: Int -> ToCM String
 fmtVar var = do
   sv' <- use variables
   let Just varLoc = lookup var sv'
-  return $
-    case varLoc of
-      StateVar -> "s->s" ++ show var
-      LocalVar -> "r"    ++ show var
-      LoopVar  -> "l"    ++ show var
+  case varLoc of
+    StateVar -> do
+      loopVars' <- use loopVars
+      let slv v = "[l" ++ show v ++ "]"
+          index = case loopVars' of
+            [] -> ""
+            _ -> concat $ fmap slv loopVars'
+      return $ concat ["s->s",show var,index]
+    LocalVar -> return $ "r"    ++ show var
+    LoopVar  -> return $ "l"    ++ show var
 
 fmtVarDecl :: Type -> Int -> ToCM (String, String)
 fmtVarDecl t var = do

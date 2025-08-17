@@ -96,6 +96,10 @@ testComp = do
              array $ \j ->
              array $ \k ->
              i + j + k) :: Comp (Arr 4 (Arr 5 (Arr 6 Int)))
+      s11 = (array $ \i ->
+             array $ \j ->
+             ramp 0) :: Comp (Arr 3 (Arr 4 Int))
+                        
 
       test s = do
         --putStrLn "Comp tree:"
@@ -116,6 +120,7 @@ testComp = do
   test s8
   test s9
   test s10
+  test s11
   
 main = do
   putStrLn "synth-tools.hs"
