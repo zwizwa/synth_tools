@@ -190,13 +190,13 @@ emitC strings = do
 
 emit outVar (Node t (Const c)) = do
   (outVarDecl',_) <- fmtVarDecl t outVar
-  emitC [outVarDecl'," = ",fmtConst c]
+  emitC [outVarDecl'," = ",fmtConst c,";"]
 
 emit outVar (Node t (Op p as)) = do
   traverse need as
   (outVarDecl',_) <- fmtVarDecl t outVar
   as'             <- fmtArgs as
-  emitC [outVarDecl'," = ",fmtPrim t p,"(",as',")"]
+  emitC [outVarDecl'," = ",fmtPrim t p,"(",as',");"]
 
 emit sigOutVar (Node outType (Signal _init stateVar nextStateVar outVar)) = do
   -- Ignore _init which is in a distinct pass for the init code
