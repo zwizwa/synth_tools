@@ -6,6 +6,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 
 module SynthTools.ToC where
 
@@ -37,13 +38,14 @@ import Control.Lens.TH
 -- Variable location is determined by the comp pass.  The type
 -- information is available in the bindings map.
 
-data VarLoc = StateVar | LocalVar | LoopVar
+data VarLoc = StateVar | LocalVar | LoopVar deriving (Show)
 
 data ToCState = ToCState {
   _variables :: IntMap VarLoc,      -- Currently visible variables
   _bindings  :: IntMap (Node Int),  -- All syntax nodes
-  _loopVars  :: [Int],              -- Current loop nesting
-  _slices    :: IntMap (Int,Int)    -- Map array var to (var,index)
+  _loopVars  :: [(Int,Int)],        -- Current loop nesting (var,range)
+  _slices    :: IntMap (Int,Int),   -- Map array var to (var,index)
+  _stateVars :: IntMap [Int]        -- Map state var to [dim]
   }
 newtype ToCM t = ToCM (WriterT String
                       (State ToCState)
@@ -60,10 +62,39 @@ $(makeLenses ''ToCState)
 
 toC :: Let -> String
 toC (Let (Reify.Graph bindings' retval)) = codeString where
-  (ToCM m) = need retval
-  state0 = ToCState mempty (fromList bindings') [] mempty
+  (ToCM m) = mdo
+
+    let pfx = ""
+
+    -- Struct definitions need to come before C code that refers to
+    -- it.  Use recursive do to avoid multiple passes.
+    tell $ c ["struct ",pfx,"state {\n"]
+    tell $ c stateFields
+    tell $ "};\n"
+    
+    -- Perform tree traversal which emits C code and construct
+    -- analysis maps.
+    tell $ c ["void ",pfx,"run(struct ",pfx,"state *s) {\n"]
+    need retval
+    tell $ "}\n"
+    
+    -- Format the C structures definitions
+    stateVars' <- use stateVars
+    stateFields <- traverse stateField $ toAscList stateVars'
+    let stateField (var, dims) = do
+          -- FIXME: This is ignoring some structure information
+          -- derived from Haskell type reification.
+          typ <- typeOf var
+          let field' = c $ [tab, baseType', " s", show var, fmtDims dims, ";\n"]
+              (baseType', _FIXME) = fmtType typ
+          return $ field'
+    return ()
+    
+  state0 = ToCState mempty (fromList bindings') [] mempty mempty
   (((), codeString), _state) = runState (runWriterT m) state0
 
+c = concat
+s = show
 
 fmtVar :: Int -> ToCM String
 fmtVar var = do
@@ -72,13 +103,13 @@ fmtVar var = do
   case varLoc of
     StateVar -> do
       loopVars' <- use loopVars
-      let slv v = "[l" ++ show v ++ "]"
+      let slv v = "[l" ++ s v ++ "]"
           index = case loopVars' of
             [] -> ""
-            _ -> concat $ fmap slv loopVars'
-      return $ concat ["s->s",show var,index]
-    LocalVar -> return $ "r"    ++ show var
-    LoopVar  -> return $ "l"    ++ show var
+            _ -> c $ fmap (slv . fst) loopVars'
+      return $ c ["s->s",s var,index]
+    LocalVar -> return $ "r"    ++ s var
+    LoopVar  -> return $ "l"    ++ s var
 
 fmtVarDecl :: Type -> Int -> ToCM (String, String)
 fmtVarDecl t var = do
@@ -88,18 +119,23 @@ fmtVarDecl t var = do
 
 fmtType TFloat = ("float","")
 fmtType TInt   = ("int","")
+fmtType (TPair a b) = ("<FIXME:TPair>","")
 fmtType (TArray size baseType) = (bt, at' ++ at) where
-  at' = "[" ++ show size ++ "]"
+  at' = "[" ++ s size ++ "]"
   (bt,at) = fmtType baseType
 
 fmtArgs :: [Int] -> ToCM String
 fmtArgs rands = do
   rands' <- traverse fmtVar rands
-  return $ concat $ List.intersperse ", " rands'
+  return $ c $ List.intersperse ", " rands'
+
 
 fmtPrim TInt Add = "addi"
-fmtConst (I i) = show i
-fmtConst (F f) = show f ++ "f"
+fmtConst (I i) = s i
+fmtConst (F f) = s f ++ "f"
+
+fmtDims :: [Int] -> String
+fmtDims is = c $ fmap (\i -> c $ ["[",s i,"]"]) is
 
 -- Recursive slice substitution.
 fmtSlice arrVar = do
@@ -110,7 +146,7 @@ fmtSlice arrVar = do
     Just (pArrVar, pLoopVar) -> do
       pLoopVar' <- fmtVar pLoopVar
       fmt <- fmtSlice pArrVar
-      return $ concat $ [fmt,"[",pLoopVar',"]"]
+      return $ c $ [fmt,"[",pLoopVar',"]"]
 
 
 
@@ -130,11 +166,12 @@ typeOf var = do
   (Node typ _) <- node var
   return typ
 
+tab = "  "
 indent :: ToCM ()
 indent = do
   loopVars' <- use loopVars
-  let n = length loopVars'
-  tell $ concat $ replicate n "  "
+  let n = 1 + length loopVars'
+  tell $ c $ replicate n tab
 
 
 -- Write C code for variable definition if it's not in the dictionary.
@@ -148,7 +185,7 @@ need var = do
 -- Write indented line of C code.
 emitC strings = do
   indent
-  tell $ concat $ strings
+  tell $ c $ strings
   tell $ "\n"
 
 emit outVar (Node t (Const c)) = do
@@ -165,7 +202,13 @@ emit sigOutVar (Node outType (Signal _init stateVar nextStateVar outVar)) = do
   -- Ignore _init which is in a distinct pass for the init code
 
   -- Declare the state variable.
-  variables %= insert stateVar StateVar
+  -- At this point we also know the dimension of the state
+  loopVars' <- use loopVars
+  let stateVarDims = fmap snd loopVars'
+  variables %= insert stateVar StateVar       -- mark as state variable
+  stateVars %= insert stateVar stateVarDims   -- store state dimensions
+  
+  emitC $ ["// declare state: s", show stateVar, fmtDims stateVarDims]
 
   -- Recurse into arguments to ensure that all intermediate variables
   -- are defined.
@@ -179,12 +222,15 @@ emit sigOutVar (Node outType (Signal _init stateVar nextStateVar outVar)) = do
   stateVar'     <- fmtVar stateVar
   (sigOutVarDecl', sigOutVar') <- fmtVarDecl outType sigOutVar
   
-  emitC [sigOutVarDecl'," = ",outVar',  ";"]
+  emitC [sigOutVarDecl'," = ",outVar',";"]
   -- TO CHECK: I think it is enough to put the state assignment last
   -- because it will not be referenced in any more in the current
   -- state update interation.  If output refers state it would have
   -- been copied into a different variable by now.
-  emitC [stateVar',  " = ",nextStateVar',";"]
+  emitC [stateVar'," = ",nextStateVar',";"]
+
+  
+  -- array/matrix/... from the loopVars.
 
 -- FIXME: this emits array assigments and needs to be translated to
 -- use slices.
@@ -211,8 +257,8 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
   case arrSlice of
     (Just _) -> emitC ["// omit declaration: ",arrVarDecl']
     Nothing  -> emitC [arrVarDecl',";"]
-  emitC ["for(",loopVarDecl'," = 0; ",loopVar'," < ",show size,"; ",loopVar', "++) {"]
-  loopVars %= (++[loopVar])
+  emitC ["for(",loopVarDecl'," = 0; ",loopVar'," < ",s size,"; ",loopVar', "++) {"]
+  loopVars %= (++[(loopVar,size)])
 
   -- Recurse into the loop body that computes the array element.
   -- Set up any slice aliasing.  If the resultVar is an array then we
@@ -227,7 +273,7 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
   -- Store resultVar in arrVar[loopVar].
   -- 3 Things can happen here:
   resultSlice <- maybeSlice resultVar
-  let sliceAssign = concat $ [arrVar',"[",loopVar',"] = ",resultVar',";"]
+  let sliceAssign = c $ [arrVar',"[",loopVar',"] = ",resultVar',";"]
   case (arrSlice, resultSlice) of
     -- If result is a slice: omit assignment.  Element-wise assignment
     -- has already happened inside the inner loop.
