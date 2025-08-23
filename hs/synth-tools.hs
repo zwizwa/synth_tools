@@ -30,7 +30,10 @@
 import SynthTools.DSL
 import SynthTools.Eval
 import SynthTools.Comp
-import SynthTools.ToC
+import qualified SynthTools.RunC as RunC
+
+import qualified SynthTools.ToC as ToC
+import qualified SynthTools.ToV as ToV
 
 
 -- No longer needed
@@ -108,7 +111,9 @@ testComp = do
         putStrLn "\n** Node graph:"
         putStr $ show $ s'
         putStrLn "\n** ToC string:"
-        putStr $ toC s'
+        putStr $ ToC.toC s'
+        putStrLn "\n** ToV string:"
+        putStr $ ToV.toV s'
         return s'
 
   -- Compile and print them
@@ -126,4 +131,9 @@ main = do
   putStrLn "synth-tools.hs"
   testEval
   testComp
+  RunC.test
+  
+
+
+
 

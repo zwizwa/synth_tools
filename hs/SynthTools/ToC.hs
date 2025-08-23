@@ -1,6 +1,10 @@
 -- Compiles concrete Refiy.Graph Node Int syntax graph to C code
 -- string by monadic traversal.
 
+-- TODO:
+-- . Initial vialues
+-- . Pairs
+
 {-# LANGUAGE FlexibleContexts #-} -- constraint DSLType r (t, t)
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -45,7 +49,7 @@ data ToCState = ToCState {
   _bindings  :: IntMap (Node Int),  -- All syntax nodes
   _loopVars  :: [(Int,Int)],        -- Current loop nesting (var,range)
   _slices    :: IntMap (Int,Int),   -- Map array var to (var,index)
-  _stateVars :: IntMap [Int]        -- Map state var to [dim]
+  _stateVars :: IntMap (Int,[Int])  -- Map state var to (init,[dim])
   }
 newtype ToCM t = ToCM (WriterT String
                       (State ToCState)
@@ -81,11 +85,17 @@ toC (Let (Reify.Graph bindings' retval)) = codeString where
     -- Format the C structures definitions
     stateVars' <- use stateVars
     stateFields <- traverse stateField $ toAscList stateVars'
-    let stateField (var, dims) = do
+    let stateField (var, (initVar, dims)) = do
+          -- Initializers are constants but might be wrapped in Pair.
+          -- Node initType (Const initVal) <- node initVar
+          init <- node initVar
+          
           -- FIXME: This is ignoring some structure information
           -- derived from Haskell type reification.
+          -- FIXME: Generate initializer
           typ <- typeOf var
-          let field' = c $ [tab, baseType', " s", show var, fmtDims dims, ";\n"]
+          let field' = c $ [tab, baseType', " s", show var, fmtDims dims,
+                            "; // ", show init, "\n"]
               (baseType', _FIXME) = fmtType typ
           return $ field'
     return ()
@@ -198,25 +208,25 @@ emit outVar (Node t (Op p as)) = do
   as'             <- fmtArgs as
   emitC [outVarDecl'," = ",fmtPrim t p,"(",as',");"]
 
-emit sigOutVar (Node outType (Signal _init stateVar nextStateVar outVar)) = do
+emit sigOutVar (Node outType (Signal init stateVar nextStateVar outVar)) = do
   -- Ignore _init which is in a distinct pass for the init code
 
   -- Declare the state variable.
   -- At this point we also know the dimension of the state
   loopVars' <- use loopVars
   let stateVarDims = fmap snd loopVars'
-  variables %= insert stateVar StateVar       -- mark as state variable
-  stateVars %= insert stateVar stateVarDims   -- store state dimensions
+  variables %= insert stateVar StateVar            -- mark as state variable
+  stateVars %= insert stateVar (init,stateVarDims) -- store state dimensions
   
-  emitC $ ["// declare state: s", show stateVar, fmtDims stateVarDims]
-
   -- Recurse into arguments to ensure that all intermediate variables
   -- are defined.
   need nextStateVar
   need outVar
-    
+
+  -- emitCSignal (stateVar, nextStateVar) (outType, sigOutVar, outVar)
+  -- emitCSignal (stateVar, nextStateVar) (outType, sigOutVar, outVar) = do
+  
   -- Emit the update code.
-  -- FIXME: State is loop-dependent
   nextStateVar' <- fmtVar nextStateVar
   outVar'       <- fmtVar outVar
   stateVar'     <- fmtVar stateVar
@@ -228,6 +238,7 @@ emit sigOutVar (Node outType (Signal _init stateVar nextStateVar outVar)) = do
   -- state update interation.  If output refers state it would have
   -- been copied into a different variable by now.
   emitC [stateVar'," = ",nextStateVar',";"]
+
 
   
   -- array/matrix/... from the loopVars.
@@ -299,8 +310,25 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
 
 emit _ (Node _ (Var _)) = return () -- stub
 
+emit elVar (Node elType (Ref aVar iVar)) = do
+  need aVar ; need iVar
+  -- FIXME: Array ref is wrong because it needs to be multi-dimensional.
+  -- (outVarDecl',_) <- fmtVarDecl t outVar
+  emitC [ "// TODO Ref" ]
+
+emit _ (Node _ (Pair _ _)) = do
+  emitC [ "// TODO Pair" ]
+
+emit _ (Node _ (Fst _)) = do
+  emitC [ "// TODO Fst" ]
+
+emit _ (Node _ (Snd _)) = do
+  emitC [ "// TODO Snd" ]
+
 emit _ _ = do
   emitC [ "// TODO toC match" ]
+
+
 
 
 maybeSlice var = do
