@@ -3,7 +3,9 @@
 
 -- TODO:
 -- . Initial vialues
--- . Pairs
+-- . Array refs
+-- . Validate pairs
+-- . Generate C code and run it
 
 {-# LANGUAGE FlexibleContexts #-} -- constraint DSLType r (t, t)
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -95,7 +97,7 @@ toC (Let (Reify.Graph bindings' retval)) = codeString where
           -- FIXME: Generate initializer
           typ <- typeOf var
           let field' = c $ [tab, baseType', " s", show var, fmtDims dims,
-                            "; // ", show init, "\n"]
+                            "; // init = ", show init, "\n"]
               (baseType', _FIXME) = fmtType typ
           return $ field'
     return ()
@@ -129,7 +131,13 @@ fmtVarDecl t var = do
 
 fmtType TFloat = ("float","")
 fmtType TInt   = ("int","")
-fmtType (TPair a b) = ("<FIXME:TPair>","")
+fmtType (TPair a b) = (struct,"") where
+  struct = c ["struct { ",
+              aBase," ",fstC,aArr,"; ",
+              bBase," ",sndC,bArr,"; ",
+              "}"]
+  (aBase, aArr) = fmtType a
+  (bBase, bArr) = fmtType b
 fmtType (TArray size baseType) = (bt, at' ++ at) where
   at' = "[" ++ s size ++ "]"
   (bt,at) = fmtType baseType
@@ -198,6 +206,17 @@ emitC strings = do
   tell $ c $ strings
   tell $ "\n"
 
+--fstC = "fst"
+--sndC = "snd"
+fstC = "a"
+sndC = "b"
+
+emitPairRef outVar t pairVar field = do
+  need pairVar
+  (outVarDecl',_) <- fmtVarDecl t outVar
+  pairVar'        <- fmtVar pairVar
+  emitC [outVarDecl'," = ",pairVar',".",field,";"]
+
 emit outVar (Node t (Const c)) = do
   (outVarDecl',_) <- fmtVarDecl t outVar
   emitC [outVarDecl'," = ",fmtConst c,";"]
@@ -207,6 +226,17 @@ emit outVar (Node t (Op p as)) = do
   (outVarDecl',_) <- fmtVarDecl t outVar
   as'             <- fmtArgs as
   emitC [outVarDecl'," = ",fmtPrim t p,"(",as',");"]
+
+emit outVar (Node t (Fst pairVar)) = emitPairRef outVar t pairVar fstC
+emit outVar (Node t (Snd pairVar)) = emitPairRef outVar t pairVar sndC
+
+emit outVar (Node t (Pair fstVar sndVar)) = do
+  need fstVar ; need sndVar
+  (outVarDecl',_) <- fmtVarDecl t outVar
+  fstVar'         <- fmtVar fstVar
+  sndVar'         <- fmtVar sndVar
+  emitC [outVarDecl'," = { ",fstVar',", ", sndVar'," };"]
+
 
 emit sigOutVar (Node outType (Signal init stateVar nextStateVar outVar)) = do
   -- Ignore _init which is in a distinct pass for the init code
@@ -315,15 +345,6 @@ emit elVar (Node elType (Ref aVar iVar)) = do
   -- FIXME: Array ref is wrong because it needs to be multi-dimensional.
   -- (outVarDecl',_) <- fmtVarDecl t outVar
   emitC [ "// TODO Ref" ]
-
-emit _ (Node _ (Pair _ _)) = do
-  emitC [ "// TODO Pair" ]
-
-emit _ (Node _ (Fst _)) = do
-  emitC [ "// TODO Fst" ]
-
-emit _ (Node _ (Snd _)) = do
-  emitC [ "// TODO Snd" ]
 
 emit _ _ = do
   emitC [ "// TODO toC match" ]

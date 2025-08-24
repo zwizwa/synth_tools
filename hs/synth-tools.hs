@@ -102,12 +102,19 @@ testComp = do
       s11 = (array $ \i ->
              array $ \j ->
              ramp 0) :: Comp (Arr 3 (Arr 4 Int))
-                        
+
 
       test s = do
         --putStrLn "Comp tree:"
         --putStrLn $ show $ unComp s
-        s' <- reify s
+
+        -- Run it in the IO monad
+        -- s' <- reify s
+
+        -- Or run it using usafePerformIO
+        let s' = reify' s
+
+        
         putStrLn "\n** Node graph:"
         putStr $ show $ s'
         putStrLn "\n** ToC string:"

@@ -92,7 +92,7 @@ class DSLMem r where
   -- memory.  Interface is pure.  A Monad could be used at the library
   -- end to make this more user friendly, but the monad is kept out of
   -- the interface here.
-  memory  :: (DSLType r d, DSLType r a, KnownNat n) => r (Mem n a d) -> (r (Mem n a d) -> (r (Mem n a d), r t)) -> r t
+  memSig  :: () => r (Mem n a d) -> (r (Mem n a d) -> (r (Mem n a d), r t)) -> r t
   memGet  :: (DSLType r d, DSLType r a, KnownNat n) => r a -> r (Mem n a d) -> r d
   memSet  :: (DSLType r d, DSLType r a, KnownNat n) => r a -> r d -> r (Mem n a d) -> r (Mem n a d)
 

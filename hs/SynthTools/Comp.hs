@@ -18,6 +18,8 @@ import Data.Dynamic
 import Prelude hiding (take, const, zipWith, lookup)
 import qualified Data.Reify as Reify
 import qualified Data.Graph as Graph
+import System.IO.Unsafe
+
 
 
 -- Graph node type
@@ -201,6 +203,10 @@ reify (Comp s) = do
   --
   -- let s''' = tsort s''
   return s''
+
+
+reify' = unsafePerformIO . reify
+                       
 
 
 -- See comments in Eval.hs Num Eval instances.
