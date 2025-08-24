@@ -9,13 +9,15 @@
 -- that should be easy enough to decouple using some Haskell ADTs.
 
 import qualified SynthTools.RunC as RunC
-
-
-test_armv7 = "/i/exo/areal/src/armv7-nix/test_armv7.elf"
+import System.Directory (setCurrentDirectory)
+import Data.List.Split
+import Data.List
 
 main = do
+  setCurrentDirectory "/i/exo/areal/src/"
   putStrLn "test_cproc.hs"
-  f <- RunC.run test_armv7 ["test_hs"] 123
-  putStrLn $ show f
-  
-  
+  f <- RunC.run "./armv7-nix/test_armv7.elf" ["ir_areal"]
+  let t = chunksOf 12 f
+      (t':_) = transpose t
+  traverse (putStrLn . show) $ t'
+

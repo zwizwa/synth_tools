@@ -31,7 +31,7 @@ instance DSLPrim Eval Int   where op1 = eval1 ; op2 = eval2
 instance DSLPrim Eval Float where op1 = eval1 ; op2 = eval2
 
 
-instance DSL Eval where
+instance DSLSig Eval where
 
   signal init update = v where
     -- Note that the initial value is encoded as a stream where we
@@ -44,10 +44,14 @@ instance DSL Eval where
     -- Given init0 we can just tie the knot
     (Eval s, v) = update $ Eval $ Cons init0 s
 
+instance DSLPair Eval where
+
   -- Attempt to give _some_ semantics to data structures before
   -- implementing Comp instance.
   pack (Eval a) (Eval b) = Eval $ zipWith (,) a b
   unpack (Eval ab) = (Eval $ fmap fst ab, Eval $ fmap snd ab)
+
+instance DSLArr Eval where
 
   array f = arr where
     arr = Eval $ fmap Arr streams

@@ -131,7 +131,7 @@ main = do
   putStrLn "synth-tools.hs"
   testEval
   testComp
-  RunC.test
+  -- RunC.test
   
 
 

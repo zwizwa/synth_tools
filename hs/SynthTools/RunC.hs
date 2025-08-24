@@ -1,10 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 
 
 
 module SynthTools.RunC where
 
--- import System.Process.Typed
+import Control.Monad
 import System.Process
 import Data.Binary
 import Data.Binary.Put
@@ -39,34 +40,69 @@ class RunC r where
 
 -- From Claude
 
--- Method 1: Using Data.Binary (recommended)
-run :: String -> [String] -> Float -> IO Float
-run cmd args inputFloat = do
-  (Just stdin_h, Just stdout_h, Just stderr_h, proc_h) <- 
+data Proc = Proc ProcessHandle Handle Handle 
+
+open :: String -> [String] -> IO Proc
+open cmd args = do
+  (Just stdin_h, Just stdout_h, Nothing, proc_h) <- 
     createProcess (proc cmd args) { 
-      std_in = CreatePipe,
-      std_out = CreatePipe, 
-      std_err = CreatePipe
+      std_in  = CreatePipe,
+      std_out = CreatePipe
+      -- std_err = CreatePipe
     }
-  
-  -- Set handles to binary mode
-  hSetBinaryMode stdin_h True
+  hSetBinaryMode stdin_h  True
   hSetBinaryMode stdout_h True
-  
-  -- Write float as 4-byte little-endian binary
-  let inputBytes = runPut (putFloatle inputFloat)
+  return $ Proc proc_h stdin_h stdout_h
+
+close (Proc proc_h stdin_h stdout_h) = do
+  hClose stdin_h
+  hClose stdout_h
+  waitForProcess proc_h
+
+
+-- Method 1: Using Data.Binary (recommended)
+run :: String -> [String] -> IO [Float]
+run cmd args = do
+  p@(Proc proc_h stdin_h stdout_h) <- open cmd args
+
+  let
+    rows = 2
+    columns = 12 -- AREAL_NB_IN_CHANNELS
+    nb_blocks = 1
+    block_size = 256
+    preset = 3
+    use_float = 1
+    monitor_L = 0
+    monitor_R = 0
+    noise = 0
+    tc = 0
+    impulse = [1,0,0,0,0,0,0,0,0,0,0,0]
+    config_matrix = [
+      [nb_blocks, block_size, preset, use_float,
+       monitor_L, monitor_R,  noise,  tc,
+       0,         0,          0,      0],
+      impulse
+      ]
+    nbFloat = nb_blocks * block_size * columns
+    signal = replicate nbFloat 0
+    inputBytes = runPut $ do
+      putInt32le rows
+      putInt32le columns
+      traverse putFloatle $ concat config_matrix ++ signal
+      return ()
+      
   L.hPut stdin_h inputBytes
   hFlush stdin_h
-  -- hClose stdin_h  -- Important: close stdin so process knows input is complete
+
+  let runGet' = flip runGet
+
+  header <- L.hGet stdout_h 8
+  let [r,c] = runGet' header $ replicateM 2 getInt32le
+      nbFloat' = fromIntegral $ r * c
   
-  -- Read float back as 4-byte little-endian binary
-  outputBytes <- L.hGet stdout_h 4
-  let outputFloat = runGet getFloatle outputBytes
+  floats <- L.hGet stdout_h $ 4 * nbFloat'
+  let outputFloat = runGet' floats $ replicateM nbFloat' getFloatle
   
-  -- Clean up
-  hClose stdout_h
-  hClose stderr_h
-  _ <- waitForProcess proc_h
-  
+  close p
   return outputFloat
 

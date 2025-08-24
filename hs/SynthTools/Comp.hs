@@ -80,7 +80,7 @@ instance DSLPrim Comp Int   where op1 = compOp1 ; op2 = compOp2
 instance DSLPrim Comp Float where op1 = compOp1 ; op2 = compOp2
 
 
-instance DSL Comp where
+instance DSLSig Comp where
   
   signal compInit update = sig where
     Comp init = compInit
@@ -92,14 +92,9 @@ instance DSL Comp where
     (Comp state, compOut) = update compVar
     Comp out = compOut
     sig = Comp $ In $ Node outType $ Signal init var state out
-    
-  pack a b = Comp $ In $ Node typ $ Pair (unComp a) (unComp b) where
-    typ = TPair (dslType a) (dslType b)
-  
-  unpack (Comp ab) = (fst, snd) where
-    fst = Comp $ In $ Node (dslType fst) $ Fst ab
-    snd = Comp $ In $ Node (dslType snd) $ Snd ab
-    
+
+instance DSLArr Comp where
+
   array f = a where
     uniqueTag = toDyn f
     var = In $ Node varType $ Var $ uniqueTag
@@ -112,6 +107,17 @@ instance DSL Comp where
   ref (Comp a) (Comp i) = rv where
     typ = dslType rv
     rv = Comp $ In $ Node typ $ Ref a i
+
+
+instance DSLPair Comp where
+    
+  pack a b = Comp $ In $ Node typ $ Pair (unComp a) (unComp b) where
+    typ = TPair (dslType a) (dslType b)
+  
+  unpack (Comp ab) = (fst, snd) where
+    fst = Comp $ In $ Node (dslType fst) $ Fst ab
+    snd = Comp $ In $ Node (dslType snd) $ Snd ab
+    
 
 
 instance DSLConst Comp Int where
