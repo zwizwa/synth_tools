@@ -109,10 +109,10 @@ testComp = do
         --putStrLn $ show $ unComp s
 
         -- Run it in the IO monad
-        -- s' <- reify s
+        -- s' <- reify' s
 
         -- Or run it using usafePerformIO
-        let s' = reify' s
+        let s' = reify s
 
         
         putStrLn "\n** Node graph:"

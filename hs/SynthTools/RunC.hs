@@ -7,6 +7,7 @@ module SynthTools.RunC where
 
 import Control.Monad
 import System.Process
+import Data.List.Split
 import Data.Binary
 import Data.Binary.Put
 import Data.Binary.Get
@@ -61,8 +62,8 @@ close (Proc proc_h stdin_h stdout_h) = do
 
 
 -- Method 1: Using Data.Binary (recommended)
-run :: String -> [String] -> IO [Float]
-run cmd args = do
+runPlugin12 :: String -> [String] -> IO [[Float]]
+runPlugin12 cmd args = do
   p@(Proc proc_h stdin_h stdout_h) <- open cmd args
 
   let
@@ -104,5 +105,15 @@ run cmd args = do
   let outputFloat = runGet' floats $ replicateM nbFloat' getFloatle
   
   close p
-  return outputFloat
+  return $ chunksOf 12 outputFloat
 
+
+
+
+run' cmd args = do
+  (Nothing, Nothing, Nothing, proc_h) <- 
+    createProcess (proc cmd args)
+  return $ proc_h
+
+close' proc_h = do
+  waitForProcess proc_h

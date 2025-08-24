@@ -192,20 +192,28 @@ tsort (Let (Reify.Graph assoc ret)) = Let $ Reify.Graph assoc' ret where
     (n, key, _) = unVertex v
 
 
-reify :: Comp t -> IO Let
-reify (Comp s) = do
+reify' :: Comp t -> IO Let
+reify' (Comp s) = do
   s' <- Reify.reifyGraph $ s
   let s'' = Let s'
   -- A topological sort doesn't seem to be necessary, reifyGraph seems
   -- to produce sorted ouput.  This is not explicitly mentioned in the
   -- documentation but it will be very obvious in the compiled output
-  -- if this condition ever breaks.
+  -- if this condition ever breaks.  EDIT: The condition isn't even
+  -- necessary because actual use in ToC will not rely on topological
+  -- sort, but will create the topological sort as a side effect of
+  -- the traversal.
   --
   -- let s''' = tsort s''
   return s''
 
 
-reify' = unsafePerformIO . reify
+-- The main interface can just include the unsafePerformIO.  There is
+-- no realy need to keep this in the IO monad.  Later, maybe add a
+-- common subexpression checker by hashing nodes, to see if sharing
+-- opportunities are missed.  But it doesn't seem that is relevant
+-- until it becomes obvious in generated output.
+reify = unsafePerformIO . reify'
                        
 
 

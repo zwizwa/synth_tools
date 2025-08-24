@@ -131,13 +131,13 @@ fmtVarDecl t var = do
 
 fmtType TFloat = ("float","")
 fmtType TInt   = ("int","")
-fmtType (TPair a b) = (struct,"") where
+fmtType (TPair fst snd) = (struct,"") where
   struct = c ["struct { ",
-              aBase," ",fstC,aArr,"; ",
-              bBase," ",sndC,bArr,"; ",
+              fstBase," ",fstC,fstArr,"; ",
+              sndBase," ",sndC,sndArr,"; ",
               "}"]
-  (aBase, aArr) = fmtType a
-  (bBase, bArr) = fmtType b
+  (fstBase, fstArr) = fmtType fst
+  (sndBase, sndArr) = fmtType snd
 fmtType (TArray size baseType) = (bt, at' ++ at) where
   at' = "[" ++ s size ++ "]"
   (bt,at) = fmtType baseType
