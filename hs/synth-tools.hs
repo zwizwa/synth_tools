@@ -30,10 +30,13 @@
 import SynthTools.DSL
 import SynthTools.Eval
 import SynthTools.Comp
+
+
 import qualified SynthTools.RunC as RunC
 
 import qualified SynthTools.ToC as ToC
 import qualified SynthTools.ToV as ToV
+
 
 
 -- No longer needed

@@ -13,6 +13,8 @@ import System.Directory (setCurrentDirectory)
 import Data.List.Split
 import Data.List
 
+import qualified SynthTools.Dataflow as Dataflow
+
 ir_areal = do
   setCurrentDirectory "/i/exo/areal/src/"
   putStrLn "test_cproc.hs"
@@ -21,6 +23,7 @@ ir_areal = do
   traverse (putStrLn . show) $ m'
 
 main = do
-  ir_areal
+  -- ir_areal
+  Dataflow.test
 
 
