@@ -15,6 +15,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 -- {-# LANGUAGE ApplicativeDo #-}
 
@@ -22,6 +23,8 @@ module SynthTools.Dataflow where
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Writer
+import Control.Monad.Identity
 import Text.Pretty.Simple
 import Data.Map
 
@@ -42,32 +45,44 @@ type Paths t = [(Path,t)]
 
 type C = String
 
-
--- How to express the isomorphism between a Node t and a [([Name],t)]?
--- I don't quite see how to do this with generic functions, so let's
--- do it manually first.
-flatten   :: Node t -> Paths t
-flatten = f [] where
-  f path (Leaf leaf) = [(path, leaf)]
-  f path (Table tab) = concat $ fmap (f' path) $ toList tab
-  f' path (name, node) = f (name:path) node
+newtype CValue = CValue Value
+instance Show CValue where
+  show (CValue (VFloat f)) = show f
+  show (CValue (VInt i)) = show i
 
 
-mapPaths :: ([Name] -> a -> b) -> Node a -> Node b
-mapPaths f = down [] where
-  down ns (Leaf leaf) = Leaf $ f ns leaf
-  down ns (Table table) = Table $ mapWithKey f' table where
-    f' n = down (n:ns)
 
--- Use the Traversable instance of List to 1. set the order and 2. get the key.
-traversePaths :: Applicative f => ([Name] -> a -> f b) -> Node a -> f (Node b)
-traversePaths f = down [] where
-  down ns (Leaf leaf)   = fmap Leaf  $ f ns leaf
-  down ns (Table table) = fmap (Table . fromList) $ traverse f' $ toAscList table where
-    f' (n,a) = fmap (n,) $ down (n:ns) a
+-- Use the Traversable instance of List to 1. set the order via
+-- toAscList and 2. get the key inside the traversal.
+traverseWithPath :: Applicative f => (Path -> a -> f b) -> Node a -> f (Node b)
+traverseWithPath f = trav [] where
+  trav ns (Leaf leaf)   = fmap Leaf $ f ns leaf
+  trav ns (Table table) = fmap (Table . fromList) $ traverse f' $ toAscList table where
+    f' (n,a) = fmap (n,) $ trav (ns ++ [n]) a
     
-  
-  
+mapPaths :: (Path -> a -> b) -> Node a -> Node b
+mapPaths f = runIdentity . traverseWithPath f' where f' p v = pure $ f p v
+
+flatten :: Node t -> Paths t
+flatten n = ps where
+  (_, ps) = runWriter $ traverseWithPath f n
+  f p v = do tell [(p,v)] ; return ()
+
+-- Note that these perform overwrites of incompatible substructure.
+setPath :: forall t. t -> Path -> Node t -> Node t
+setPath v [] (Table _)   = Leaf $ v
+setPath v ps (Table tab) = Table $ setTable v ps tab
+setPath v ps (Leaf _)    = Table $ setTable v ps mempty
+
+setTable :: forall t. t -> Path -> Table t -> Table t
+setTable v [] _  = error "Empty Path"
+setTable v [p] t = insert p (Leaf v) t
+setTable v (p:ps) t = insert p v' t where
+  v' = setPath v ps node
+  node = case Data.Map.lookup p t of
+    Just n -> n
+    Nothing -> Table mempty
+    
 
 
 mangle [] = ""
@@ -76,11 +91,12 @@ mangle (n:ns) = "_" ++ n ++ mangle ns
 -- setter :: Params -> Path -> C
 pp = pPrintNoColor
 
-traverse' = flip traverse
+c = Prelude.concat
 
 test = do
   putStrLn "SynthTools.Dataflow"
   let base = Leaf $ VFloat 0.0
+      -- wrap name inner = Table $ fromList [(name, inner), (name ++ "0", inner)]
       wrap name inner = Table $ fromList [(name, inner)]
       params = wrap "a" $ wrap "b" $ wrap "c" $ base
       params :: Node Value
@@ -91,9 +107,11 @@ test = do
   putStrLn "params:"
   pp params
 
-  putStrLn "traverse:"
-  traverse' params $ \node -> putStrLn $ show node
-
   putStrLn "flatten:"
   pp $ flatten params
-  
+
+  -- For generating OSC setters and initializers.
+  putStrLn "traverse:"
+  flip traverseWithPath params $
+    \p v -> putStrLn $ c ["set",mangle p,"(s, ",show $ CValue v,");"]
+
