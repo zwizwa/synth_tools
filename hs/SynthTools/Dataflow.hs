@@ -68,22 +68,27 @@ flatten n = ps where
   (_, ps) = runWriter $ traverseWithPath f n
   f p v = do tell [(p,v)] ; return ()
 
--- Note that these perform overwrites of incompatible substructure.
-setPath :: forall t. t -> Path -> Node t -> Node t
-setPath v [] (Table _)   = Leaf $ v
-setPath v ps (Table tab) = Table $ setTable v ps tab
-setPath v ps (Leaf _)    = Table $ setTable v ps mempty
+-- Note that these perform overwrites of incompatible substructure.  I
+-- was surprised by how many cases there are here: overwrite leaf node
+-- or empty node with table, or overwrite table node with leaf.
 
-setTable :: forall t. t -> Path -> Table t -> Table t
-setTable v [] _  = error "Empty Path"
-setTable v [p] t = insert p (Leaf v) t
-setTable v (p:ps) t = insert p v' t where
-  v' = setPath v ps node
-  node = case Data.Map.lookup p t of
-    Just n -> n
-    Nothing -> Table mempty
-    
+setPath :: forall t. Path -> Node t -> Node t -> Node t
+setPath [] v _ = v
+setPath ps v node = Table $ setTable ps v $ asTable $ Just node
 
+-- Handle missing and non-Table nodes.
+asTable (Just (Table t)) = t
+asTable _ = mempty
+
+setTable :: forall t. Path -> Node t -> Table t -> Table t
+setTable [] v _  = error "Empty Path"
+setTable [p] v t = insert p v t
+setTable (p:ps) v t = insert p (Table v') t where
+  v' = setTable ps v $ asTable $ Data.Map.lookup p t
+
+unflatten :: Paths t -> Node t
+unflatten = Prelude.foldr f (Table mempty) where
+  f (p,v) = setPath p (Leaf v)
 
 mangle [] = ""
 mangle (n:ns) = "_" ++ n ++ mangle ns
@@ -115,3 +120,9 @@ test = do
   flip traverseWithPath params $
     \p v -> putStrLn $ c ["set",mangle p,"(s, ",show $ CValue v,");"]
 
+  putStrLn "unflatten:"
+  pp $ unflatten [
+    (["a","b"],VInt 1),
+    (["a","c"],VInt 2)
+    ]
+  
