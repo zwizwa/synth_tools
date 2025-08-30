@@ -14,9 +14,13 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE TupleSections #-}
+
+-- {-# LANGUAGE ApplicativeDo #-}
 
 module SynthTools.Dataflow where
 
+import Control.Applicative
 import Control.Monad
 import Text.Pretty.Simple
 import Data.Map
@@ -43,20 +47,26 @@ type C = String
 -- I don't quite see how to do this with generic functions, so let's
 -- do it manually first.
 flatten   :: Node t -> Paths t
-
-
 flatten = f [] where
   f path (Leaf leaf) = [(path, leaf)]
   f path (Table tab) = concat $ fmap (f' path) $ toList tab
   f' path (name, node) = f (name:path) node
 
-unflatten :: forall t. Paths t -> Node t
-unflatten = Table . Prelude.foldr ins mempty where
-  ins :: (Path, t) -> Table t -> Table t
-  ins ([n], leaf)  = insert n $ Leaf leaf
-  ins (n:ns, leaf) = alter f n where
-    f (Maybe
-    f Nothing = undefined -- Just . ins (ns, leaf) mempty
+
+mapPaths :: ([Name] -> a -> b) -> Node a -> Node b
+mapPaths f = down [] where
+  down ns (Leaf leaf) = Leaf $ f ns leaf
+  down ns (Table table) = Table $ mapWithKey f' table where
+    f' n = down (n:ns)
+
+-- Use the Traversable instance of List to 1. set the order and 2. get the key.
+traversePaths :: Applicative f => ([Name] -> a -> f b) -> Node a -> f (Node b)
+traversePaths f = down [] where
+  down ns (Leaf leaf)   = fmap Leaf  $ f ns leaf
+  down ns (Table table) = fmap (Table . fromList) $ traverse f' $ toAscList table where
+    f' (n,a) = fmap (n,) $ down (n:ns) a
+    
+  
   
 
 
