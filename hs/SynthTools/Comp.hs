@@ -140,7 +140,6 @@ instance DSLConst Comp Float where
 
 
 
-
 -- Wrap the Unique type (Int) to allow for Show instance
 data Reg = Reg Int
 instance Show Reg where

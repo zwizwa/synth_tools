@@ -25,6 +25,7 @@ import Control.Monad.Writer
 import Control.Monad
 import Control.Monad.Fix
 import Data.IntMap.Lazy
+import Data.Dynamic
 
 import Prelude hiding (const, lookup)
 
@@ -44,14 +45,18 @@ import Control.Lens.TH
 -- Variable location is determined by the comp pass.  The type
 -- information is available in the bindings map.
 
-data VarLoc = StateVar | LocalVar | LoopVar deriving (Show)
+data VarLoc = StateVar | LocalVar | LoopVar | OutVar deriving (Show)
+data Alias = Slice Int Int -- Array slices
+           | Output Int    -- Function output
+           deriving (Show)
 
 data ToCState = ToCState {
   _variables :: IntMap VarLoc,      -- Currently visible variables
   _bindings  :: IntMap (Node Int),  -- All syntax nodes
   _loopVars  :: [(Int,Int)],        -- Current loop nesting (var,range)
-  _slices    :: IntMap (Int,Int),   -- Map array var to (var,index)
-  _stateVars :: IntMap (Int,[Int])  -- Map state var to (init,[dim])
+  _aliases   :: IntMap Alias,       -- Map array var to (var,index)
+  _stateVars :: IntMap (Int,[Int]), -- Map state var to (init,[dim])
+  _nextNode  :: Int                 -- Counter for creating new bindings
   }
 newtype ToCM t = ToCM (WriterT String
                       (State ToCState)
@@ -67,7 +72,7 @@ instance MonadFail ToCM where
 $(makeLenses ''ToCState)
 
 toC :: Let -> String
-toC (Let (Reify.Graph bindings' retval)) = codeString where
+toC (Let (Reify.Graph bindings' retVar)) = codeString where
   (ToCM m) = mdo
 
     let pfx = ""
@@ -80,8 +85,8 @@ toC (Let (Reify.Graph bindings' retval)) = codeString where
     
     -- Perform tree traversal which emits C code and construct
     -- analysis maps.
-    tell $ c ["void ",pfx,"run(struct ",pfx,"state *s) {\n"]
-    need retval
+    tell $ c ["void ",pfx,"run(struct ",pfx,"state *s, ",outDecl,") {\n"]
+    outDecl <- needOutput retVar
     tell $ "}\n"
     
     -- Format the C structures definitions
@@ -101,17 +106,22 @@ toC (Let (Reify.Graph bindings' retval)) = codeString where
               (baseType', _FIXME) = fmtType typ
           return $ field'
     return ()
+
+  nextNode' = 1 + (Prelude.foldr max 0 $ fmap fst bindings')
     
-  state0 = ToCState mempty (fromList bindings') [] mempty mempty
+  state0 = ToCState mempty (fromList bindings') [] mempty mempty nextNode'
   (((), codeString), _state) = runState (runWriterT m) state0
 
 c = concat
 s = show
 
+ 
 fmtVar :: Int -> ToCM String
 fmtVar var = do
   sv' <- use variables
-  let Just varLoc = lookup var sv'
+  let varLoc = case lookup var sv' of
+        Just vl -> vl
+        Nothing -> error $ "Internal error: fmtVar, undefined variable " ++ show var
   case varLoc of
     StateVar -> do
       loopVars' <- use loopVars
@@ -122,6 +132,7 @@ fmtVar var = do
       return $ c ["s->s",s var,index]
     LocalVar -> return $ "r"    ++ s var
     LoopVar  -> return $ "l"    ++ s var
+    OutVar   -> return $ "o"    ++ s var
 
 fmtVarDecl :: Type -> Int -> ToCM (String, String)
 fmtVarDecl t var = do
@@ -161,11 +172,13 @@ fmtSlice arrVar = do
   arrVar'  <- fmtVar arrVar
   case arrSlice of
     Nothing -> return arrVar'
-    Just (pArrVar, pLoopVar) -> do
+    Just (Slice pArrVar pLoopVar) -> do
       pLoopVar' <- fmtVar pLoopVar
       fmt <- fmtSlice pArrVar
       return $ c $ [fmt,"[",pLoopVar',"]"]
-
+    Just (Output pOutVar) -> do
+      fmt <- fmtSlice pOutVar
+      return $ c $ [fmt]
 
 
 node :: Int -> ToCM (Node Int)
@@ -197,8 +210,35 @@ need var = do
   defined' <- defined var
   when (not defined') $ do
     node' <- node var
-    variables %= insert var LocalVar
+    variables . at var .= Just LocalVar
     emit var node'
+
+-- Create a node with the same type as a given node.
+-- Used e.g. for creating the output node alias.
+newNode = do
+  var <- use nextNode
+  nextNode %= (+ 1)
+  return var
+
+-- Similar to need, but handle output variable differently
+needOutput retVar = do
+  Just retNode@(Node typ _) <- use $ bindings . at retVar
+  outVar <- newNode
+  bindings  . at outVar .= Just (Node typ (Var $ toDyn ())) -- dummy tag
+  variables . at outVar .= Just OutVar
+  variables . at retVar .= Just LocalVar
+  aliases   . at retVar .= Just (Output outVar)
+  (outVarDecl,_) <- fmtVarDecl typ outVar
+
+  -- Like slice annotation
+  retVar' <- fmtVar retVar
+  outVar' <- fmtVar outVar
+  emitC ["// define output alias: ",retVar'," == ",outVar']
+
+  emit retVar retNode
+  return $ outVarDecl
+ 
+    
 
 -- Write indented line of C code.
 emitC strings = do
@@ -245,8 +285,8 @@ emit sigOutVar (Node outType (Signal init stateVar nextStateVar outVar)) = do
   -- At this point we also know the dimension of the state
   loopVars' <- use loopVars
   let stateVarDims = fmap snd loopVars'
-  variables %= insert stateVar StateVar            -- mark as state variable
-  stateVars %= insert stateVar (init,stateVarDims) -- store state dimensions
+  variables . at stateVar .= Just StateVar            -- mark as state variable
+  stateVars . at stateVar .= Just (init,stateVarDims) -- store state dimensions
   
   -- Recurse into arguments to ensure that all intermediate variables
   -- are defined.
@@ -274,7 +314,7 @@ emit sigOutVar (Node outType (Signal init stateVar nextStateVar outVar)) = do
   -- array/matrix/... from the loopVars.
 
 -- FIXME: this emits array assigments and needs to be translated to
--- use slices.
+-- use aliases.
 emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
 
   -- Naming scheme below:
@@ -286,7 +326,7 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
   snapLoopVars   <- use loopVars
 
   -- Introduce the variable before it is used in formatting below.
-  variables %= insert loopVar LoopVar
+  variables . at loopVar .= Just LoopVar
 
   -- Format the loop head.
   (arrVarDecl',  arrVar') <- fmtVarDecl t arrVar
@@ -306,8 +346,8 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
   -- need to alias so it can be filled in place in the inner loop.
   resultType <- typeOf resultVar
   when (isTArray resultType) $ do
-    slices %= insert resultVar (arrVar, loopVar)
-    emitC ["// define slice: ",resultVar'," == ",arrVar',"[",loopVar',"]"]
+    aliases . at resultVar .= Just (Slice arrVar loopVar)
+    emitC ["// define slice alias: ",resultVar'," == ",arrVar',"[",loopVar',"]"]
   need resultVar
   resultVar' <- fmtVar resultVar
   
@@ -353,5 +393,5 @@ emit _ _ = do
 
 
 maybeSlice var = do
-  slices' <- use slices
-  return $ lookup var slices'
+  aliases' <- use aliases
+  return $ lookup var aliases'

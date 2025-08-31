@@ -81,7 +81,7 @@ asTable (Just (Table t)) = t
 asTable _ = mempty
 
 setTable :: forall t. Path -> Node t -> Table t -> Table t
-setTable [] v _  = error "Empty Path"
+setTable [] v _  = error "setTable: Empty Path"
 setTable [p] v t = insert p v t
 setTable (p:ps) v t = insert p (Table v') t where
   v' = setTable ps v $ asTable $ Data.Map.lookup p t

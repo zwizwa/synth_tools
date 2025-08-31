@@ -106,6 +106,13 @@ testComp = do
              array $ \j ->
              ramp 0) :: Comp (Arr 3 (Arr 4 Int))
 
+      -- Towards cproc: make a function that takes an array of signals
+      -- to an array of signals.  This should be representable.  EDIT:
+      -- It should not be an array.  I can't find my way.  Need an
+      -- example first.
+  
+      -- f1 = undefined
+      -- 1 (Arr 4 Float) -> (Arr 
 
       test s = do
         --putStrLn "Comp tree:"
