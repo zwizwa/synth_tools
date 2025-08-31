@@ -84,7 +84,6 @@ testEval = do
   test s2
   test s3
 
-
 testComp = do
   -- Define some Comp terms with sharing
   let s1 = 1 :: Comp Int
@@ -105,6 +104,12 @@ testComp = do
       s11 = (array $ \i ->
              array $ \j ->
              ramp 0) :: Comp (Arr 3 (Arr 4 Int))
+
+
+      f12 :: Comp (Arr 3 Int) -> (Comp (Arr 3 Int))
+      f12 = \input -> input
+      s12 = f12 probe
+                
 
       -- Towards cproc: make a function that takes an array of signals
       -- to an array of signals.  This should be representable.  EDIT:
@@ -128,10 +133,11 @@ testComp = do
         putStrLn "\n** Node graph:"
         putStr $ show $ s'
         putStrLn "\n** ToC string:"
-        putStr $ ToC.toC s'
+        putStr $ ToC.toC "" s'
         putStrLn "\n** ToV string:"
         putStr $ ToV.toV s'
         return s'
+
 
   -- Compile and print them
   test s2
@@ -143,6 +149,7 @@ testComp = do
   test s9
   test s10
   test s11
+  test s12
   
 main = do
   putStrLn "synth-tools.hs"

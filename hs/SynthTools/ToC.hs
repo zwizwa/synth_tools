@@ -45,7 +45,7 @@ import Control.Lens.TH
 -- Variable location is determined by the comp pass.  The type
 -- information is available in the bindings map.
 
-data VarLoc = StateVar | LocalVar | LoopVar | OutVar deriving (Show)
+data VarLoc = StateVar | LocalVar | LoopVar | OutVar | InVar deriving (Show, Eq)
 data Alias = Slice Int Int -- Array slices
            | Output Int    -- Function output
            deriving (Show)
@@ -71,11 +71,9 @@ instance MonadFail ToCM where
 
 $(makeLenses ''ToCState)
 
-toC :: Let -> String
-toC (Let (Reify.Graph bindings' retVar)) = codeString where
+toC :: String -> Let -> String
+toC pfx (Let (Reify.Graph bindings' retVar)) = codeString where
   (ToCM m) = mdo
-
-    let pfx = ""
 
     -- Struct definitions need to come before C code that refers to
     -- it.  Use recursive do to avoid multiple passes.
@@ -85,9 +83,21 @@ toC (Let (Reify.Graph bindings' retVar)) = codeString where
     
     -- Perform tree traversal which emits C code and construct
     -- analysis maps.
-    tell $ c ["void ",pfx,"run(struct ",pfx,"state *s, ",outDecl,") {\n"]
+    tell $ c ["void ",pfx,"run(struct ",pfx,"state *s, ",
+              c maybeInDecls, outDecl,") {\n"]
     outDecl <- needOutput retVar
     tell $ "}\n"
+
+    -- Collect the input variables.  FIXME: If there is more than one
+    -- input some sorting needs to be performed as the order is
+    -- currently arbitrary.
+    variables' <- use variables
+    let inputs = toList $ Data.IntMap.Lazy.filter (== InVar) variables'
+        fmtInput (inVar,_) = do
+          typ <- typeOf inVar
+          (fmt,_) <- fmtVarDecl typ inVar
+          return $ c [fmt, ", "]
+    maybeInDecls <- traverse fmtInput inputs
     
     -- Format the C structures definitions
     stateVars' <- use stateVars
@@ -133,6 +143,7 @@ fmtVar var = do
     LocalVar -> return $ "r"    ++ s var
     LoopVar  -> return $ "l"    ++ s var
     OutVar   -> return $ "o"    ++ s var
+    InVar    -> return $ "i"    ++ s var
 
 fmtVarDecl :: Type -> Int -> ToCM (String, String)
 fmtVarDecl t var = do
@@ -385,6 +396,11 @@ emit elVar (Node elType (Ref aVar iVar)) = do
   -- FIXME: Array ref is wrong because it needs to be multi-dimensional.
   -- (outVarDecl',_) <- fmtVarDecl t outVar
   emitC [ "// TODO Ref" ]
+
+emit inVar (Node _ (Input _)) = do
+  variables . at inVar .= Just InVar
+  inVar' <- fmtVar inVar
+  emitC [ "// input: ", inVar' ]
 
 emit _ _ = do
   emitC [ "// TODO toC match" ]

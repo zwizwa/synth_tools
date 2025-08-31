@@ -105,8 +105,6 @@ class DSLType r t => DSLPrim r t where
   op1     :: (DSLType r t)              => Prim -> r t -> r t
   op2     :: (DSLType r t)              => Prim -> r t -> r t -> r t
   
-  
-
 
 
 

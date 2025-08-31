@@ -20,6 +20,8 @@ import qualified Data.Reify as Reify
 import qualified Data.Graph as Graph
 import System.IO.Unsafe
 
+import GHC.TypeNats
+
 
 
 -- Graph node type
@@ -40,6 +42,7 @@ data TermNum = I Int | F Float
 data Term s = Op Prim [s]
             | Const TermNum
             | Var Dynamic
+            | Input Dynamic
             | Signal { sigInit :: s, sigVar :: s, sigState :: s, sigOut :: s }
             -- Multiple of the same, representable for C base type.
             | Array { arrVar :: s, arrVal :: s }
@@ -81,7 +84,6 @@ compOp2 op a b = Comp $ In $ Node (dslType b) $ Op op [(unComp a), (unComp b)]
 instance DSLPrim Comp Int   where op1 = compOp1 ; op2 = compOp2
 instance DSLPrim Comp Float where op1 = compOp1 ; op2 = compOp2
 
-
 instance DSLSig Comp where
   
   signal compInit update = sig where
@@ -109,6 +111,16 @@ instance DSLArr Comp where
   ref (Comp a) (Comp i) = rv where
     typ = dslType rv
     rv = Comp $ In $ Node typ $ Ref a i
+
+class CompProbe t where
+  probe :: t
+  
+instance KnownNat n => CompProbe (Comp (Arr n Int)) where
+  probe = p where
+    p = Comp $ In $ Node typ $ Input $ toDyn "input" where
+    typ = dslType p
+    
+  
 
 
 instance DSLPair Comp where
@@ -214,6 +226,7 @@ reify' (Comp s) = do
 -- until it becomes obvious in generated output.
 reify = unsafePerformIO . reify'
                        
+
 
 
 -- See comments in Eval.hs Num Eval instances.
