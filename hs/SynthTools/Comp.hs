@@ -42,7 +42,7 @@ data TermNum = I Int | F Float
 data Term s = Op Prim [s]
             | Const TermNum
             | Var Dynamic
-            | Input Dynamic
+            | Input Int Dynamic
             | Signal { sigInit :: s, sigVar :: s, sigState :: s, sigOut :: s }
             -- Multiple of the same, representable for C base type.
             | Array { arrVar :: s, arrVal :: s }
@@ -113,11 +113,11 @@ instance DSLArr Comp where
     rv = Comp $ In $ Node typ $ Ref a i
 
 class CompProbe t where
-  probe :: t
+  probe :: Int -> t
   
 instance KnownNat n => CompProbe (Comp (Arr n Int)) where
-  probe = p where
-    p = Comp $ In $ Node typ $ Input $ toDyn "input" where
+  probe i = p where
+    p = Comp $ In $ Node typ $ Input i $ toDyn "input" where
     typ = dslType p
     
   

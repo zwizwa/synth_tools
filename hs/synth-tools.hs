@@ -108,7 +108,7 @@ testComp = do
 
       f12 :: Comp (Arr 3 Int) -> (Comp (Arr 3 Int))
       f12 = \input -> input
-      s12 = f12 probe
+      s12 = f12 $ probe 1
                 
 
       -- Towards cproc: make a function that takes an array of signals

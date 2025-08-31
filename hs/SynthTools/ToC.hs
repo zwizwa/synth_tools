@@ -26,6 +26,7 @@ import Control.Monad
 import Control.Monad.Fix
 import Data.IntMap.Lazy
 import Data.Dynamic
+import Data.List hiding (lookup)
 
 import Prelude hiding (const, lookup)
 
@@ -80,25 +81,26 @@ toC pfx (Let (Reify.Graph bindings' retVar)) = codeString where
     tell $ c ["struct ",pfx,"state {\n"]
     tell $ c stateFields
     tell $ "};\n"
+
+    -- Register all inputs so that fmtVar works properly. The argument
+    -- of the probe function is used as a sequence number to sort the
+    -- inputs in the C function declaration.
+    let isInput (_, (Node _ (Input _ _))) = True
+        isInput _ = False
+        prepInput (inVar, (Node typ (Input seq _))) = do
+          setVarLoc inVar InVar
+          (fmt,_) <- fmtVarDecl typ inVar
+          -- emitC $ ["// register input ", fmt]
+          return $ (seq, c ["const ", fmt, ", "])
+    inputs <- traverse prepInput $ Data.List.filter isInput bindings'
+    let inDecls = c $ fmap snd $ sort inputs
     
     -- Perform tree traversal which emits C code and construct
     -- analysis maps.
-    tell $ c ["void ",pfx,"run(struct ",pfx,"state *s, ",
-              c maybeInDecls, outDecl,") {\n"]
+    tell $ c ["void ",pfx,"run(struct ",pfx,"state *s, ",inDecls,outDecl,") {\n"]
     outDecl <- needOutput retVar
     tell $ "}\n"
 
-    -- Collect the input variables.  FIXME: If there is more than one
-    -- input some sorting needs to be performed as the order is
-    -- currently arbitrary.
-    variables' <- use variables
-    let inputs = toList $ Data.IntMap.Lazy.filter (== InVar) variables'
-        fmtInput (inVar,_) = do
-          typ <- typeOf inVar
-          (fmt,_) <- fmtVarDecl typ inVar
-          return $ c [fmt, ", "]
-    maybeInDecls <- traverse fmtInput inputs
-    
     -- Format the C structures definitions
     stateVars' <- use stateVars
     stateFields <- traverse stateField $ toAscList stateVars'
@@ -132,6 +134,7 @@ fmtVar var = do
   let varLoc = case lookup var sv' of
         Just vl -> vl
         Nothing -> error $ "Internal error: fmtVar, undefined variable " ++ show var
+  -- emitC $ ["// fmtVar ", show var, " ", show varLoc]
   case varLoc of
     StateVar -> do
       loopVars' <- use loopVars
@@ -221,7 +224,7 @@ need var = do
   defined' <- defined var
   when (not defined') $ do
     node' <- node var
-    variables . at var .= Just LocalVar
+    setVarLoc var LocalVar
     emit var node'
 
 -- Create a node with the same type as a given node.
@@ -231,15 +234,28 @@ newNode = do
   nextNode %= (+ 1)
   return var
 
+-- FIXME: There are some degenerate cases that need special handling,
+-- e.g. copying input to output.  For now just add a warning and avoid
+-- it in the DSL code.
+setVarLoc var loc = do
+  def <- use (variables . at var)
+  case def of
+    Nothing ->
+      variables . at var .= Just loc
+    Just loc' ->
+      emitC $ ["// var ",show var,
+               " already defined as ",show loc',
+               " when defining as ",show loc]
+
 -- Similar to need, but handle output variable differently
 needOutput retVar = do
   Just retNode@(Node typ _) <- use $ bindings . at retVar
+
   outVar <- newNode
   bindings  . at outVar .= Just (Node typ (Var $ toDyn ())) -- dummy tag
-  variables . at outVar .= Just OutVar
-  variables . at retVar .= Just LocalVar
   aliases   . at retVar .= Just (Output outVar)
-  (outVarDecl,_) <- fmtVarDecl typ outVar
+  setVarLoc outVar OutVar
+  setVarLoc retVar LocalVar
 
   -- Like slice annotation
   retVar' <- fmtVar retVar
@@ -247,6 +263,7 @@ needOutput retVar = do
   emitC ["// define output alias: ",retVar'," == ",outVar']
 
   emit retVar retNode
+  (outVarDecl,_) <- fmtVarDecl typ outVar
   return $ outVarDecl
  
     
@@ -296,7 +313,7 @@ emit sigOutVar (Node outType (Signal init stateVar nextStateVar outVar)) = do
   -- At this point we also know the dimension of the state
   loopVars' <- use loopVars
   let stateVarDims = fmap snd loopVars'
-  variables . at stateVar .= Just StateVar            -- mark as state variable
+  setVarLoc stateVar StateVar                         -- mark as state variable
   stateVars . at stateVar .= Just (init,stateVarDims) -- store state dimensions
   
   -- Recurse into arguments to ensure that all intermediate variables
@@ -337,7 +354,7 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
   snapLoopVars   <- use loopVars
 
   -- Introduce the variable before it is used in formatting below.
-  variables . at loopVar .= Just LoopVar
+  setVarLoc loopVar LoopVar
 
   -- Format the loop head.
   (arrVarDecl',  arrVar') <- fmtVarDecl t arrVar
@@ -390,17 +407,13 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
   emitC ["}"]
 
 emit _ (Node _ (Var _)) = return () -- stub
+emit _ (Node _ (Input _ _)) = return () -- stub
 
 emit elVar (Node elType (Ref aVar iVar)) = do
   need aVar ; need iVar
   -- FIXME: Array ref is wrong because it needs to be multi-dimensional.
   -- (outVarDecl',_) <- fmtVarDecl t outVar
   emitC [ "// TODO Ref" ]
-
-emit inVar (Node _ (Input _)) = do
-  variables . at inVar .= Just InVar
-  inVar' <- fmtVar inVar
-  emitC [ "// input: ", inVar' ]
 
 emit _ _ = do
   emitC [ "// TODO toC match" ]
