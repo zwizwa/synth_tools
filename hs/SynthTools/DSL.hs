@@ -30,7 +30,7 @@ data Prim = Add | Sub | Mul | Abs | Signum deriving (Show)
 -- this is unused but can be toDyn.  For Comp it is essential as types
 -- will need to be representable in C eventually.
 
-data Type = TFloat | TInt | TBits Int
+data Type = TFloat | TDouble | TInt | TBits Int
           | TArray Int Type
           | TPair Type Type
           deriving (Show)
@@ -54,8 +54,9 @@ instance (DSLType r a, DSLType r b) => DSLType r (a, b) where
     a' = undefined :: r a
     b' = undefined :: r b
 
-instance DSLType r Int   where dslType _ = TInt
-instance DSLType r Float where dslType _ = TFloat
+instance DSLType r Int    where dslType _ = TInt
+instance DSLType r Float  where dslType _ = TFloat
+instance DSLType r Double where dslType _ = TDouble
 -- FIXME: Bit vectors
 
 arrLength :: forall (n :: Nat) a r. KnownNat n => r (Arr n a) -> Natural

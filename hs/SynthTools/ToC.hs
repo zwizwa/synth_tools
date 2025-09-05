@@ -97,7 +97,7 @@ toC pfx (Let (Reify.Graph bindings' retVar)) = codeString where
     
     -- Perform tree traversal which emits C code and construct
     -- analysis maps.
-    tell $ c ["void ",pfx,"run(struct ",pfx,"state *s, ",inDecls,outDecl,") {\n"]
+    tell $ c ["static inline void ",pfx,"run(struct ",pfx,"state *s, ",inDecls,outDecl,") {\n"]
     outDecl <- needOutput retVar
     tell $ "}\n"
 
@@ -393,7 +393,7 @@ emit arrVar (Node t@(TArray size baseType) (Array loopVar resultVar)) = mdo
     -- to find the storage cell.
     (Just _,_) -> do
       slice' <- fmtSlice arrVar
-      emitC $ ["// use ",arrVar'," == ", slice', " to implement ", sliceAssign]
+      emitC $ ["// substitute ",arrVar'," == ",slice'," in ",sliceAssign]
       emitC $ [slice', "[",loopVar',"] = ",resultVar',";"]
     -- Otherwise: normal scalar to array cell assignment.
     (_,_) ->
@@ -412,8 +412,11 @@ emit _ (Node _ (Input _ _)) = return () -- stub
 emit elVar (Node elType (Ref aVar iVar)) = do
   need aVar ; need iVar
   -- FIXME: Array ref is wrong because it needs to be multi-dimensional.
-  -- (outVarDecl',_) <- fmtVarDecl t outVar
-  emitC [ "// TODO Ref" ]
+  -- For now just implement the 1-dim case
+  aVar' <- fmtVar aVar
+  iVar' <- fmtVar iVar
+  (elVarDecl',_) <- fmtVarDecl elType elVar
+  emitC [elVarDecl'," = ",aVar',"[",iVar',"];"]
 
 emit _ _ = do
   emitC [ "// TODO toC match" ]
