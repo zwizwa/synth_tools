@@ -13,6 +13,7 @@
 module SynthTools.Comp where
 
 import SynthTools.DSL
+import SynthTools.Lib
 
 import Data.Dynamic
 import Prelude hiding (take, const, zipWith, lookup)

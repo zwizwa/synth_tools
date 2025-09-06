@@ -29,6 +29,7 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
 import SynthTools.DSL
+import SynthTools.Lib
 import SynthTools.Eval
 import SynthTools.Comp
 
@@ -245,6 +246,15 @@ testVariance = do
         putStrLn $ show $ take 10 $ s
   test s1
 
+testRational = do
+  let s1 = exponential $ const $ Exact 2/3
+      test (Eval s) = do
+        putStrLn "Rational:"
+        traverse (putStrLn . show) $ take 10 s
+        return ()
+        
+  test s1
+
   
 main = do
   args <- getArgs
@@ -255,8 +265,11 @@ main = do
       testEval
       testVariance
       testComp
-    ["NumAn"] -> do
-      testNumAn
+    ["Eval"]     -> testEval
+    ["Variance"] -> testVariance
+    ["Comp"]     -> testComp
+    ["NumAn"]    -> testNumAn
+    ["Rational"] -> testRational
       
 
       

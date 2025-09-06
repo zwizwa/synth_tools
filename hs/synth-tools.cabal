@@ -13,6 +13,7 @@ executable synth-tools
     default-language: Haskell2010
     ghc-options: -fprint-potential-instances
     other-modules: SynthTools.DSL
+                   SynthTools.Lib
                    SynthTools.Eval
                    SynthTools.Comp
                    SynthTools.ToC

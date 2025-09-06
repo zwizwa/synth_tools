@@ -15,14 +15,15 @@ import Data.IntMap.Strict
 import GHC.TypeNats
 import Prelude hiding (const)
 
-
+-- See here for classes and types:
+-- https://blog.plover.com/prog/haskell/numbers.html
 
 
 -- Number types need to be representable in C.  This class ensures
 -- that.  Note that in Eval semantics the Haskell type is used.  Also
 -- add the Typeable constraint here needed by toDyn for Data.Reify
 
-data Prim = Add | Sub | Mul | Abs | Signum deriving (Show)
+data Prim = Add | Sub | Mul | Div | Abs | Signum deriving (Show)
 
 -- The ability to reify a represented type needs to be a property of
 -- the DSL not just the implementation, because the class constraint
@@ -113,33 +114,4 @@ class DSLType r t => DSLPrim r t where
 
 
 
-
-
--- Library functions
-
-ramp :: (DSLSig r, DSLConst r t, Num (r t)) => t -> r t
-ramp init = signal (const init) (\s -> (s + 1, s))
-
-
--- Test fuction for composite state
-swap :: (DSLSig r, DSLPair r, DSLType r (t, t), DSLConst r t)
-     => t -> t -> r t
-swap ia ib = signal iab update where
-  iab = pack (const ia) (const ib)
-  update s =
-    let (sa, sb) = unpack s
-        s' = pack sb sa  -- flip states
-        out = sa
-    in (s', out)
-
-
--- These are for Num instances.  See Eval.hs and Comp.hs
-type DSLOp1 r t = r t -> r t
-type DSLOp2 r t = r t -> r t -> r t
-
-add'    :: (DSLPrim r t) => DSLOp2 r t ; add'    = op2 Add
-sub'    :: (DSLPrim r t) => DSLOp2 r t ; sub'    = op2 Sub
-mul'    :: (DSLPrim r t) => DSLOp2 r t ; mul'    = op2 Mul
-abs'    :: (DSLPrim r t) => DSLOp1 r t ; abs'    = op1 Abs
-signum' :: (DSLPrim r t) => DSLOp1 r t ; signum' = op1 Signum
 

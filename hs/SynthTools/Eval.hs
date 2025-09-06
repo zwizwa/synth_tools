@@ -10,8 +10,10 @@
 module SynthTools.Eval where
 
 import SynthTools.DSL
+import SynthTools.Lib
 import Data.Stream hiding (fromList)
 import Data.Dynamic
+import Data.Ratio
 import GHC.Float
 import Prelude hiding (const, zipWith)
 
@@ -66,6 +68,8 @@ instance DSLArr Eval where
 eval2 Add = liftA2 (+)
 eval2 Sub = liftA2 (-)
 eval2 Mul = liftA2 (*)
+
+eval21 Div = undefined -- FIXME
 
 eval1 Abs    = fmap abs
 eval1 Signum = fmap signum
@@ -185,6 +189,34 @@ avMul (Stochastic (v1,f1)) (Stochastic (v2,f2)) = Stochastic (v,f) where
 -- multi-component number.  It is much simpler to compute everything
 -- using an exact number (or very high precision floating point) and
 -- compare output signals between float32 and exact implementations.
+
+newtype Exact = Exact Rational deriving (Num, Fractional)
+
+-- Wrapped in newtype so we can re-implement Show
+instance Show Exact where
+  show e@(Exact r)= rv where
+    rv = show d ++ " (" ++ show a ++ "/" ++ show b ++ ")"
+    d = toDouble e
+    a = numerator r
+    b = denominator r
+
+instance ToDouble Exact where toDouble (Exact e) = fromRational e
+
+instance Num (Eval Exact) where
+  (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
+  signum = signum' ; fromInteger = const . fromInteger
+
+instance Fractional (Eval Exact) where
+  fromRational = const . fromRational
+  (/) = div'
+  
+instance DSLPrim Eval Exact where
+  op1 = eval1 ; op2 = eval2
+instance DSLConst Eval Exact where
+  const = Eval . pure
+
+instance DSLType r Exact where dslType _ = TFloat
+
 
 
 
