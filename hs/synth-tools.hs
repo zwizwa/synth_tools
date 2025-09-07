@@ -30,8 +30,9 @@
 
 import SynthTools.DSL
 import SynthTools.Lib
-import SynthTools.Eval
 import SynthTools.Comp
+import SynthTools.Eval
+import SynthTools.Num
 
 import qualified SynthTools.RunC as RunC
 
@@ -246,15 +247,27 @@ testVariance = do
         putStrLn $ show $ take 10 $ s
   test s1
 
-testRational = do
+testExact = do
   let s1 = exponential $ const $ Exact 2/3
       test (Eval s) = do
-        putStrLn "Rational:"
+        putStrLn "Exact:"
         traverse (putStrLn . show) $ take 10 s
         return ()
         
   test s1
 
+testErr tag c = do
+  let s1 = exponential $ const c
+      test (Eval s) = do
+        putStrLn tag
+        traverse (putStrLn . show) $ take 40 s
+        return ()
+  test s1
+
+testSNR = do
+  putStrLn "SNR:"
+  testErr "DoubleErr:" (2/3 :: DoubleErr)
+  testErr "FloatErr:"  (2/3 :: FloatErr)
   
 main = do
   args <- getArgs
@@ -265,11 +278,12 @@ main = do
       testEval
       testVariance
       testComp
-    ["Eval"]     -> testEval
-    ["Variance"] -> testVariance
-    ["Comp"]     -> testComp
-    ["NumAn"]    -> testNumAn
-    ["Rational"] -> testRational
+    ["Eval"]       -> testEval
+    ["Variance"]   -> testVariance
+    ["Comp"]       -> testComp
+    ["NumAn"]      -> testNumAn
+    ["Exact"]      -> testExact
+    ["SNR"]        -> testSNR
       
 
       

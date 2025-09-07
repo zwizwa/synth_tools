@@ -6,11 +6,13 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE RankNTypes #-}
 
 module SynthTools.Eval where
 
 import SynthTools.DSL
 import SynthTools.Lib
+import SynthTools.Num
 import Data.Stream hiding (fromList)
 import Data.Dynamic
 import Data.Ratio
@@ -83,7 +85,7 @@ instance DSLConst Eval Float  where const = Eval . pure
 instance DSLConst Eval Double where const = Eval . pure
 
 
--- 2.32 ... and define instances Num for each supported primitive.
+-- 2.2 ... and define instances Num for each supported primitive.
 
 -- Note that I could not avoid the need for UndecidableInstances
 -- without spelling it out for each base type.
@@ -111,25 +113,15 @@ instance Num (Eval Double) where
 
 -- 2.3 For stochastic error analysis, define a new type.
 
--- The value is the second value in the pair to be able to reuse the
--- Functor and Applicative instances for utility functions
-
-newtype Stochastic e t = Stochastic (e, t) deriving (Functor, Applicative)
-floatStochasticError (e,v) = e
-floatStochasticValue (e,v) = v
-
-type Stochastic'  = Stochastic  Double
-type Stochastic'' = Stochastic' Double
-
--- This can work as a primitive DSL type.
+-- Stochastic can work as a primitive DSL type.
 instance Typeable e => DSLType r (Stochastic e Int)    where dslType _ = TInt
 instance Typeable e => DSLType r (Stochastic e Float)  where dslType _ = TFloat
-instance Typeable e => DSLType r (Stochastic e Double) where dslType _ = TFloat
+instance Typeable e => DSLType r (Stochastic e Double) where dslType _ = TDouble
+
 
 -- Use the same approach as for regular Int and Float: define
 -- everything in therms of Num instnaces and Functor, Applicative of
 -- stream
-
 instance Num (Eval (Stochastic' Int)) where
   (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
   signum = signum' ; fromInteger = const . fromInteger
@@ -138,69 +130,26 @@ instance DSLPrim Eval (Stochastic' Int)  where
 instance DSLConst Eval (Stochastic' Int) where
   const = Eval . pure
 
+-- Define Show instance to produce mean ± variance display.
 instance Show t => Show (Stochastic' t) where
   show (Stochastic (v, f)) = show f ++ "±" ++ show v
 
-instance ToDouble t => Num (Stochastic' t) where
-  (*) = avMul
-  (+) = avSum (+)
-  (-) = avSum (-)
-  fromInteger i = Stochastic (0, fromInteger i)
-  -- These do not change the error
-  abs    = fmap abs
-  signum = fmap signum
+-- Then define the Num instance for the algebraic rules that track
+-- variance along side the mean value.
 
-sq a = a * a
+-- See Num.hs
 
--- Simplest to track variance as doubles, which then needs some type
--- conversion when going from the value type to the variance type.
--- Probably also need to implement the integral to double cast
--- explicitly.
-class Num t => ToDouble t where toDouble :: t -> Double
-instance ToDouble Double  where toDouble = id
-instance ToDouble Float   where toDouble = float2Double
-instance ToDouble Int     where toDouble = fromIntegral
- 
 
-avSum :: Num t
-  => (t -> t -> t)
-  -> Stochastic' t
-  -> Stochastic' t
-  -> Stochastic' t
-avSum op (Stochastic (v1, f1)) (Stochastic (v2, f2)) = Stochastic (v,f) where
-  f = f1 `op` f2
-  v = sqrt (sq v1 + sq v2)
+-- 2.4 Exact error tracking.
 
-avMul :: ToDouble t
-  => Stochastic' t
-  -> Stochastic' t
-  -> Stochastic' t
+-- Instead of using a multi-component number that tracks the error, it
+-- seems best to define error as the difference between a Float
+-- implementation and an Exact number, which can be implemented in
+-- terms of Rational = Ratio Integer.  Note that recursive filters
+-- will cause the state variables to keep growing.
 
-avMul (Stochastic (v1,f1)) (Stochastic (v2,f2)) = Stochastic (v,f) where
-  f1' = toDouble f1
-  f2' = toDouble f2
-  f'  = toDouble f
-  f   = f1 * f2
-  v   = f' * sqrt( sq (v1/f1') + sq (v2/f2') )
+-- See SynthTools.Num for Num classes
 
--- 2.3.2 Exact error tracking.
-
--- Thinking for a while, exact error tracking doesn't need a
--- multi-component number.  It is much simpler to compute everything
--- using an exact number (or very high precision floating point) and
--- compare output signals between float32 and exact implementations.
-
-newtype Exact = Exact Rational deriving (Num, Fractional)
-
--- Wrapped in newtype so we can re-implement Show
-instance Show Exact where
-  show e@(Exact r)= rv where
-    rv = show d ++ " (" ++ show a ++ "/" ++ show b ++ ")"
-    d = toDouble e
-    a = numerator r
-    b = denominator r
-
-instance ToDouble Exact where toDouble (Exact e) = fromRational e
 
 instance Num (Eval Exact) where
   (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
@@ -217,6 +166,37 @@ instance DSLConst Eval Exact where
 
 instance DSLType r Exact where dslType _ = TFloat
 
+-- 2.5 Track Exact plus any number type together
 
 
+instance Num (Eval FloatErr) where
+  (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
+  signum = signum' ; fromInteger = const . fromInteger
+
+instance Fractional (Eval FloatErr) where
+  fromRational = const . fromRational
+  (/) = div'
+
+instance DSLPrim Eval FloatErr where
+  op1 = eval1 ; op2 = eval2
+instance DSLConst Eval FloatErr where
+  const = Eval . pure
+
+instance DSLType r FloatErr where dslType _ = TFloat
+
+
+instance Num (Eval DoubleErr) where
+  (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
+  signum = signum' ; fromInteger = const . fromInteger
+
+instance Fractional (Eval DoubleErr) where
+  fromRational = const . fromRational
+  (/) = div'
+
+instance DSLPrim Eval DoubleErr where
+  op1 = eval1 ; op2 = eval2
+instance DSLConst Eval DoubleErr where
+  const = Eval . pure
+
+instance DSLType r DoubleErr where dslType _ = TDouble
 

@@ -15,6 +15,7 @@ executable synth-tools
     other-modules: SynthTools.DSL
                    SynthTools.Lib
                    SynthTools.Eval
+                   SynthTools.Num
                    SynthTools.Comp
                    SynthTools.ToC
                    SynthTools.RunC
