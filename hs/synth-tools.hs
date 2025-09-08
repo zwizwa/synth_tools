@@ -33,6 +33,7 @@ import SynthTools.Lib
 import SynthTools.Comp
 import SynthTools.Eval
 import SynthTools.Num
+import SynthTools.Filter
 
 import qualified SynthTools.RunC as RunC
 
@@ -64,9 +65,8 @@ import Data.Proxy
 import Data.IntMap.Lazy
 
 
--- import GHC.TypeLits
-import GHC.TypeNats
-import Prelude hiding (take, const, zipWith, lookup)
+import Prelude hiding (take, const, zipWith, lookup, putStr, putStrLn)
+import qualified Prelude as Prelude
 
 import qualified Data.Reify as Reify
 import qualified Data.Graph as Graph
@@ -74,7 +74,10 @@ import qualified Data.Graph as Graph
 import Control.Lens hiding (Const)
 import Control.Lens.TH
 
+import GHC.TypeNats
+import GHC.Float
 
+import SynthTools.IO
 
 testEval = do
   let s1 = 1 :: Eval Int
@@ -82,8 +85,8 @@ testEval = do
       s3 = ramp 0 :: Eval Int
 
       test (Eval s) = do
-        putStrLn "Eval:"
-        putStrLn $ show $ take 10 $ s
+        putStrLn' "Eval:"
+        putStrLn' $ show $ take 10 $ s
 
   test s2
   test s3
@@ -125,8 +128,8 @@ testComp = do
       -- 1 (Arr 4 Float) -> (Arr 
 
       test id s = do
-        --putStrLn "Comp tree:"
-        --putStrLn $ show $ unComp s
+        --putStrLn' "Comp tree:"
+        --putStrLn' $ show $ unComp s
 
         -- Run it in the IO monad
         -- s' <- reify' s
@@ -135,14 +138,14 @@ testComp = do
         let s' = reify s
 
         
-        putStrLn "\n** Node graph:"
-        putStr $ show $ s'
-        putStrLn "\n** ToC string:"
+        putStrLn' "\n** Node graph:"
+        putStr' $ show $ s'
+        putStrLn' "\n** ToC string:"
         let c = ToC.toC ("s" ++ show id ++ "_") s'
-        putStr $ c
-        putStrLn "\n** ToV string:"
+        putStr' $ c
+        putStrLn' "\n** ToV string:"
         let v = ToV.toV s'
-        putStr $ v
+        putStr' $ v
         return (id,(c,v))
 
 
@@ -182,57 +185,23 @@ testComp = do
   writeFile "ToC.gen.c" $ includes ++ body
 
 
-c_SAMPLE_RATE = 48000
-c_PI = 4 * (atan 1)
-
-biquadEQ :: forall t. Floating t => t -> t -> t -> ([t],[t])
-biquadEQ fFreq fBoost fQFactor = rv  where
-  as = [a0, a1, a2]
-  bs = [b0, b1, b2]
-  -- rv = (as,bs)
-  rv = (f as, f bs)
-  f = fmap (* (1/a0))
-
-  omega0 = (2 * c_PI * fFreq) / c_SAMPLE_RATE
-
-  alpha = (sin omega0) / (2 * fQFactor)
-  _A = 10 ** (fBoost / 40)
-  
-  a0 = 1 + alpha / _A
-  a1 = -2 * cos omega0 
-  a2 = 1 - alpha / _A
-
-  b0 = 1 + alpha * _A
-  b1 = -2 * cos omega0
-  b2 = 1 - alpha * _A
-
-coefs (as,bs) = (fb1,fb2,ff1,ff2,ff3) where
-  [a0, a1, a2] = as
-  [b0, b1, b2] = bs
-  fb1 = -a1 / a0
-  fb2 = -a2 / a0
-  ff1 =  b0 / a0
-  ff2 =  b1 / a0
-  ff3 =  b2 / a0
-
-biquadUpdate (fb1,fb2,ff1,ff2,ff3) s i = (s',o) where
-  (last, prev) = s
-  o' = i + fb1 * last + fb2 * prev
-  o = ff1 * o' + ff2 * last + ff3 * prev
-  s' = (o, last)
 
 traverse' = flip traverse
 
 -- The faulty behavior is that an EQ with 0 gain and high q will cause
 -- problems.
 
-testNumAn = do
+testBQCoefs = do
   let b = 3
-      f q = as ++ bs where (as,bs) = biquadEQ 1000 b q
-      test q = do putStrLn $ "\nQ=" ++ (show q)
-                  traverse' (f q) $ \c -> putStrLn $ show c
-                  return ()
+      f q = biquadEQ 1000 b q
+      test q = do
+        putStrLn' $ "\nQ=" ++ (show q)
+        putStrLn' $ "\nboost=" ++ (show $ db2gain b)
+        
+        traverse' (f q) $ \c -> putStrLn' $ show c
+        return ()
 
+  test 0.0000001
   test 0.01
   test 0.1
   test 1
@@ -243,15 +212,15 @@ testNumAn = do
 testVariance = do
   let s1 = 1 + 1 :: Eval (Stochastic' Int)
       test (Eval s) = do
-        putStrLn "Variance:"
-        putStrLn $ show $ take 10 $ s
+        putStrLn' "Variance:"
+        putStrLn' $ show $ take 10 $ s
   test s1
 
 testExact = do
   let s1 = exponential $ const $ Exact 2/3
       test (Eval s) = do
-        putStrLn "Exact:"
-        traverse (putStrLn . show) $ take 10 s
+        putStrLn' "Exact:"
+        traverse (putStrLn' . show) $ take 10 s
         return ()
         
   test s1
@@ -259,32 +228,92 @@ testExact = do
 testErr tag c = do
   let s1 = exponential $ const c
       test (Eval s) = do
-        putStrLn tag
-        traverse (putStrLn . show) $ take 40 s
+        putStrLn' tag
+        traverse (putStrLn' . show) $ take 40 s
         return ()
   test s1
 
 testSNR = do
-  putStrLn "SNR:"
   testErr "DoubleErr:" (2/3 :: DoubleErr)
   testErr "FloatErr:"  (2/3 :: FloatErr)
+
+
+
+runSys :: (s -> i -> (s, o)) -> s -> [i] -> [o]
+runSys _ _ [] = []
+runSys u s (i:is) = (o:os) where
+  (s',o) = u s i
+  os = runSys u s' is
+      
+
+testBiquad = do
+  let
+    -- Compute coefficients using Double precision
+    c :: [Double]
+    c = biquadEQ freq boost q
+    freq = 1000
+    boost = 10
+    q = 1.0
+
+    -- Add Exact reference point so they can be used in FloatErr computation
+    c' :: [FloatErr]
+    c' = fmap (float2FloatErr . double2Float) c
+  
+    s0 = (0,0)
+
+    -- Compute the biquad update on a finite [FloatErr]
+    u = biquadUpdate $ coefs c'
+
+    -- Input signal
+    -- is = [1] ++ replicate 1000 0
+    is = fmap (float2FloatErr . sin . (* 0.1)) [0..1000]
+
+    
+    os = runSys u s0 is
+
+  putStrLn' "coefs:"
+  traverse' c' $ putStrLn' . show
+
+  putStrLn' "output:"
+  traverse (putStrLn' . show) os
+    
+  return ()
+
+testOctave = do
+  RunC.bePlugin
+
   
 main = do
   args <- getArgs
-  putStrLn $ "synth-tools.hs: " ++ (show args)
+  putStrLn' $ "synth-tools.hs: " ++ (show args)
 
+  let tests = [
+        ("Eval",     testEval),
+        ("Variance", testVariance),
+        ("Comp",     testComp),
+        ("BQCoefs",  testBQCoefs),
+        ("Exact",    testExact),
+        ("SNR",      testSNR),
+        ("Biquad",   testBiquad)
+        ]
+      tests' = [
+        -- These read from stdin so don't put them in the full list.
+        ("Octave",   testOctave)
+        ]
+      doRun name run = do
+        putStrLn' $ "\ntest: " ++ name
+        run
+        
   case args of
     [] -> do
-      testEval
-      testVariance
-      testComp
-    ["Eval"]       -> testEval
-    ["Variance"]   -> testVariance
-    ["Comp"]       -> testComp
-    ["NumAn"]      -> testNumAn
-    ["Exact"]      -> testExact
-    ["SNR"]        -> testSNR
-      
+      traverse' tests $ \(name, run) -> doRun name run
+      return ()
+    [name] ->
+      case Prelude.lookup name (tests ++ tests') of
+        Nothing  -> putStrLn' $ "unknown test: " ++ name
+        Just run -> doRun name run
+    args ->
+      putStrLn' $ "invalid args: " ++ show args
 
       
   -- RunC.test

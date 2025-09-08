@@ -181,6 +181,13 @@ static inline Matrix run_with_matrix(const char **argv, Matrix& m_in) {
 
 }
 
+static inline Matrix shell_with_matrix(const char *arg, Matrix& m_in) {
+  const char *argv[] = {"/bin/sh", "-c", arg, NULL};
+  return run_with_matrix(argv, m_in);
+}
+
+
+// Old approach: hardcoded to elf binary name and string selector argument.
 #define DEFUN_TEST_ARMV7(name) \
 DEFUN_DLD (name, args, nargout, "Run emulated algorithm '" #name "'") { \
   octave_value_list retval (1); \
@@ -194,6 +201,7 @@ DEFUN_DLD (name, args, nargout, "Run emulated algorithm '" #name "'") { \
   } \
   return retval; \
 }
+
 
 
 #endif

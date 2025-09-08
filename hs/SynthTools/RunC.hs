@@ -16,6 +16,10 @@ import qualified Data.ByteString.Lazy as L
 --import qualified Data.ByteString as B
 import Control.Exception (bracket)
 
+import SynthTools.IO
+
+import Prelude hiding (putStr, putStrLn)
+
 -- Take C code and turn it into a function.
 class RunC r where
   runC :: String -> r a -> IO (r b)
@@ -86,28 +90,47 @@ runPlugin12 cmd args = do
       ]
     nbFloat = nb_blocks * block_size * columns
     signal = replicate nbFloat 0
-    inputBytes = runPut $ do
-      putInt32le rows
-      putInt32le columns
-      traverse putFloatle $ concat config_matrix ++ signal
-      return ()
+
+  writeMatrix stdin_h rows columns $ concat config_matrix ++ signal
       
-  L.hPut stdin_h inputBytes
-  hFlush stdin_h
 
-  let runGet' = flip runGet
-
-  header <- L.hGet stdout_h 8
-  let [r,c] = runGet' header $ replicateM 2 getInt32le
-      nbFloat' = fromIntegral $ r * c
+  outputFloat <- readMatrix stdout_h
   
-  floats <- L.hGet stdout_h $ 4 * nbFloat'
-  let outputFloat = runGet' floats $ replicateM nbFloat' getFloatle
   
   close p
   return $ chunksOf 12 outputFloat
 
+-- The plugin API is one float matrix in, one float matrix out.  This
+-- is pretty raw but up to now it has worked just fine.
+bePlugin :: IO ()
+bePlugin = do
+  cfg <- readMatrix stdin
+  putStrLn' $ show cfg
+  writeMatrix stdout 2 2 [1,2,3,4]
 
+  
+
+runGet' = flip runGet
+
+writeMatrix handle rows columns floats = do
+  let bytes = runPut $ do
+        putInt32le rows
+        putInt32le columns
+        traverse putFloatle floats
+        return ()
+  L.hPut handle bytes
+  hFlush handle
+
+readMatrix :: Handle -> IO [Float]
+readMatrix handle = do
+  header <- L.hGet handle 8
+  let [r,c] = runGet' header $ replicateM 2 getInt32le
+      nbFloat' = fromIntegral $ r * c
+  
+  floats <- L.hGet handle $ 4 * nbFloat'
+  let outputFloat = runGet' floats $ replicateM nbFloat' getFloatle
+  -- putStrLn' $ show outputFloat
+  return outputFloat
 
 
 run' cmd args = do

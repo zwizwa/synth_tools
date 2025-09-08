@@ -129,15 +129,17 @@ errors (NumErr (ref, approx)) = (absErr, relErr) where
   relErr = absErr / ref'
 
 
--- When displaying the numbers add the SNR in dB.
-instance (Show t, ToDouble t, ToDouble t') => Show (NumErr t' t) where
-  show nn@(NumErr (ex, n)) = show n ++ " (" ++ snr' ++ ")" where
-    (absErr, relErr) = errors nn
-    snr' = case absErr of
-      0 -> "exact"
-      _ -> (show $ round $ snr relErr) ++ "dB"
+db e = -20 * (logBase 10 $ abs e)
+db' e = case e of
+      0 -> "∞"
+      _ -> (show $ round $ db e)
 
-snr e = -20 * (logBase 10 $ abs e)
+-- When displaying the numbers add the SNR and absolute noise level in dB.
+instance (Show t, ToDouble t, ToDouble t') => Show (NumErr t' t) where
+  show nn@(NumErr (ex, n)) = show n ++ " (" ++ e' ++ ")" where
+    (absErr, relErr) = errors nn
+    e' = "r=" ++ db' relErr ++ ", a=" ++ db' absErr
+
 
 
 -- In practice we care about exact errors for Float and Double
@@ -147,4 +149,12 @@ snr e = -20 * (logBase 10 $ abs e)
 type FloatErr  = NumErr Exact Float
 type DoubleErr = NumErr Exact Double
 
+float2FloatErr :: Float -> FloatErr
+float2FloatErr f = NumErr (Exact $ toRational f, f)
+
   
+-- How to represent an exact pure sine?  The 3,4,5 triangle works but
+-- that has a pretty high frequency.  Any other Pythagorian triples?
+-- https://en.wikipedia.org/wiki/Pythagorean_triple
+
+
