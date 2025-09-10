@@ -200,3 +200,27 @@ instance DSLConst Eval DoubleErr where
 
 instance DSLType r DoubleErr where dslType _ = TDouble
 
+
+
+-- 2.6 Symbolic evaluation
+
+-- Note that this is more similar to Comp.hs in spirit, but we do not
+-- do variable sharing here so it makes more sense to treat it just as
+-- interpretation, like is done in the Neon emulator.  The
+-- implementation is in Num.hs
+
+instance Num (Eval Symbolic) where
+  (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
+  signum = signum' ; fromInteger = const . fromInteger
+
+instance Fractional (Eval Symbolic) where
+  fromRational = const . fromRational
+  (/) = div'
+  
+instance DSLPrim Eval Symbolic where
+  op1 = eval1 ; op2 = eval2
+instance DSLConst Eval Symbolic where
+  const = Eval . pure
+
+instance DSLType r Symbolic where dslType _ = TFloat
+

@@ -1,9 +1,89 @@
+-- Compute filter coefficients + analysis.
+--
+-- Some theory I would like to rehash and encode in haskell:
+-- . Z domain DSL?
+-- . Bilinear transform
+-- . Differential realization
+-- . State space (orthogonal) realization
+
+
+
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
-
--- Compute filter coefficients + analysis.
 module SynthTools.Filter where
+
+import SynthTools.IO
+import SynthTools.Num
+import Prelude hiding (putStrLn, putStr)
+
+
+-- Start with the bilinear transform.
+
+-- A note on z-transform: for convenience I am using the
+-- "mathematicians" z-transform, which has a delay mapped to z.  It is
+-- the same as the Taylor series.  It is the time-reflected (z domain
+-- unit circle reflected) version of the "engineering" z-transform
+-- where a delay is z^-1. If all filters are causal, all coefficients
+-- will be positive.  Just the stability criterion changes: in the
+-- engineering version a system is stable if all poles are inside the
+-- unit circle.  In the mathematical version all poles are outside the
+-- unit circle.
+--
+-- https://claude.ai/chat/a4567c4c-b792-4fb9-b462-0c6bcec1df0d (priv)
+-- https://claude.ai/share/96c5809c-6526-4119-87d3-f0bfd8427937 (pub)
+--
+-- Most references quoted below will use the engineering convention.
+
+-- https://en.wikipedia.org/wiki/Bilinear_transform
+
+-- t is the numerical integration step size of the trapezoidal rule
+bilin t z = (2 / t) * (1 - z) / (1 + z)
+
+-- If we swap the meaning of s in the Laplace transform as well we get
+-- this.  I am probably going to confuse myself mixing all these
+-- conventions.
+
+-- bilin t z = (2 / t) * (z - 1) / (z + 1)
+
+-- w = 2pif center frequency
+-- q = quality factor  (higher q = sharper peak)
+-- g = gain, left out because trivial
+-- a = sqrt peak_gain
+
+
+-- There are 3 regimes:
+-- s -> 0    gives 1
+-- s -> inf  gives 1
+-- s -> w    sq s' = -1 so gain is a
+
+analog_peak w q a s = num/den where
+  num = 1 + (a/q) * s' + sq s'
+  den = 1 + (1/q) * s' + sq s'
+  s' = s/w -- normalized, peaking at s = w, s' = 1
+
+-- Something that puzzled me is that a = sqrt peak_gain.  Why is this?
+
+-- https://ccrma.stanford.edu/~jos/
+
+
+
+testZT = do
+  let s = SymVar "s"
+      z = SymVar "z"
+      t = SymVar "T"
+      w = SymVar "w"
+      q = SymVar "Q"
+      a = SymVar "A"
+
+      test exp = do
+        putStrLn' $ show exp
+   
+  putStrLn' "testZT"
+  test $ bilin t z
+  test $ analog_peak w q a s
+  test $ analog_peak w q a $ bilin t z
+  
 
 c_SAMPLE_RATE = 48000
 c_PI = 4 * (atan 1)

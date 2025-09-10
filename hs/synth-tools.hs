@@ -63,6 +63,7 @@ import Control.Monad.Writer
 import Control.Monad
 import Data.Proxy
 import Data.IntMap.Lazy
+import Data.Complex
 
 
 import Prelude hiding (take, const, zipWith, lookup, putStr, putStrLn)
@@ -265,8 +266,9 @@ testBiquad = do
     u = biquadUpdate $ coefs c'
 
     -- Input signal
-    -- is = [1] ++ replicate 1000 0
-    is = fmap (float2FloatErr . sin . (* 0.1)) [0..1000]
+    is = [1] ++ replicate (n-1) 0
+    n = 16 * 256
+    -- is = fmap (float2FloatErr . sin . (* 0.1)) [0..1000]
 
     
     os = runSys u s0 is
@@ -282,6 +284,38 @@ testBiquad = do
 testOctave = do
   RunC.bePlugin
 
+
+-- Use dual numbers to show that the d/dw h is 0 at w=1
+testDual = do
+  let
+    -- Laplace transform, a=peak gain, s=Laplace parameter
+    h a s = num / den where
+      num = 1 + a*s + s*s
+      den = 1 +   s + s*s
+
+    -- Evaluate the transfer function amplitude at s=jw
+    test1 a w = do
+      putStrLn' $ "\ntest1: a=" ++ show a ++ ", w=" ++ show w
+      putStrLn' $ show $ abs $ h (a :+ 0) (0 :+ w)
+
+    -- Evaluate the norm squared as a dual complex number at s=jw
+    test2 a w = do
+      putStrLn' $ "\ntest2: a=" ++ show a ++ ", w=" ++ show w
+      putStrLn' $ show $ h' jw * h' (-jw) where
+        jw = Dual (0 :+ w) (0 :+ 1) -- we are deriving wrt to w, so derivative is 1
+        h' = h (Dual (a :+ 0) 0)    -- for constants, derivative is 0
+
+      
+  putStrLn' "testDual"
+
+  test1 10 1
+  test1 10 1.01
+
+  test2 10 1
+  test2 10 0.99
+  test2 10 1.01
+  
+
   
 main = do
   args <- getArgs
@@ -294,7 +328,9 @@ main = do
         ("BQCoefs",  testBQCoefs),
         ("Exact",    testExact),
         ("SNR",      testSNR),
-        ("Biquad",   testBiquad)
+        ("Biquad",   testBiquad),
+        ("ZT",       testZT),
+        ("Dual",     testDual)
         ]
       tests' = [
         -- These read from stdin so don't put them in the full list.

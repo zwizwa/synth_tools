@@ -122,6 +122,16 @@ nn1op :: forall a b. (Num a, Num b)
 nn1op op (NumErr (a1,b1)) = NumErr (op a1, op b1)
 
 
+-- errors :: Real t => (NumErr Exact t) -> (Double, Double)
+-- errors (NumErr (Exact ref', approx)) = (absErr, relErr) where
+--   -- With tick is exact, without is approx.  Perform all computations
+--   -- using rational numbers then convert the result to Double.
+--   approx' = toRational approx
+--   absErr' = approx' - ref'
+--   relErr' = absErr' / ref'
+--   absErr  = toDouble $ Exact absErr'
+--   relErr  = toDouble $ Exact relErr'
+
 errors (NumErr (ref, approx)) = (absErr, relErr) where
   ref' = toDouble ref
   approx' = toDouble approx
@@ -156,5 +166,77 @@ float2FloatErr f = NumErr (Exact $ toRational f, f)
 -- How to represent an exact pure sine?  The 3,4,5 triangle works but
 -- that has a pretty high frequency.  Any other Pythagorian triples?
 -- https://en.wikipedia.org/wiki/Pythagorean_triple
+--
+-- In practice this isn't really needed: 1. it is enough to represent
+-- a floating point number as a rational to then generate a damped
+-- sinusoid with damping factor very close to 1, or 2. just generate
+-- finite precision input signal directly and convert it to
+-- fractional.
 
+
+-- 4. Interpret to formula.  This is useful for working with z
+-- transforms.
+
+data Symbolic = SymInt Int
+              | SymRat Rational
+              | SymAdd Symbolic Symbolic
+              | SymSub Symbolic Symbolic
+              | SymAbs Symbolic
+              | SymSignum Symbolic
+              | SymMul Symbolic Symbolic
+              | SymDiv Symbolic Symbolic
+              | SymVar String
+              deriving (Eq)
+
+probeOp op args = c $ ["(",op, c $ c $ fmap a args,")"] where
+  c = concat
+  a x = [" ",show x]
+
+instance Show Symbolic where
+
+  show (SymVar v)    = v
+  show (SymInt i)    = show i
+  show (SymRat r)    = show r
+  show (SymAdd a b)  = probeOp "+" [a,b]
+  show (SymSub a b)  = probeOp "-" [a,b]
+  show (SymMul a b)  = probeOp "*" [a,b]
+  show (SymDiv a b)  = probeOp "/" [a,b]
+  show (SymAbs a)    = probeOp "abs" [a]
+  show (SymSignum a) = probeOp "signum" [a]
+                 
+instance Num Symbolic where
+  (+) = SymAdd
+  (-) = SymSub
+  (*) = SymMul
+  abs = SymAbs
+  signum = SymSignum
+  fromInteger = SymInt . fromInteger
+
+instance Fractional Symbolic where
+  fromRational = SymRat . fromRational
+  (/) = SymDiv
+
+
+-- 5. Dual numbers for automatic differentiation.  
+-- https://www.cs.cornell.edu/~bindel/nmds/01-Fund1d/04-AutoDiff.html
+
+data Dual t = Dual t t
+
+instance Show t => Show (Dual t) where
+  -- show (Dual f f') = show f ++ "+" ++ show f' ++ "ε"
+  show (Dual f f') = show f ++ " +ε " ++ show f'
+
+_FIXME = undefined
+                     
+instance Num t => Num (Dual t) where
+  fromInteger i = Dual (fromInteger i) 0
+  (Dual f f') + (Dual g g') = Dual (f+g) (f'+g')
+  (Dual f f') - (Dual g g') = Dual (f-g) (f'-g')
+  (Dual f f') * (Dual g g') = Dual (f*g) (f*g'+f'*g)
+  abs (Dual f f')    = _FIXME
+  signum (Dual f f') = _FIXME
+
+instance Fractional t => Fractional (Dual t) where
+  fromRational r = Dual (fromRational r) 0
+  (Dual f f') / (Dual g g') = Dual (f/g) (f'/g - f*g'/(g*g))
 
