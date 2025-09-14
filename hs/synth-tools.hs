@@ -319,7 +319,7 @@ testDual = do
 testMoebius = do
   let show' :: Riemann Rational -> String
       show' = show
-      m1 = Moebius 1 0 0 1
+      m1 = Moebius 1 1 Inf
       m2 = compM m1 m1
       -- show'' :: Moebius (Riemann Rational) -> String
       show'' :: Moebius (Riemann Float) -> String

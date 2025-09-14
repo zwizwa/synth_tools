@@ -160,9 +160,9 @@ biquadUpdate (fb1,fb2,ff1,ff2,ff3) s i = (s',o) where
 data Riemann t = Fin { rReal :: t, rImag :: t } | Inf
 instance (Eq t, Num t, Show t) => Show (Riemann t) where
   show Inf = "∞"
-  show (Fin a 0) = "(" ++ show a ++ ")"
-  show (Fin 0 b) = "(" ++ "i" ++ show b ++ ")"
-  show (Fin a b) = "(" ++ show a ++ "+i" ++ show b ++ ")"
+  show (Fin a 0) = show a
+  show (Fin 0 b) = show b
+  show (Fin a b) = (show $ Fin a 0) ++ " + " ++ (show $ Fin 0 b)
 
 
 -- instance Show (Moebius t) where show _ = "Moebius"
@@ -205,17 +205,20 @@ instance Fractional t => Fractional (Riemann t) where
 --        cz + d
 --
 -- ad /= bc
+--
+-- It seems simpler to use a normal form
+--
+--          z - p
+-- f(z) = k -----
+--          z - q
 
--- Maybe use the normal form that corresponds best to a digital
--- filter, i.e. d=1.  
 
 
-data Moebius t = Moebius t t t t
+data Moebius t = Moebius t t t
 instance (Fractional t, Show t) => Show (Moebius t) where
-  show = showM . normalizeM
+  show = showM
 
-showM (Moebius a b c d) =
-    "(" ++ show a ++ "z+" ++ show b ++ ")/(" ++ show c ++ "z+" ++ show d ++ ")"
+showM (Moebius k p q) = show (k,p,q)
 
 
 
@@ -225,12 +228,24 @@ showM (Moebius a b c d) =
 -- instance Num t => Semigroup (Moebius t) where
 --   (Monoid a b c d) <> (Monoid a b c d) = Monoid a b c d where
 
-compM (Moebius a b c d) (Moebius a' b' c' d') = Moebius a'' b'' c'' d'' where
-  a'' = a*a' + b*c'
-  b'' = a*b' + b*d'
-  c'' = c*a' + d*c'
-  d'' = c*b' + d*d'
+-- This is a . b
+-- See maxima/moebius.mac
+compM (Moebius ka pa qa) (Moebius kb pb qb) = Moebius k p q where
+  p = (kb * pb - pa * qb) / (kb - pa)
+  q = (kb * pb - qa * qb) / (kb - qa)
+  k = ka * (kb - pa) / (kb - qa)
 
-normalizeM (Moebius a b c d) = Moebius (a/d) (b/d) (c/d) 1
+bilinM = Moebius 2 (-1) 1
 
-bilinM = Moebius 1 (-1) 1 1 
+
+-- Now it is possible to represent a 2nd order rational function the
+-- product of two Moebius transforms and use the Moebius composition
+-- to compute each section.  If the rational function has complex
+-- poles it just needs to do one.
+
+-- Next:
+-- test this, make some examples.
+-- handle the infinities
+
+-- It is probably necessary to represent the Rieman numbers explicitly
+-- to be able to handle the cases where one of them is infinite.
