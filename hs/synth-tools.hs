@@ -316,6 +316,27 @@ testDual = do
   test2 10 1.01
   
 
+testMoebius = do
+  let show' :: Riemann Rational -> String
+      show' = show
+      m1 = Moebius 1 0 0 1
+      m2 = compM m1 m1
+      -- show'' :: Moebius (Riemann Rational) -> String
+      show'' :: Moebius (Riemann Float) -> String
+      show'' = show
+      
+  -- putStrLn' $ show $ Moebius 1 2 3 4
+  putStrLn' $ show' $ Fin 1 2
+  putStrLn' $ show' $ (Fin 1 2) / (Fin 3 4)
+
+  putStrLn' $ show' $ (Fin 1 2) / (Fin 3 4)
+
+  putStrLn' $ show'' m1
+
+  putStrLn' $ show'' bilinM
+
+  return ()
+
   
 main = do
   args <- getArgs
@@ -330,7 +351,8 @@ main = do
         ("SNR",      testSNR),
         ("Biquad",   testBiquad),
         ("ZT",       testZT),
-        ("Dual",     testDual)
+        ("Dual",     testDual),
+        ("Moebius",  testMoebius)
         ]
       tests' = [
         -- These read from stdin so don't put them in the full list.

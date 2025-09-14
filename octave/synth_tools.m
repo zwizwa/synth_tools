@@ -75,7 +75,7 @@ function subplot_db(rows, cols, plot_nb, f_0, f_step, db)
   subplot (rows, cols, plot_nb)
   semilogx(x,db);
   xlim([f_left f_right]);
-  ylim([-80 20])
+  ylim([-120 20])
   grid ("on");
   ylabel ("Magnitude [dB]");
   xlabel ("Frequency [Hz]");

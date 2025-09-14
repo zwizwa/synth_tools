@@ -127,3 +127,110 @@ biquadUpdate (fb1,fb2,ff1,ff2,ff3) s i = (s',o) where
   o' = i + fb1 * last + fb2 * prev
   o = ff1 * o' + ff2 * last + ff3 * prev
   s' = (o', last)
+
+
+
+
+
+
+
+
+
+
+
+
+-- Different transforms.
+
+-- So here is the idea.  The transformations between the s and z
+-- domains is just a Moebius transform.  So is the transformation
+-- between z and d domains.  These are closed under function
+-- composition.  Can I just compute those in an exact way?
+
+-- If I can perform Moebius transforms on just the poles and zeros
+-- then I can track those more directly and also represent the point
+-- at infinity.  I can track them as exact numbers as well.
+
+-- https://en.wikipedia.org/wiki/M%C3%B6bius_transformation
+
+-- Start with representing the Riemann sphere.
+
+-- Note that we want to use exact numbers, so the standard Complex
+-- class doesn't work here.  Fuse the complex numbers into the Riemann
+-- data type.
+data Riemann t = Fin { rReal :: t, rImag :: t } | Inf
+instance (Eq t, Num t, Show t) => Show (Riemann t) where
+  show Inf = "∞"
+  show (Fin a 0) = "(" ++ show a ++ ")"
+  show (Fin 0 b) = "(" ++ "i" ++ show b ++ ")"
+  show (Fin a b) = "(" ++ show a ++ "+i" ++ show b ++ ")"
+
+
+-- instance Show (Moebius t) where show _ = "Moebius"
+instance Fractional t => Num (Riemann t) where
+  (+) = rop2 (+)
+  (-) = rop2 (-)
+  
+  (*) (Fin a b) (Fin c d) = Fin (a*c-b*d) (a*d+b*c)
+  (*) _ _= Inf
+  
+  fromInteger i = Fin (fromInteger i) 0
+
+  -- Haskell Num is not great for this
+  -- Maybe use numeric-prelude instead
+  abs    = error "No abs for Riemann"
+  signum = error "No signum for Riemann"
+
+rop2 :: Fractional t
+     => (t -> t -> t)
+     -> Riemann t -> Riemann t -> Riemann t
+rop2 op (Fin r1 i1) (Fin r2 i2) = Fin (op r1 r2) (op i1 i2)
+rop2 _ _ _ = Inf
+
+rop1 :: Fractional t
+     => (t -> t)
+     -> Riemann t -> Riemann t
+rop1 op (Fin r1 i1) = Fin (op r1) (op i1)
+rop1 _ _ = Inf
+
+instance Fractional t => Fractional (Riemann t) where
+  fromRational r = Fin (fromRational r) 0
+  (/) (Fin a b) (Fin c d) = Fin ((a*c+b*d)/n) ((b*c-a*d)/n) where n = c*c+d*d
+ 
+
+
+-- It seems best to represent the Moebius transforms explicitly.
+--
+--        az + b
+-- f(z) = ------
+--        cz + d
+--
+-- ad /= bc
+
+-- Maybe use the normal form that corresponds best to a digital
+-- filter, i.e. d=1.  
+
+
+data Moebius t = Moebius t t t t
+instance (Fractional t, Show t) => Show (Moebius t) where
+  show = showM . normalizeM
+
+showM (Moebius a b c d) =
+    "(" ++ show a ++ "z+" ++ show b ++ ")/(" ++ show c ++ "z+" ++ show d ++ ")"
+
+
+
+-- instance Num t => Monoid (Moebius t) where
+--   mempty = Moebius 1 0 0 1
+
+-- instance Num t => Semigroup (Moebius t) where
+--   (Monoid a b c d) <> (Monoid a b c d) = Monoid a b c d where
+
+compM (Moebius a b c d) (Moebius a' b' c' d') = Moebius a'' b'' c'' d'' where
+  a'' = a*a' + b*c'
+  b'' = a*b' + b*d'
+  c'' = c*a' + d*c'
+  d'' = c*b' + d*d'
+
+normalizeM (Moebius a b c d) = Moebius (a/d) (b/d) (c/d) 1
+
+bilinM = Moebius 1 (-1) 1 1 

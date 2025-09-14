@@ -209,18 +209,18 @@ instance DSLType r DoubleErr where dslType _ = TDouble
 -- interpretation, like is done in the Neon emulator.  The
 -- implementation is in Num.hs
 
-instance Num (Eval Symbolic) where
+instance Num (Eval Sym) where
   (+) = add' ; (-) = sub' ; (*) = mul' ; abs = abs'
   signum = signum' ; fromInteger = const . fromInteger
 
-instance Fractional (Eval Symbolic) where
+instance Fractional (Eval Sym) where
   fromRational = const . fromRational
   (/) = div'
   
-instance DSLPrim Eval Symbolic where
+instance DSLPrim Eval Sym where
   op1 = eval1 ; op2 = eval2
-instance DSLConst Eval Symbolic where
+instance DSLConst Eval Sym where
   const = Eval . pure
 
-instance DSLType r Symbolic where dslType _ = TFloat
+instance DSLType r Sym where dslType _ = TFloat
 

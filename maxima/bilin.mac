@@ -1,0 +1,19 @@
+/* https://en.wikipedia.org/wiki/Maxima_(software) */
+/* num(s) := (s/w)^2 + s*g*b/w + 1; */
+/* den(s) := (s/w)^2 + s*b/w + 1; */
+/* bilin(z) := 2/T * (z-1)/(z+1); */
+
+num(s) := s^2 + s*g*b + 1;
+den(s) := s^2 + s*b + 1;
+bilin(z) := 2 * (z-1)/(z+1);
+
+H(s) := num(s)/den(s);
+
+H_z: ratsimp(H(bilin(z)));
+
+/* print(H_s); */
+/* print(s_bilin); */
+/* print(H_z); */
+
+print(H_z);
+

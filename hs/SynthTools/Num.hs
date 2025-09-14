@@ -177,22 +177,22 @@ float2FloatErr f = NumErr (Exact $ toRational f, f)
 -- 4. Interpret to formula.  This is useful for working with z
 -- transforms.
 
-data Symbolic = SymInt Int
-              | SymRat Rational
-              | SymAdd Symbolic Symbolic
-              | SymSub Symbolic Symbolic
-              | SymAbs Symbolic
-              | SymSignum Symbolic
-              | SymMul Symbolic Symbolic
-              | SymDiv Symbolic Symbolic
-              | SymVar String
-              deriving (Eq)
+data Sym = SymInt Int
+         | SymRat Rational
+         | SymAdd Sym Sym
+         | SymSub Sym Sym
+         | SymAbs Sym
+         | SymSignum Sym
+         | SymMul Sym Sym
+         | SymDiv Sym Sym
+         | SymVar String
+         deriving (Eq)
 
 probeOp op args = c $ ["(",op, c $ c $ fmap a args,")"] where
   c = concat
   a x = [" ",show x]
 
-instance Show Symbolic where
+instance Show Sym where
 
   show (SymVar v)    = v
   show (SymInt i)    = show i
@@ -204,7 +204,7 @@ instance Show Symbolic where
   show (SymAbs a)    = probeOp "abs" [a]
   show (SymSignum a) = probeOp "signum" [a]
                  
-instance Num Symbolic where
+instance Num Sym where
   (+) = SymAdd
   (-) = SymSub
   (*) = SymMul
@@ -212,7 +212,7 @@ instance Num Symbolic where
   signum = SymSignum
   fromInteger = SymInt . fromInteger
 
-instance Fractional Symbolic where
+instance Fractional Sym where
   fromRational = SymRat . fromRational
   (/) = SymDiv
 
@@ -226,15 +226,16 @@ instance Show t => Show (Dual t) where
   -- show (Dual f f') = show f ++ "+" ++ show f' ++ "ε"
   show (Dual f f') = show f ++ " +ε " ++ show f'
 
-_FIXME = undefined
+_NOT_DIFF tag = error $ tag ++ " is not differentiable"
                      
 instance Num t => Num (Dual t) where
   fromInteger i = Dual (fromInteger i) 0
   (Dual f f') + (Dual g g') = Dual (f+g) (f'+g')
   (Dual f f') - (Dual g g') = Dual (f-g) (f'-g')
   (Dual f f') * (Dual g g') = Dual (f*g) (f*g'+f'*g)
-  abs (Dual f f')    = _FIXME
-  signum (Dual f f') = _FIXME
+  -- These are not differentiable
+  abs (Dual f f')    = _NOT_DIFF "abs"
+  signum (Dual f f') = _NOT_DIFF "signum"
 
 instance Fractional t => Fractional (Dual t) where
   fromRational r = Dual (fromRational r) 0
