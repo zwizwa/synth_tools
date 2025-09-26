@@ -1,0 +1,26 @@
+/* The two Moebius transforms. */
+m1(z) := k1 * (z-p1)/(z-q1);
+m2(z) := k2 * (z-p2)/(z-q2);
+
+/* The composition. */
+m12(z) := m1(m2(z));
+
+/* The 3 parameters of the composition
+     z - p
+   k -----
+     z - q
+
+   can be recovered like this: */
+/* zero */
+p : solve(m12(z), z);
+
+/* pole */
+q : solve(1/m12(z), z);
+
+/* scale */
+k : limit(m12(z), z, inf);
+
+print(k);
+print(p);
+print(q);
+

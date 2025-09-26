@@ -201,42 +201,52 @@ instance Fractional t => Fractional (Riemann t) where
 -- It seems best to represent the Moebius transforms explicitly.
 --
 --        az + b
--- f(z) = ------
+-- f(z) = ------  with  ad /= bc
 --        cz + d
---
--- ad /= bc
 --
 -- It seems simpler to use a normal form
 --
 --          z - p
--- f(z) = k -----
+-- f(z) = k -----  with  p /= q
 --          z - q
+--
 
+data Moebius3 t = Moebius3 t t t
 
+instance (Fractional t, Show t) => Show (Moebius3 t) where
+  show (Moebius3 k p q) = show (k,p,q)
 
-data Moebius t = Moebius t t t
-instance (Fractional t, Show t) => Show (Moebius t) where
-  show = showM
+-- This is m1 . m2
+-- See maxima/moebius3.mac
+showM3 (Moebius3 k p q) = show (k,p,q)
+compM3 (Moebius3 k1 p1 q1) (Moebius3 k2 p2 q2) = Moebius3 k p q where
+  p = (k2 * p2 - p1 * q2) / (k2 - p1)
+  q = (k2 * p2 - q1 * q2) / (k2 - q1)
+  k = k1 * (k2 - p1) / (k2 - q1)
 
-showM (Moebius k p q) = show (k,p,q)
+bilinM3 = Moebius3 2 (-1) 1
 
+data Moebius4 t = Moebius4 t t t t
+  
+-- This is m1 . m1
+-- See maxima/moebius4.mac
+-- The coefficients are obtained through matrix multiplication
+--
+-- a1 b1   a2 b2   z
+-- c1 d1 . c2 d2 . 1
+--
+-- These are homogeneous coordinates in projective space.
+--
+-- https://math.stackexchange.com/questions/1112642/on-the-matrix-representation-of-a-composition-of-m%C3%B6bius-transforms
+-- https://en.wikipedia.org/wiki/M%C3%B6bius_transformation#Projective_matrix_representations
 
+-- Also note that SL(2,C) is a simply connected double cover of PSL(2,C).
 
--- instance Num t => Monoid (Moebius t) where
---   mempty = Moebius 1 0 0 1
-
--- instance Num t => Semigroup (Moebius t) where
---   (Monoid a b c d) <> (Monoid a b c d) = Monoid a b c d where
-
--- This is a . b
--- See maxima/moebius.mac
-compM (Moebius ka pa qa) (Moebius kb pb qb) = Moebius k p q where
-  p = (kb * pb - pa * qb) / (kb - pa)
-  q = (kb * pb - qa * qb) / (kb - qa)
-  k = ka * (kb - pa) / (kb - qa)
-
-bilinM = Moebius 2 (-1) 1
-
+compM4 (Moebius4 a1 b1 c1 d1) (Moebius4 a2 b2 c2 d2) = Moebius4 a b c d where
+  a = a1*a2 + b1*c2
+  b = a1*b2 + b1*d2
+  c = c1*a2 + d1*c2
+  d = c1*b2 + d1*d2
 
 -- Now it is possible to represent a 2nd order rational function the
 -- product of two Moebius transforms and use the Moebius composition

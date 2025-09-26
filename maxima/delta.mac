@@ -1,0 +1,16 @@
+/* So what is the formula of the transform that computes the delta
+   representation from the Laplace transform? */
+
+h(s) := (1 + g*q*s + s^2) / (1 + q*s + s^2);
+
+s(z) := 2 * (z-1) / (z+1);
+/* s(z) := 2/T * (z-1) / (z+1); */
+z(d) := d + 1;
+
+sz: s(z(d));
+
+hsz: h(s(z(d)));
+
+print(ratsimp(hsz, d));
+
+
