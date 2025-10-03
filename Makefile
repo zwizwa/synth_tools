@@ -5,6 +5,10 @@ all: all_products
 .PHONY: all_products
 all_products: $(ALL_PRODUCTS)
 
+.PHONY: signalsmith
+signalsmith:
+	make -C signalsmith
+
 .PHONY: clean
 clean:
 	cd stm32f103 ; rm -f *.o *.d *.a *.elf *.bin *.fw *.data *.build *.hex *.fw.enc *.map
