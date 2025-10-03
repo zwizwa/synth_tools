@@ -27,6 +27,31 @@ end
 # global z = tf('z', 1/samplerate());
 
 
+# Unwrap phase. The heuristic is to track the phase increments and
+# pick which ever jump is smallest: p, p+2pi, p-2pi and track the
+# number of revolutions.
+
+# span should be 2*pi if the input is radians, or 360 if degrees.
+function unwrapped = unwrap_phase(wrapped, span)
+  wraps = 0;
+  unwrapped = [];
+  last = wrapped(1);
+  for i=1:length(wrapped)
+    dl = wrapped(i) - last;
+    d  = abs(dl);
+    dm = abs(dl - span);
+    dp = abs(dl + span);
+    if dp < d && dp < dm
+      wraps = wraps + 1
+    elseif dm < d && dm < dp
+      wraps = wraps - 1
+    end
+    uw = wrapped(i) + wraps * span
+    unwrapped(i) = uw;
+    last = wrapped(i);
+  end
+end
+
 
 function [db, ph, f_0, f_step] = fft_to_spectrum(fft1)
 
@@ -49,6 +74,9 @@ function [db, ph, f_0, f_step] = fft_to_spectrum(fft1)
   f_0 = f_step * (offset_start - 1);
   
   db = 20 * log10(ampl(offset_start:offset_end));
+  # Unwrapped phase display isn't very useful in a bode plot.  Make
+  # separate phas end group/phase delay plots for that.
+  # ph = unwrap_phase(phase(offset_start:offset_end), 360);
   ph = phase(offset_start:offset_end);
 
 end
@@ -121,6 +149,7 @@ function fft_bode(ir)
   fft_bode_fft1(fft(ir))
 end
 
+
 # Originally for plotting relative phase of iir hilbert transformer
 # with frequency dependent i->o group delay, but 90 between outputs.
 function fft_phase_diff(ir, ir1)
@@ -150,3 +179,5 @@ function sig = sinsr(f,n);
   t = time(n);
   sig = sin(2*pi*f*t);
 end
+
+
