@@ -55,11 +55,13 @@ end
 # Compute group delay
 #
 # The group delay is defined as -dp/dw where p is the phase in radians
-# and w is the angular frequency 2*pi*f/f_s.  The group delay is then
-# expressed in fractional samples.
+# and w is the angular frequency 2*pi*f/f_s in radians per normalized
+# time unit which is 1 sample.
 #
-# The approximation uses difference with the previous FFT bin:
-# (p_{i} - p_{i-1}) / (w_{i} - (w_{i-1})
+# The group delay is then expressed in fractional samples.
+#
+# The approximation uses difference with the previous FFT bin: (p_{i}
+# - p_{i-1}) / (w_{i} - (w_{i-1})
 #
 # The w difference is one FFT bin which is 2*pi / N
 #
