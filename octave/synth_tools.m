@@ -42,14 +42,35 @@ function unwrapped = unwrap_phase(wrapped, span)
     dm = abs(dl - span);
     dp = abs(dl + span);
     if dp < d && dp < dm
-      wraps = wraps + 1
+      wraps = wraps + 1;
     elseif dm < d && dm < dp
-      wraps = wraps - 1
+      wraps = wraps - 1;
     end
-    uw = wrapped(i) + wraps * span
+    uw = wrapped(i) + wraps * span;
     unwrapped(i) = uw;
     last = wrapped(i);
   end
+end
+
+# Compute group delay
+#
+# The group delay is defined as -dp/dw where p is the phase in radians
+# and w is the angular frequency 2*pi*f/f_s.  The group delay is then
+# expressed in fractional samples.
+#
+# The approximation uses difference with the previous FFT bin:
+# (p_{i} - p_{i-1}) / (w_{i} - (w_{i-1})
+#
+# The w difference is one FFT bin which is 2*pi / N
+#
+function [gd, f_0, f_step] = group_delay(fft1)
+  N = length(fft1);
+  phase_r = unwrap_phase(angle(fft1),2*pi); %% In radians, unwrapped
+  scale = N / (2*pi);
+  gd1 = conv(scale*[-1 1], phase_r);
+  gd = gd1(2:(N/2));
+  f_step = samplerate() / N;
+  f_0 = f_step; %% frequency of the first sample
 end
 
 
@@ -149,6 +170,26 @@ function fft_bode(ir)
   fft_bode_fft1(fft(ir))
 end
 
+# Plot group delay
+function plot_group_delay(ir)
+  fft1 = fft(ir);
+  [gd, f_0, f_step] = group_delay(fft1);
+  [x,f_left,f_right] = bode_x(f_0, f_step, gd);
+  f_left
+  f_right
+  subplot(1, 1, 1);
+  semilogx(x,gd);
+end
+function plot_unwrapped_phase(ir)
+  fft1 = fft(ir);
+  [db, ph, f_0, f_step] = fft_to_spectrum(fft1);
+  phu = unwrap_phase(ph, 360);
+  [x,f_left,f_right] = bode_x(f_0, f_step, phu);
+  subplot(1, 1, 1);
+  plot(x,phu);
+end
+
+
 
 # Originally for plotting relative phase of iir hilbert transformer
 # with frequency dependent i->o group delay, but 90 between outputs.
@@ -156,7 +197,7 @@ function fft_phase_diff(ir, ir1)
   [db,  ph,  f_0,  f_step]  = fft_to_spectrum(fft(ir));
   [db1, ph1, f_01, f_step1] = fft_to_spectrum(fft(ir1));
   ph = mod(ph-ph1+180, 360)-180;
-  subplot_ph(1, 1, 1, f_0, f_step, ph)
+  subplot_ph(1, 1, 1, f_0, f_step, ph);
 end
 
 
