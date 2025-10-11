@@ -37,7 +37,8 @@ int main(int argc, char **argv) {
     bode_fft_to_spectrum(&bode, out);
 
     char sep = '\n';
-    char *path = bode_svg_path_db(&bode, sep);
+    float pixels_per_decade = 40;
+    char *path = bode_svg_path_db(&bode, pixels_per_decade, sep);
     LOG("path:\n%s\n", path);
 
     free(path);

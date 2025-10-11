@@ -72,6 +72,8 @@ static int bode_svg_path_db_inner(const struct bode *bode,
     /* This is the data we're fitting onto the grid. */
     float decade_left  = log10f(20);
     float decade_right = log10f(bode->samplerate/2);
+    (void)decade_left;
+    (void)decade_right;
 
     char tag = 'M';
     int size = 0;
