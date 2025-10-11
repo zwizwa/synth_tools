@@ -3,9 +3,6 @@
    Handles all midi/Erlang routing.
    Hosts sequencer / arpeggiator.
 
-   Clock is always slave mode here to keep things flexible.
-   In my setup, clock.c is master clock.
-
    Note that this has all equipment hardcoded.  I currently do not see
    the point in adding a layer of configuration abstraction.  Easy
    enough to recompile in the current setup, so all config is in C, or

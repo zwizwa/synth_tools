@@ -12,19 +12,19 @@ GIT_VERSION ?= "unknown"
 # up here to both work for nix build invoking cargo (see flake.nix),
 # or rules.mk build invoking cargo directly (e.g. from nix develop
 # toolchain).
-RS_A_STM ?= rs/target/thumbv6m-none-eabi/release/libsynth_tools_rs.a
-RS_A_HOST ?= rs/target/x86_64-unknown-linux-gnu/release/libsynth_tools_rs.a
+RS_A_STM ?= rs/clib-synth/target/thumbv6m-none-eabi/release/libsynth_tools_rs.a
+RS_A_HOST ?= rs/clib-synth/target/x86_64-unknown-linux-gnu/release/libsynth_tools_rs.a
 RS_SRC := \
-	rs/src/lib.rs
+	rs/clib-synth/src/lib.rs
 
 $(RS_A_HOST): $(RS_SRC)
 	@echo $(RS_A_HOST)
-	cd rs ; cargo build --release --target x86_64-unknown-linux-gnu
+	cd rs/clib-synth ; cargo build --release --target x86_64-unknown-linux-gnu
 	ls -l $@
 
 $(RS_A_STM): $(RS_SRC)
 	@echo $(RS_A_STM)
-	cd rs ; cargo build --release --target thumbv6m-none-eabi
+	cd rs/clib-synth ; cargo build --release --target thumbv6m-none-eabi
 	ls -l $@
 
 # Same for Zig

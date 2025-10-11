@@ -177,7 +177,11 @@ int main(int argc, char **argv) {
 
     ASSERT(!mlockall(MCL_CURRENT | MCL_FUTURE));
 
-    pd_fd = assert_tcp_connect("localhost", 3001);
+    // const char *localhost = "localhost"; // this broke, likely because it maps to ::1 now
+    const char *localhost = "127.0.0.1";
+    pd_fd = assert_tcp_connect(localhost, 3001);
+
+
     PD_WRITE("startup;\n");
 
     /* ALSA */
