@@ -18,7 +18,16 @@ clean:
 	rm -f zig/*.o zig/*.a
 
 .PHONY: rs_linux
+rs_linux:
 	cd rs_linux ; cargo build
+
+.PHONY: pd
+pd:
+	rm -f pd ; ln -sf $$PD pd ; ls -l pd
+
+.PHONY: jack
+jack:
+	rm -f jack ; ln -sf $$JACK jack ; ls -l jack
 
 
 # Keep this /etc/net build.  Does not depend on ARM tools.

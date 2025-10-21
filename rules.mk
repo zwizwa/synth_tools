@@ -112,6 +112,7 @@ HOST_ELF := \
 	linux/a2jmidid.dynamic.host.elf \
 	linux/synth_tools.dynamic.host.so \
 	$(UC_TOOLS)/linux/test_telnet.dynamic.host.elf \
+	linux/test_osc.dynamic.host.elf \
 
 HOST_ELF_DIS := \
 	linux/clock.dynamic.host.elf \

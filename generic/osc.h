@@ -22,7 +22,7 @@ union osc {
     float   f;
     int32_t i;
 };
-CT_ASSERT(osc_size, sizeof(union osc) == sizeof(uintptr_t));
+CT_ASSERT(osc_size, sizeof(union osc) == sizeof(uint32_t));
 
 struct param;
 
@@ -257,6 +257,40 @@ static inline int osc_parse(struct param_context *x, const union osc *cmd, uintp
    binary is just too cumbersome to use.  Stay as close as possible to
    the original. */
 
+static inline int osc_parse_set_number(struct param_context *x,
+                                       const struct param *p, const char *number) {
+    switch(p->type) {
+    case OSC_TYPE_SET_FLOAT: {
+        float f = atof(number);
+        // LOG("float: %f\n", f);
+        p->cont.set_f(x, f);
+        return OSC_PARSE_OK;
+    }
+    case OSC_TYPE_SET_INT: {
+        uint32_t i = atoi(number);
+        // LOG("int: %d\n", i);
+        p->cont.set_i(x, i);
+        return OSC_PARSE_OK;
+    }
+    case OSC_TYPE_PTR_FLOAT: {
+        float f = atof(number);
+        // LOG("float: %f\n", f);
+        *p->cont.ptr_f = f;
+        return OSC_PARSE_OK;
+    }
+    case OSC_TYPE_PTR_INT: {
+        uint32_t i = atoi(number);
+        // LOG("int: %d\n", i);
+        *p->cont.ptr_i = i;
+        return OSC_PARSE_OK;
+    }
+    default:
+        LOG("bad type %d\n", p->type);
+        return OSC_PARSE_UNKNOWN_TYPE;
+    }
+}
+
+
 static inline int osc_parse_text(struct param_context *x, const char *line) {
 
     /* String is processed in-place, so make a copy. */
@@ -288,37 +322,8 @@ static inline int osc_parse_text(struct param_context *x, const char *line) {
         return OSC_PARSE_EXTRA_TEXT;
     }
 
-    switch(p->type) {
-    case OSC_TYPE_SET_FLOAT: {
-        float f = atof(number);
-        // LOG("float: %f\n", f);
-        p->cont.set_f(x, f);
-        return OSC_PARSE_OK;
-    }
-    case OSC_TYPE_SET_INT: {
-        uint32_t i = atoi(number);
-        // LOG("int: %d\n", i);
-        p->cont.set_i(x, i);
-        return OSC_PARSE_OK;
-    }
-    case OSC_TYPE_PTR_FLOAT: {
-        float f = atof(number);
-        // LOG("float: %f\n", f);
-        *p->cont.ptr_f = f;
-        return OSC_PARSE_OK;
-    }
-    case OSC_TYPE_PTR_INT: {
-        uint32_t i = atoi(number);
-        // LOG("int: %d\n", i);
-        *p->cont.ptr_i = i;
-        return OSC_PARSE_OK;
-    }
-    default:
-        LOG("bad type %d\n", p->type);
-        return OSC_PARSE_UNKNOWN_TYPE;
-    }
+    return osc_parse_set_number(x, p, number);
 
-    return 0;
 }
 
 
@@ -337,17 +342,18 @@ static inline void osc_parse_text_lines(
 }
 
 /* Traverse the tree to visit all atom nodes + pass in a (revrsed) path. */
-struct osc_path;
-struct osc_path {
-    struct osc_path *parent;
+struct osc_rev_path;
+struct osc_rev_path {
+    struct osc_rev_path *parent;
     const char *name;
 };
-typedef void (*osc_visit_fn)(struct param_context *, struct osc_path *, const struct param *);
+typedef void (*osc_visit_fn)(struct param_context *,
+                             struct osc_rev_path *, const struct param *);
 
 static inline void osc_traverse_pl(
     struct param_context *x,
     osc_visit_fn visit,
-    struct osc_path *path,
+    struct osc_rev_path *path,
     const struct param * const* pl)
 {
     for (; *pl; pl++) {
@@ -356,7 +362,7 @@ static inline void osc_traverse_pl(
             visit(x, path, p);
         }
         else {
-            struct osc_path path1 = {
+            struct osc_rev_path path1 = {
                 .parent = path,
                 .name = p->name,
             };
@@ -369,6 +375,92 @@ static inline void osc_traverse(struct param_context *x,
                                 osc_visit_fn visit) {
     osc_traverse_pl(x, visit, NULL, x->root);
 }
+
+
+struct osc_fwd_path;
+struct osc_fwd_path {
+    struct osc_fwd_path *child;
+    const char *name;
+};
+static inline void osc_log_fwd_path(const struct osc_fwd_path *path) {
+    LOG("fwd_path: ");
+    for(const struct osc_fwd_path *p = path; p; p = p->child) {
+        LOG("/%s", p->name);
+    }
+    LOG("\n");
+}
+
+
+/* For wildcard access. */
+
+static inline int osc_parse_path_for(struct param_context *x,
+                                     const struct osc_fwd_path *path,
+                                     const struct param* const* pl,
+                                     const char *number) {
+    if (!path) return OSC_PARSE_MISSING;
+
+    int wildcard = path->name[0] == '*';  // FIXME: generalize matching
+    for(;;){
+        const struct param *p = pl[0]; // There is always a NULL terminator.
+        if (!p) return 0;
+        // LOG("- check %s\n", p->name);
+        if (wildcard || (!strcmp(path->name, p->name))) {
+            LOG("match %s %s\n", path->name, p->name);
+            if (p->type == OSC_TYPE_LIST) {
+                osc_parse_path_for(x, path->child, p->cont.list, number);
+            }
+            else {
+                /* It's a leaf node.  Require that path is complete. */
+                if (path->child != NULL) return OSC_PARSE_EXTRA_ADDR;
+
+                /* Set the data.  Thos will succeed because we know
+                   it's not OSC_TYPE_LIST. */
+                int rv = osc_parse_set_number(x, p, number);
+                (void)rv;
+            }
+        }
+        pl++;
+    }
+}
+
+static inline int osc_parse_addr_for(struct param_context *x,
+                                     const char *addr,
+                                     const char *number) {
+    /* The wildcard tree traversal needs backtracking on the path
+       which is easier to represent using pointers into an immutable
+       data structure, so first scan the path into a linked list. */
+
+    int n = strlen(addr)+1;
+    char buf[n];
+    strcpy(buf, addr);
+
+    struct scan scan;
+    scan_init(&scan, buf, '/');
+
+    struct osc_fwd_path *path = NULL;
+    struct osc_fwd_path **ppath = &path;
+
+    char *tok;
+    while ((tok = scan_next(&scan))) {
+        // LOG("tok %s\n", tok);
+        struct osc_fwd_path *path1 = alloca(sizeof(*path1));
+        path1->name = tok;
+        path1->child = NULL;
+        *ppath = path1;
+        ppath = &path1->child;
+    }
+
+    if (0) {
+        osc_log_fwd_path(path);
+    }
+
+    const struct param * const* pl = x->root;
+
+    return osc_parse_path_for(x, path, pl, number);
+}
+
+
+
 
 
 #ifndef OSC_STATIC
