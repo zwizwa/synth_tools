@@ -5,6 +5,11 @@
 #include "scan.h"
 #include <stdint.h>
 
+#if 0
+#undef LOG
+#define LOG(...) fprintf(stderr, __VA_ARGS__)
+#endif
+
 /* Minimal OSC implementation. */
 
 /* Basic osc structure:
@@ -291,40 +296,6 @@ static inline int osc_parse_set_number(struct param_context *x,
 }
 
 
-static inline int osc_parse_text(struct param_context *x, const char *line) {
-
-    /* String is processed in-place, so make a copy. */
-    int n = strlen(line)+1;
-    char buf[n];
-    memcpy(buf, line, n);
-
-    struct scan scan;
-    scan_init(&scan, buf, ' ');
-
-    char *addr;
-    if (!(addr = scan_next(&scan))) {
-        return OSC_PARSE_EMPTY;
-    }
-    // LOG("addr = %s\n", addr);
-
-    const struct param *p;
-    int i_type;
-    int e = osc_parse_addr(x, addr, &p, &i_type);
-    if (e) return e;
-
-    char *number;
-    if (!(number = scan_next(&scan))) {
-        return OSC_PARSE_TEXT_MISSING;
-    }
-
-    char *extra;
-    if ((extra = scan_next(&scan))) {
-        return OSC_PARSE_EXTRA_TEXT;
-    }
-
-    return osc_parse_set_number(x, p, number);
-
-}
 
 
 // Note that this does not buffer partial lines.
@@ -334,12 +305,6 @@ static inline int osc_parse_text(struct param_context *x, const char *line) {
 
 
 
-static inline void osc_parse_text_lines(
-    struct param_context *x, uint8_t *buf, uintptr_t len)
-{
-    text_for_lines((text_for_lines_fn)osc_parse_text,
-                   x, buf, len, OSC_LINE_MAX);
-}
 
 /* Traverse the tree to visit all atom nodes + pass in a (revrsed) path. */
 struct osc_rev_path;
@@ -383,56 +348,71 @@ struct osc_fwd_path {
     const char *name;
 };
 static inline void osc_log_fwd_path(const struct osc_fwd_path *path) {
-    LOG("fwd_path: ");
     for(const struct osc_fwd_path *p = path; p; p = p->child) {
         LOG("/%s", p->name);
     }
-    LOG("\n");
+}
+static inline void osc_log_rev_path(const struct osc_rev_path *path) {
+    if (path) {
+        osc_log_rev_path(path->parent);
+        LOG("/%s", path->name);
+    }
 }
 
 
 /* For wildcard access. */
 
-static inline int osc_parse_path_for(struct param_context *x,
-                                     const struct osc_fwd_path *path,
-                                     const struct param* const* pl,
-                                     const char *number) {
-    if (!path) return OSC_PARSE_MISSING;
+static inline int osc_parse_path_set_number(
+    struct param_context *x,
+    const struct osc_fwd_path *w_path, /* with wildcards */
+    const struct param* const* pl,
+    struct osc_rev_path *a_path, /* actual path, reversed */
+    const char *number,
+    int *count)
+{
+    if (!w_path) return OSC_PARSE_MISSING;
 
-    int wildcard = path->name[0] == '*';  // FIXME: generalize matching
+    int wildcard = w_path->name[0] == '*';  // FIXME: generalize matching
     for(;;){
         const struct param *p = pl[0]; // There is always a NULL terminator.
         if (!p) return 0;
         // LOG("- check %s\n", p->name);
-        if (wildcard || (!strcmp(path->name, p->name))) {
-            LOG("match %s %s\n", path->name, p->name);
+        if (wildcard || (!strcmp(w_path->name, p->name))) {
+            // LOG("match: %s %s\n", w_path->name, p->name);
+            struct osc_rev_path a_path1 = {
+                .name = p->name,
+                .parent = a_path,
+            };
             if (p->type == OSC_TYPE_LIST) {
-                osc_parse_path_for(x, path->child, p->cont.list, number);
+                osc_parse_path_set_number(
+                    x, w_path->child, p->cont.list, &a_path1, number, count);
             }
             else {
                 /* It's a leaf node.  Require that path is complete. */
-                if (path->child != NULL) return OSC_PARSE_EXTRA_ADDR;
+                if (w_path->child != NULL) return OSC_PARSE_EXTRA_ADDR;
 
                 /* Set the data.  Thos will succeed because we know
                    it's not OSC_TYPE_LIST. */
+                // LOG("leaf: "); osc_log_rev_path(&a_path1); LOG("\n");
                 int rv = osc_parse_set_number(x, p, number);
                 (void)rv;
+                if (count) (*count)++;
             }
         }
         pl++;
     }
+    return OSC_PARSE_OK;
 }
 
-static inline int osc_parse_addr_for(struct param_context *x,
-                                     const char *addr,
-                                     const char *number) {
+static inline int osc_parse_text_set_number(struct param_context *x,
+                                            const char *wc_addr,
+                                            const char *number) {
     /* The wildcard tree traversal needs backtracking on the path
        which is easier to represent using pointers into an immutable
        data structure, so first scan the path into a linked list. */
 
-    int n = strlen(addr)+1;
-    char buf[n];
-    strcpy(buf, addr);
+    char buf[strlen(wc_addr)+1];
+    strcpy(buf, wc_addr);
 
     struct scan scan;
     scan_init(&scan, buf, '/');
@@ -456,9 +436,57 @@ static inline int osc_parse_addr_for(struct param_context *x,
 
     const struct param * const* pl = x->root;
 
-    return osc_parse_path_for(x, path, pl, number);
+    int count = 0;
+    int rv = osc_parse_path_set_number(x, path, pl, NULL, number, &count);
+    if (rv) return rv;
+    if (count == 0) {
+        // Before wildcards, no match would be an error.  Keep that
+        // behavior?
+        return OSC_PARSE_NOT_FOUND;
+    }
+    else {
+        return OSC_PARSE_OK;
+    }
 }
 
+static inline int osc_parse_text(struct param_context *x, const char *line) {
+
+    /* String is processed in-place, so make a copy. */
+    int n = strlen(line)+1;
+    char buf[n];
+    memcpy(buf, line, n);
+
+    struct scan scan;
+    scan_init(&scan, buf, ' ');
+
+    char *wc_addr;
+    if (!(wc_addr = scan_next(&scan))) {
+        return OSC_PARSE_EMPTY;
+    }
+    // LOG("wc_addr = %s\n", wc_addr);
+
+    char *number;
+    if (!(number = scan_next(&scan))) {
+        return OSC_PARSE_TEXT_MISSING;
+    }
+
+    char *extra;
+    if ((extra = scan_next(&scan))) {
+        return OSC_PARSE_EXTRA_TEXT;
+    }
+
+    /* Set each node that matches the wildcard expression in wc_addr
+       string to value specified in number string. */
+    return osc_parse_text_set_number(x, wc_addr, number);
+
+}
+
+static inline void osc_parse_text_lines(
+    struct param_context *x, uint8_t *buf, uintptr_t len)
+{
+    text_for_lines((text_for_lines_fn)osc_parse_text,
+                   x, buf, len, OSC_LINE_MAX);
+}
 
 
 

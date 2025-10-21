@@ -148,7 +148,7 @@ void test(void) {
         LOG("e=%d, %s\n", e, osc_error(e));
     }
     if (1) {
-        osc_parse_addr_for(&pc, "/chan/*", "321");
+        osc_parse_text_set_number(&pc, "/chan/*", "321");
     }
 
     osc_traverse(&pc, test_traverse);
