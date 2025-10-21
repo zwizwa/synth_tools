@@ -1,5 +1,4 @@
 /* Erlang MIDI hub.
-
    Handles all midi/Erlang routing.
    Hosts sequencer / arpeggiator.
 
@@ -28,6 +27,12 @@
    objects.
 
 
+
+*/
+
+/* TODO
+   - oberon midi devices midi clock
+   - some high level code gen for routing config
 
 */
 
@@ -732,7 +737,9 @@ static void process_clock(struct app *app) {
             mmc_rt->clock_pol ^= 1;
             if (mmc_rt->clock_pol == 1) {
                 // Send event to ALSA thread
-                struct rt_event ev = {};
+                struct rt_event ev = {
+                    .cmd = RT_EVENT_MIDI_CLOCK,
+                };
                 from_rt(app, &ev);
                 // const uint8_t clock[] = {0xF8};
                 // send_midi(midi_out_buf, t, clock, sizeof(clock));
@@ -1129,6 +1136,10 @@ void handle_synth(struct app *app, const uint8_t *buf, int count) {}
 void handle_pd_io(struct app *app, const uint8_t *buf, int count) {}
 void handle_pixi(struct app *app, const uint8_t *buf, int count) {}
 void handle_easy(struct app *app, const uint8_t *msg, int n) {}
+void handle_td3(struct app *app, const uint8_t *buf, int count) {}
+void handle_bcr(struct app *app, const uint8_t *buf, int count) {}
+void handle_freak(struct app *app, const uint8_t *buf, int count) {}
+void handle_delta(struct app *app, const uint8_t *buf, int count) {}
 
 
 typedef void (*app_midi_fn)(struct app *app, const uint8_t *buf, int count);

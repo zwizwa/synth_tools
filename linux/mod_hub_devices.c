@@ -24,6 +24,12 @@
     m(pixi,    "EuroPIXI") \
     m(fire,    "FL STUDIO FIRE") \
     m(easy,    "WORLDE easy control") \
+    m(td3,     "TD-3") \
+    m(bcr,     "BCR2000") \
+    m(freak,   "Arturia MicroFreak") \
+    m(delta,   "M Audio Delta 1010") \
+
+
 
 
 /* Selector names. The ids are allocated sequentially.  The list needs
@@ -39,6 +45,11 @@
     m(pixi,         pixi,    0,  0) \
     m(fire,         fire,    0,  0) \
     m(easy,         easy,    0,  0) \
+    m(td3,          td3,     0,  0) \
+    m(bcr,          bcr,     0,  0) \
+    m(freak,        freak,   0,  0) \
+    m(delta,        delta,   0,  0) \
+
 
 /* Routing information is needed for input and output:
    - MIDI in   client:port:channel -> selector
