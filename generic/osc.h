@@ -374,8 +374,10 @@ static inline int osc_parse_path_set_number(
 
     int wildcard = w_path->name[0] == '*';  // FIXME: generalize matching
     for(;;){
+        // Iterate over the parameter list.
         const struct param *p = pl[0]; // There is always a NULL terminator.
         if (!p) return 0;
+
         // LOG("- check %s\n", p->name);
         if (wildcard || (!strcmp(w_path->name, p->name))) {
             // LOG("match: %s %s\n", w_path->name, p->name);
@@ -388,15 +390,22 @@ static inline int osc_parse_path_set_number(
                     x, w_path->child, p->cont.list, &a_path1, number, count);
             }
             else {
-                /* It's a leaf node.  Require that path is complete. */
-                if (w_path->child != NULL) return OSC_PARSE_EXTRA_ADDR;
+                /* It it's not OSC_TYPE_LIST then it's a leaf node.
+                   Require that path is complete. */
 
-                /* Set the data.  Thos will succeed because we know
-                   it's not OSC_TYPE_LIST. */
-                // LOG("leaf: "); osc_log_rev_path(&a_path1); LOG("\n");
-                int rv = osc_parse_set_number(x, p, number);
-                (void)rv;
-                if (count) (*count)++;
+                if (w_path->child != NULL) {
+                    /* To match a leaf node, we can't have extra
+                       segments to the path.  Ignore. */
+                }
+                else {
+                    /* Set the data in the leaf node.  Thos will
+                       succeed because we know it's not
+                       OSC_TYPE_LIST. */
+                    // LOG("leaf: "); osc_log_rev_path(&a_path1); LOG("\n");
+                    int rv = osc_parse_set_number(x, p, number);
+                    (void)rv;
+                    if (count) (*count)++;
+                }
             }
         }
         pl++;
