@@ -117,6 +117,16 @@ static inline int write_matrix(Matrix& m_in, int to_process_fd) {
   return 0;
 }
 
+static inline void octave_log_hex(const char *tag, void *v, int nb) {
+  uint8_t *b = (uint8_t*)v;
+  octave_stdout << tag;
+  for (int i=0; i<nb; i++) {
+    octave_stdout << " ";
+    octave_stdout << ((int)b[i]);
+  }
+  octave_stdout << "\n";
+}
+
 static inline Matrix read_matrix(int from_process_fd);
 static inline Matrix read_matrix(int from_process_fd) {
   FILE *from_process_f = fdopen(from_process_fd, "r");
@@ -130,6 +140,9 @@ static inline Matrix read_matrix(int from_process_fd) {
     octave_stdout << "bad read size\n";
     exit(1);
   }
+  // octave_log_hex("dim", &dim, sizeof(dim));
+
+
   uint32_t rows    = dim[0];
   uint32_t columns = dim[1];
   octave_stdout << "rows = " << rows    << "\n";
