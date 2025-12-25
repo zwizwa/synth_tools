@@ -315,7 +315,6 @@ testDual = do
   test2 10 0.99
   test2 10 1.01
   
-
 testMoebius = do
   let show' :: Riemann Rational -> String
       show' = show
@@ -337,6 +336,29 @@ testMoebius = do
 
   return ()
 
+
+testF3 = do
+  let cyc n = putStrLn' $ show $ (length c, c) where
+        c = cycleF3 $ F3 n
+      pad sig = Prelude.take 256 (sig ++ (Prelude.cycle [0]))
+      p x = putStrLn' $ show x
+      dft sig = do
+        let dft1 = dftF3 $ pad sig
+            dft2 = dftF3 $ dft1
+            dft3 = dftF3 $ dft2
+            dft4 = dftF3 $ dft3
+
+        p dft1
+        p dft2
+        p dft3
+        p dft4
+      
+  putStrLn' "testF3"
+  --cyc 2
+  --cyc 3
+  dft [1,2,3]
+
+
   
 main = do
   args <- getArgs
@@ -352,7 +374,8 @@ main = do
         ("Biquad",   testBiquad),
         ("ZT",       testZT),
         ("Dual",     testDual),
-        ("Moebius",  testMoebius)
+        ("Moebius",  testMoebius),
+        ("F3",       testF3)
         ]
       tests' = [
         -- These read from stdin so don't put them in the full list.

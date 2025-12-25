@@ -6,9 +6,13 @@ cabal-version: >= 1.10
 
 -- This is for the DSL and support code.
 
+-- The finite-fields package didn't compile out of the box.  I don't
+-- want to mess with it.
+
 executable synth-tools
     build-depends: base, Stream, data-reify, containers, data-fix, mtl, lens,
                    process, binary, bytestring, split
+ -- finite-fields
     main-is: synth-tools.hs
     default-language: Haskell2010
     ghc-options: -fprint-potential-instances
@@ -36,3 +40,4 @@ executable test-cproc
     other-modules: SynthTools.CProc
                    SynthTools.RunC
                    SynthTools.Dataflow
+                   SynthTools.IO

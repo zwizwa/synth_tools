@@ -241,3 +241,50 @@ instance Fractional t => Fractional (Dual t) where
   fromRational r = Dual (fromRational r) 0
   (Dual f f') / (Dual g g') = Dual (f/g) (f'/g - f*g'/(g*g))
 
+
+
+-- 6. Finite Fields for testing FFT-based algorithms.  I'm interested
+--    in power-of-two FFTs, so this needs a field of order 2^n+1 to
+--    have an order 2^n root of unity.  This is covered by Fermat
+--    primes F_n=2^(2^n)+1 where n=1,2,3,4 for orders 3,5,17,257 and
+--    65537.  I am only going to use FFT size around 256 in practice
+--    so use F3, where 3 is a root of unity.
+
+data F3 = F3 Int deriving (Eq)
+instance Show F3 where show (F3 n) = show n
+
+modF3 :: Int -> Int
+modF3 a = if b>=0 then b else b + 257 where b = a `mod` 257
+
+opF3 op (F3 a) (F3 b) = F3 $ modF3 $ op a b
+
+addF3 = opF3 (+)
+subF3 = opF3 (-)
+mulF3 = opF3 (*)
+
+_NOT_F3 tag = error $ tag ++ " is not defined for F3"
+
+instance Num F3 where
+  fromInteger = F3 . modF3 . fromInteger
+  (+) = opF3 (+)
+  (-) = opF3 (-)
+  (*) = opF3 (*)
+  -- These have no reasonable definition.
+  abs    (F3 _) = _NOT_F3 "abs"
+  signum (F3 _) = _NOT_F3 "signum"
+
+cycleF3 gen = (1 : cycle gen) where
+  cycle a = if b == 1 then [a] else (a : cycle b) where b = a * gen
+
+vprod [] [] = 0
+vprod (a:as) (b:bs) = a*b + (vprod as bs)
+
+expF3 :: Num a => a -> [a]
+expF3 a = (1 : exp a) where
+  exp x = (x : exp (a * x))
+
+dftF3 input = dftF3' (length input, input)
+dftF3' (256, input) = map bin [0..255] where
+  vec i = take 256 $ expF3 $ roots !! i
+  bin i = vprod input $ vec i
+  roots = cycleF3 $ F3 3

@@ -9,7 +9,7 @@
 #define N 4096
 #define SAMPLERATE 48000
 
-int main(int argc, char **argv) {
+void test1(void) {
 
 #if DYNAMIC
     fftwf_complex *in, *out;
@@ -51,5 +51,42 @@ int main(int argc, char **argv) {
     fftwf_free(out);
 #endif
 
+}
+
+// Overlap-add convolution
+//
+// 1. Assume fir length is F
+// 2. Assume signal block size is B
+// 3. Convolution length is F+B-1  (we can discard the -1 to simplify calc)
+//
+// 4. To use a circular convolution, the FFT size needs to e >= F+B-1
+//    so there is no time-wraparound
+//
+// 5. OLA: To split up in different blocks: add the tail of one
+//    convolution to the head of the next.
+//
+// 6. OLS: Discard the tail = the part that is incomplete, and
+//    incrementally shift the input.
+//
+// 7. Algorithm gets more efficient as FFT size increases.
+//
+// 8. Algorithm accrues more delay as B increases.
+//
+//
+
+
+
+void test2(void) {
+}
+
+void test3(void) {
+    // Overlap-save convolution
+}
+
+int main(int argc, char **argv) {
+    //test1();
+    test2();
+    test3();
     return 0;
 }
+
