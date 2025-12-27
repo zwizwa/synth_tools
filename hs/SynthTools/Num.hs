@@ -7,6 +7,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module SynthTools.Num where
 
@@ -245,24 +247,58 @@ instance Fractional t => Fractional (Dual t) where
 
 -- 6. Finite Fields for testing FFT-based algorithms.  I'm interested
 --    in power-of-two FFTs, so this needs a field of order 2^n+1 to
---    have an order 2^n root of unity.  This is covered by Fermat
+--    have an order 2^n root of unity. This is covered by Fermat
 --    primes F_n=2^(2^n)+1 where n=1,2,3,4 for orders 3,5,17,257 and
---    65537.  I am only going to use FFT size around 256 in practice
---    so use F3, where 3 is a root of unity.
+--    65537.
+--
+--    See SynthTools.DFT for generic FF DFT code
+
+-- Non-negative modulo.  Note that argument order is flipped.
+nnMod :: Int -> Int -> Int
+nnMod n a = if b>=0 then b else b + n where  b = a `mod` n
+
+
+class (Eq n, Num n, Show n) => FFRoot n where
+  ffRoot :: (n, Int)
+
+
+  
+
+
+-- For Num members that have no reasonable definition.
+_NI tag = error $ tag ++ " is not defined"
+
+
+-- 6.1 F_2
+--
+-- Useful for illustrations of basic principles.
+
+data F2 = F2 Int deriving (Eq)
+instance Show F2 where show (F2 n) = show n
+
+modF2 = nnMod 17
+opF2 op (F2 a) (F2 b) = F2 $ modF2 $ op a b
+
+instance Num F2 where
+  fromInteger = F2 . modF2 . fromInteger
+  (+) = opF2 (+)
+  (-) = opF2 (-)
+  (*) = opF2 (*)
+  abs    (F2 _) = _NI "F3.abs"
+  signum (F2 _) = _NI "F3.signum"
+
+instance FFRoot F2 where
+  ffRoot = (3, 16)
+
+-- 6.2 F_3
+--
+-- Useful for illustrations of a realistic 256 tap DFT size.
 
 data F3 = F3 Int deriving (Eq)
 instance Show F3 where show (F3 n) = show n
 
-modF3 :: Int -> Int
-modF3 a = if b>=0 then b else b + 257 where b = a `mod` 257
-
+modF3 = nnMod 257
 opF3 op (F3 a) (F3 b) = F3 $ modF3 $ op a b
-
-addF3 = opF3 (+)
-subF3 = opF3 (-)
-mulF3 = opF3 (*)
-
-_NOT_F3 tag = error $ tag ++ " is not defined for F3"
 
 instance Num F3 where
   fromInteger = F3 . modF3 . fromInteger
@@ -270,21 +306,34 @@ instance Num F3 where
   (-) = opF3 (-)
   (*) = opF3 (*)
   -- These have no reasonable definition.
-  abs    (F3 _) = _NOT_F3 "abs"
-  signum (F3 _) = _NOT_F3 "signum"
+  abs    (F3 _) = _NI "F3.abs"
+  signum (F3 _) = _NI "F3.signum"
 
-cycleF3 gen = (1 : cycle gen) where
-  cycle a = if b == 1 then [a] else (a : cycle b) where b = a * gen
+instance FFRoot F3 where
+  ffRoot = (3, 256)
 
-vprod [] [] = 0
-vprod (a:as) (b:bs) = a*b + (vprod as bs)
+-- 6.3 F_4
+--
+-- This one is getting too computationally intensive with such an
+-- inefficient implementation.  It is possible to use it for smaller
+-- DFTs though: any subcycle of 65536 should work.
 
-expF3 :: Num a => a -> [a]
-expF3 a = (1 : exp a) where
-  exp x = (x : exp (a * x))
+data F4 = F4 Int deriving (Eq)
+instance Show F4 where show (F4 n) = show n
 
-dftF3 input = dftF3' (length input, input)
-dftF3' (256, input) = map bin [0..255] where
-  vec i = take 256 $ expF3 $ roots !! i
-  bin i = vprod input $ vec i
-  roots = cycleF3 $ F3 3
+modF4 = nnMod 65537
+opF4 op (F4 a) (F4 b) = F4 $ modF4 $ op a b
+
+instance Num F4 where
+  fromInteger = F4 . modF4 . fromInteger
+  (+) = opF4 (+)
+  (-) = opF4 (-)
+  (*) = opF4 (*)
+  -- These have no reasonable definition.
+  abs    (F4 _) = _NI "F4.abs"
+  signum (F4 _) = _NI "F4.signum"
+
+instance FFRoot F4 where
+  ffRoot = (3, 65536)
+
+

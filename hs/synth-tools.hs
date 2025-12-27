@@ -34,6 +34,7 @@ import SynthTools.Comp
 import SynthTools.Eval
 import SynthTools.Num
 import SynthTools.Filter
+import SynthTools.DFT
 
 import qualified SynthTools.RunC as RunC
 
@@ -42,6 +43,7 @@ import qualified SynthTools.ToV as ToV
 
 import System.Environment
 
+import Debug.Trace
 
 -- No longer needed
 -- {-# LANGUAGE UndecidableInstances #-}  -- Rearranged implementation (repeatedly)
@@ -337,27 +339,47 @@ testMoebius = do
   return ()
 
 
-testF3 = do
+testFF = do
   let cyc n = putStrLn' $ show $ (length c, c) where
-        c = cycleF3 $ F3 n
-      pad sig = Prelude.take 256 (sig ++ (Prelude.cycle [0]))
-      p x = putStrLn' $ show x
-      dft sig = do
-        let dft1 = dftF3 $ pad sig
-            dft2 = dftF3 $ dft1
-            dft3 = dftF3 $ dft2
-            dft4 = dftF3 $ dft3
+        c = genCycle $ F2 n
+
+      conv' :: [F2] -> [F2] -> IO ()
+      conv' a b = putStrLn' $ show $ conv a b
+
+      fft' :: [F2] -> IO ()
+      fft' sig = do
+        putStrLn' $ "fft: " ++ (show $ fft sig)
+        putStrLn' $ "dft: " ++ (show $ dft sig)
+
+      dfts sig = do
+        let sig' = pad (sig :: [F2])
+            dft1 = dft $ sig'
+            dft2 = dft $ dft1
+            dft3 = dft $ dft2
+            dft4 = dft $ dft3
+            idft1 = idft $ dft1
+            p x = putStrLn' $ show x
 
         p dft1
         p dft2
         p dft3
         p dft4
+        putStrLn' "idft1"
+        p idft1
       
-  putStrLn' "testF3"
-  --cyc 2
-  --cyc 3
-  dft [1,2,3]
+  putStrLn' "testF3:fft'"
+  -- fft' [0,1,0,1,16,16,0,0,16,0,1,0,1,0,1,16]
+  fft' [0,1]
 
+  putStrLn' "testF3"
+  conv' [1] [1]
+  conv' [1] [1,1]
+  conv' [1,1] [1,1]
+
+  
+  -- cyc 2 ; cyc 3  -- just to find the generator
+  dfts [1,2,3]
+  quickCheckFF
 
   
 main = do
@@ -375,7 +397,7 @@ main = do
         ("ZT",       testZT),
         ("Dual",     testDual),
         ("Moebius",  testMoebius),
-        ("F3",       testF3)
+        ("FF",       testFF)
         ]
       tests' = [
         -- These read from stdin so don't put them in the full list.
