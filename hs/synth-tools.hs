@@ -34,7 +34,7 @@ import SynthTools.Comp
 import SynthTools.Eval
 import SynthTools.Num
 import SynthTools.Filter
-import SynthTools.DFT
+import SynthTools.NTT
 
 import qualified SynthTools.RunC as RunC
 
@@ -344,7 +344,10 @@ testFF = do
         c = genCycle $ F2 n
 
       conv' :: [F2] -> [F2] -> IO ()
-      conv' a b = putStrLn' $ show $ conv a b
+      conv' a b = do
+        putStrLn' $ "conv: " ++ show a ++ " " ++ show b
+        putStrLn' $ show $ conv a b
+        putStrLn' $ show $ convc a b
 
       fft' :: [F2] -> IO ()
       fft' sig = do
@@ -352,6 +355,7 @@ testFF = do
         putStrLn' $ "dft: " ++ (show $ dft sig)
 
       dfts sig = do
+        putStrLn' $ "dfts: " ++ (show sig)
         let sig' = pad (sig :: [F2])
             dft1 = dft $ sig'
             dft2 = dft $ dft1
@@ -366,6 +370,13 @@ testFF = do
         p dft4
         putStrLn' "idft1"
         p idft1
+
+      complexity' logn = putStrLn' $ show (logn, 2^logn, complexity logn)
+
+  putStrLn' "testF3:complexity'"
+  complexity' 9
+  complexity' 10
+  complexity' 11
       
   putStrLn' "testF3:fft'"
   -- fft' [0,1,0,1,16,16,0,0,16,0,1,0,1,0,1,16]
@@ -375,6 +386,7 @@ testFF = do
   conv' [1] [1]
   conv' [1] [1,1]
   conv' [1,1] [1,1]
+  conv' [1,1,1] [1,1,1]
 
   
   -- cyc 2 ; cyc 3  -- just to find the generator

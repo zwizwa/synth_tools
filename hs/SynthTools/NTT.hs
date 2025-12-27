@@ -1,8 +1,16 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+-- Numer Theoretic Transform: DFT/FFT-like algorithms over Galois
+-- fields.  The roots of unity have been kept generic so these can
+-- probably be generalized to any field/ring with roots of unity.
 
-module SynthTools.DFT where
+-- About FFRoot class: it is probably better to make this a property
+-- of vectors of numbers.  That way different roots can be used for
+-- different vector sizes over the same field.
+
+
+module SynthTools.NTT where
 
 import SynthTools.Num
 import Test.QuickCheck
@@ -11,9 +19,10 @@ import Prelude hiding (exp)
 import Debug.Trace
 
 -- Generic code.
-genCycle :: FFRoot n => n -> [n]
+genCycle :: (Eq n, Num n) => n -> [n]
 genCycle gen = (1 : cycle gen) where
   cycle a = if b == 1 then [a] else (a : cycle b) where b = a * gen
+
 
 iprod [] [] = 0
 iprod (a:as) (b:bs) = a*b + (iprod as bs)
@@ -25,7 +34,7 @@ exp a = (1 : exp a) where
 dft' :: forall n. FFRoot n => Int -> [n] -> [n]
 dft' dir input = output where
   output = map bin [0..(order-1)] where
-  (rootGen, order) = ffRoot :: (n,Int)
+  (rootGen, invRootGen, order) = rootParams (ffRoot :: n)
   roots = genCycle $ rootGen
   vec i = take order $ exp $ (roots !! (nnMod order (dir*i)))
   bin i = iprod input' $ vec i
@@ -33,7 +42,7 @@ dft' dir input = output where
 
 pad :: forall n. FFRoot n => [n] -> [n]
 pad sig = padn order sig where
-  (rootGen, order) = ffRoot :: (n, Int)
+  (rootGen, invRootGen, order) = rootParams (ffRoot :: n)
 
 padn :: forall n. Num n => Int -> [n] -> [n]
 padn order sig = sig' where
@@ -52,10 +61,10 @@ padn order sig = sig' where
 -- intuition is just "orthogonal smear". )
 
 dft :: FFRoot n => [n] -> [n]
-dft = dft' (1)
+dft = dft' (-1)
 
 idft :: FFRoot n => [n] -> [n]
-idft = (map (*(-1))) . (dft' (-1))
+idft = (map (*(-1))) . (dft' 1)
 
 
 -- Use the tested DFT implementation to test the FFT
@@ -83,9 +92,16 @@ fftRec qn@(q,n) sig = fft01 where
   -- Combine the results.
   fft01 = fftCombine qn fft0 fft1
 
-fft :: (Show n, FFRoot n) => [n] -> [n]
-fft sig = fftRec ffRoot $ pad sig
-  
+fft :: forall n. (Show n, FFRoot n) => [n] -> [n]
+fft sig = fftRec (q',n) $ pad sig where
+  -- Use the inverse root just like the DFT.  This is arbitrary but
+  -- feels right to keep the analogy going (to build some FF FFT intuition).
+  (q, q', n) = rootParams (ffRoot :: n)
+
+ifft :: forall n. (Show n, FFRoot n) => [n] -> [n]
+ifft sig = map (* (-1)) $ fftRec (q,n) $ pad sig where
+  (q, q', n) = rootParams (ffRoot :: n)
+
 
 -- The "fold with output" state,in->state,out stateful signal operator.
 siso u = f where
@@ -100,9 +116,15 @@ modulate (q,n) is = os where
  
 
 -- Vector summation with automatic padding.
-sumv (a:as) (b:bs) = (a+b : sumv as bs)
-sumv as [] = as
-sumv [] bs = bs
+pointv op = f where
+  f (a:as) (b:bs) = (a `op` b : f as bs)
+  f as [] = as
+  f [] bs = bs
+
+sumv  = pointv (+)
+prodv = pointv (*)
+
+
 
 
 -- Regular convolution, reference point.
@@ -114,11 +136,11 @@ conv a b = ab where
   ab = foldr sumv [] (map prod [0..n-1])
 
 -- Circular convolution
-convc :: forall n. Num n => [n]->[n]->[n]
-convc a b = ab where
-  ab = []
+convc :: forall n. FFRoot n => [n]->[n]->[n]
+convc a b = ifft $ prodv (fft a) (fft b)
 
-
+-- Partitioned convolution
+convp a b = undefined
 
 
 
@@ -128,8 +150,13 @@ newtype VecDFT n = VecDFT [n] deriving Show
 
 instance FFRoot n => Arbitrary (VecDFT n) where
   arbitrary = fmap VecDFT $ traverse (\_ -> arbitraryFF) [1..order] where
-    (gen, order) = ffRoot :: (n, Int)
+    (gen, gen', order) = rootParams (ffRoot :: n)
     arbitraryFF = fmap fromInteger arbitrary
+
+rootParams :: forall n. FFRoot n => n -> (n,n,Int)
+rootParams root = (root, cycle !! (n-1), n) where
+  cycle = genCycle root
+  n = length cycle
 
 
 quickCheckFF = do
@@ -151,9 +178,11 @@ quickCheckFF = do
         v' i = v !! (nnMod n (-i))
 
       scale n = map (* n)
-      
-      props :: forall n. FFRoot n => [VecDFT n -> Bool]
-      props = [
+
+      -- Separate DFT tests since these are quadriatic and too time
+      -- consuming for F3 F4.
+      propsDFT :: forall n. FFRoot n => [VecDFT n -> Bool]
+      propsDFT = [
         -- Inverses
          isID (idft . dft)
         ,isID (dft . idft)
@@ -165,9 +194,17 @@ quickCheckFF = do
         -- FFT and DFT are the same
         ,isEQ fft dft
         ]
+      -- Separate FFT to run on F3 as well
+      propsFFT :: forall n. FFRoot n => [VecDFT n -> Bool]
+      propsFFT = [
+        isID (fft . fft . fft . fft)
+        ,isID (fft . ifft)
+        ,isID (ifft . fft)
+        ]
 
       
-  traverse check (props :: [VecDFT F2 -> Bool])
+  traverse check (propsDFT :: [VecDFT F2 -> Bool])
+  traverse check (propsFFT :: [VecDFT F3 -> Bool])
 
 
   -- Too compute intensive
@@ -178,3 +215,49 @@ quickCheckFF = do
   -- e.g. N smaller than F_4 order.
 
   return ()
+
+-- Divide with negative remainder (smallest multiple that fits).
+fits x y = q_nr where
+  q_nr =  if r>0 then (q+1,r-y) else (q,0)
+  q = x `div` y
+  r = x `mod` y
+
+
+
+-- With fixed block size, what partitioning is optimal?
+--
+-- This is not immediately obvious to me so here's a formula to
+-- explore the tradeoffs.
+--
+-- For the 1500 length and 256 block size, the 2 section 1024 point
+-- FFT is more efficient than the 1 section 2048 point FFT, because
+-- the FFT cost rises dramatically (slightly over double) while the
+-- multiplication cost stays the same (1->2 sections, but size
+-- halves).  It seems in general the multiplication cost is fairly low
+-- wrt the FFT cost.
+--
+-- The gut feeling I get here is that just doubling the block size
+-- makes most sense.
+
+
+
+
+-- n: FFT size 
+complexity logn = (sections, cost_fft, cost_mul, cost_dir) where
+  -- b: Output stride / block size, is fixed for current application.
+  b = 256
+  -- l: Filter length is also fixed
+  l = 1500
+  -- n: FFT size
+  n = 2 ^ logn
+
+  -- Cost tradeoffs
+  c_fft = 1
+  c_mul = 1
+  c_dir = 1
+
+  (sections,_) = fits l (n-b+1)
+
+  cost_fft = c_fft * n * logn
+  cost_mul = c_mul * sections * n
+  cost_dir = c_dir * b * l

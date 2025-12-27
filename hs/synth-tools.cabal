@@ -27,7 +27,7 @@ executable synth-tools
                    SynthTools.ToC
                    SynthTools.RunC
                    SynthTools.ToV
-                   SynthTools.DFT
+                   SynthTools.NTT
 
 -- This is for the growing the higher level combinators used in the
 -- headphones project.

@@ -252,18 +252,19 @@ instance Fractional t => Fractional (Dual t) where
 --    65537.
 --
 --    See SynthTools.DFT for generic FF DFT code
+--
+--    Note that 3 works as a generator for the roots of unity for all
+--    fields F2,F3,F4.  This is chosen as the "most natural" analogy
+--    to e^{i 2pi / N}, because it yields the "sinusoid"
+--    1,3,9,27,... that looks "most natural" because 3 is small.
 
 -- Non-negative modulo.  Note that argument order is flipped.
 nnMod :: Int -> Int -> Int
 nnMod n a = if b>=0 then b else b + n where  b = a `mod` n
 
-
+-- For eacht field pick a default root of unity generator to base the DFT on.
 class (Eq n, Num n, Show n) => FFRoot n where
-  ffRoot :: (n, Int)
-
-
-  
-
+  ffRoot :: n
 
 -- For Num members that have no reasonable definition.
 _NI tag = error $ tag ++ " is not defined"
@@ -288,7 +289,7 @@ instance Num F2 where
   signum (F2 _) = _NI "F3.signum"
 
 instance FFRoot F2 where
-  ffRoot = (3, 16)
+  ffRoot = 3
 
 -- 6.2 F_3
 --
@@ -310,7 +311,7 @@ instance Num F3 where
   signum (F3 _) = _NI "F3.signum"
 
 instance FFRoot F3 where
-  ffRoot = (3, 256)
+  ffRoot = 3
 
 -- 6.3 F_4
 --
@@ -334,6 +335,6 @@ instance Num F4 where
   signum (F4 _) = _NI "F4.signum"
 
 instance FFRoot F4 where
-  ffRoot = (3, 65536)
+  ffRoot = 3
 
 
