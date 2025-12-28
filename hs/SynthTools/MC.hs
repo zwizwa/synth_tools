@@ -1,0 +1,24 @@
+-- This is an effort separate from SynthTools.DSL
+--
+-- The idea here is to have:
+-- . a general purpose C subset
+-- . that can translate to C
+-- . has proper types and macros
+-- . is tied to some kind of linear or RC-based memory management
+-- . is implementale in Haskell
+--
+-- I've had many ideas like this before, and maybe a better way to do
+-- this is to use real C and a C interpreter.
+--
+--
+-- The driver here is to implement an OLS partitioned convolution
+-- algorithm.
+--
+-- Relating to previous ideas in asm-tools-c/Language:
+-- . SMC.hs       state machines in C
+-- . MiniErl.hs   expression language with send/receive
+-- . LCD.hs       lowest common denominator C-like language
+--
+-- This is closest to LCD.hs so let's continue there.
+
+

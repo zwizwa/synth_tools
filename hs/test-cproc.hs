@@ -27,3 +27,6 @@ main = do
   Dataflow.test
 
 
+-- NEXT:
+-- . generate FFT routine
+-- . create quickcheck for that

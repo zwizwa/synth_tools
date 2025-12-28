@@ -5,9 +5,6 @@
 -- fields.  The roots of unity have been kept generic so these can
 -- probably be generalized to any field/ring with roots of unity.
 
--- About FFRoot class: it is probably better to make this a property
--- of vectors of numbers.  That way different roots can be used for
--- different vector sizes over the same field.
 
 
 module SynthTools.NTT where
@@ -17,6 +14,39 @@ import Test.QuickCheck
 import Prelude hiding (exp)
 
 import Debug.Trace
+
+-- Instances
+--
+-- Note that 3 works as a generator for the roots of unity for all
+-- fields F2,F3,F4.  This is chosen as the "most natural" analogy to
+-- e^{i 2pi / N}, because it yields the "sinusoid" 1,3,9,27,... that
+-- looks "most natural" because 3 is small.
+
+-- For eacht field pick a default root of unity generator to base the
+-- DFT on.
+--
+-- Is it better to make this a property of vectors of numbers?  That
+-- way different roots can be used for different vector sizes over the
+-- same field.  EDIT: It seems simpler to just wrap the scalar if a
+-- different root / cycle length is needed for a particular field.  (
+-- It doesn't seem too important, a can of worms, and I don't have the
+-- energy atm. )
+
+class (Eq n, Num n, Show n) => FFRoot n where
+  ffRoot :: n
+
+rootParams :: forall n. FFRoot n => n -> (n,n,Int)
+rootParams root = (root, cycle !! (n-1), n) where
+  cycle = genCycle root
+  n = length cycle
+
+instance FFRoot F2 where ffRoot = 3
+instance FFRoot F3 where ffRoot = 3
+instance FFRoot F4 where ffRoot = 3
+
+
+
+
 
 -- Generic code.
 genCycle :: (Eq n, Num n) => n -> [n]
@@ -33,19 +63,16 @@ exp a = (1 : exp a) where
 
 dft' :: forall n. FFRoot n => Int -> [n] -> [n]
 dft' dir input = output where
-  output = map bin [0..(order-1)] where
+  input' = pad order input
   (rootGen, invRootGen, order) = rootParams (ffRoot :: n)
   roots = genCycle $ rootGen
   vec i = take order $ exp $ (roots !! (nnMod order (dir*i)))
-  bin i = iprod input' $ vec i
-  input' = pad input
+  bin i = iprod input' $ vec i 
+  output = map bin [0..(order-1)] where
 
-pad :: forall n. FFRoot n => [n] -> [n]
-pad sig = padn order sig where
-  (rootGen, invRootGen, order) = rootParams (ffRoot :: n)
 
-padn :: forall n. Num n => Int -> [n] -> [n]
-padn order sig = sig' where
+pad :: forall n. Num n => Int -> [n] -> [n]
+pad order sig = sig' where
   sig' = take order (sig ++ (cycle [0]))
 
 
@@ -81,25 +108,29 @@ fftRec :: forall n. (Show n, Num n) => (n, Int) -> [n] -> [n]
 fftRec qn@(_,1) [x] = [x]
 fftRec qn@(q,n) sig = fft01 where
   
-  -- Recursion on half size
-  n' = n `div` 2
-  q' = q * q
-  fft' = fftRec (q',n')
-  split o = map (\i -> sig !! (i*2+o)) [0..n'-1]
+  -- Recursion on half size produced by squared genrator.
+  fft' = fftRec (q * q, n `div ` 2)
+  (sig0, sig1) = uninterleave sig
+
   -- Split signal in even and odd and compute ffts.
-  fft0 = fft' $ split 0
-  fft1 = fft' $ split 1
+  fft0 = fft' $ sig0
+  fft1 = fft' $ sig1
+  
   -- Combine the results.
   fft01 = fftCombine qn fft0 fft1
 
+-- See also DSP.basic
+uninterleave (a:b:abs) = (a:as, b:bs) where (as, bs) = uninterleave abs
+uninterleave _ = ([], [])
+
 fft :: forall n. (Show n, FFRoot n) => [n] -> [n]
-fft sig = fftRec (q',n) $ pad sig where
+fft sig = fftRec (q',n) $ pad n sig where
   -- Use the inverse root just like the DFT.  This is arbitrary but
   -- feels right to keep the analogy going (to build some FF FFT intuition).
   (q, q', n) = rootParams (ffRoot :: n)
 
 ifft :: forall n. (Show n, FFRoot n) => [n] -> [n]
-ifft sig = map (* (-1)) $ fftRec (q,n) $ pad sig where
+ifft sig = map (* (-1)) $ fftRec (q,n) $ pad n sig where
   (q, q', n) = rootParams (ffRoot :: n)
 
 
@@ -131,8 +162,7 @@ prodv = pointv (*)
 conv :: forall n. Num n => [n]->[n]->[n]
 conv a b = ab where
   n = length a
-  prod i = pad i ++ map (*(a!!i)) b
-  pad i = take i $ cycle [0]
+  prod i = pad i [] ++ map (*(a!!i)) b
   ab = foldr sumv [] (map prod [0..n-1])
 
 -- Circular convolution
@@ -152,12 +182,6 @@ instance FFRoot n => Arbitrary (VecDFT n) where
   arbitrary = fmap VecDFT $ traverse (\_ -> arbitraryFF) [1..order] where
     (gen, gen', order) = rootParams (ffRoot :: n)
     arbitraryFF = fmap fromInteger arbitrary
-
-rootParams :: forall n. FFRoot n => n -> (n,n,Int)
-rootParams root = (root, cycle !! (n-1), n) where
-  cycle = genCycle root
-  n = length cycle
-
 
 quickCheckFF = do
   let check  = quickCheck

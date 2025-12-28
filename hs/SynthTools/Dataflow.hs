@@ -1,3 +1,34 @@
+-- 2025-12-28 revisit:
+
+-- The point of this is to capture most of the existing
+-- uc_tools/lua/dataflow.lua C code generation convention to gradually
+-- transition everything to Haskell and find a workflow to write C
+-- processing code.
+--
+-- . Focus on generating C code that gets "linked" at the C end,
+--   i.e. structs and (inline) functions.  Essentially we
+--   abstract/define the API here.
+--
+-- . If the algorithm fits in the SynthTools.DSL then implement it
+--   there.  This here is really for code that needs some
+--   special-casing e.g. for optimization reasons.
+--
+-- . Use SynthTools.RunC interface to execute compiled C code with
+--   pipe IO to allow for interfacing with emulated binary, or binary
+--   running on different box.
+--
+-- . Everything should keep working by stripping away the C code
+--   generator: C files should be reasable and maintainable/editable
+--   by itself.  I.e. focus is on generation from description, and
+--   testing the compiled C code.
+--
+--
+-- The main points are: allow ad-hoc C, provide testing infra, and
+-- manage the low level semantics/polymorphism of the C code.
+
+
+-- OLDER:
+
 -- The point here is to do the same as the dataflow.lua code in a
 -- backwards compatible way, which means to start out with primitive
 -- processors that have a set of controls with defaults and create
@@ -28,6 +59,8 @@ import Control.Monad.Identity
 import Text.Pretty.Simple
 import Data.Map
 
+import System.Command
+import qualified SynthTools.RunC as RunC
 
 -- The basic abstraction is something that can be represented by OSC:
 -- a parameter tree.
@@ -98,8 +131,26 @@ pp = pPrintNoColor
 
 c = Prelude.concat
 
-test = do
-  putStrLn "SynthTools.Dataflow"
+
+test_fft = do
+  let elf = "linux/test_fft.dynamic.host.elf"
+  -- Note: test-cproc.sh will cd to synth_tools
+  -- -- setCurrentDirectory "/i/exo/synth_tools"
+  
+  -- 1. Generate the header
+
+  -- 2. Compile the code
+  command_ [] "./make.sh" [elf]
+  
+  -- 3. Run the code with i/o
+  let input = fmap fromIntegral [0..256-1]
+  m <- RunC.runFloat1 elf [] input
+  traverse (putStrLn . show) $ m
+  
+  return ()
+
+
+test_mangle = do
   let base = Leaf $ VFloat 0.0
       -- wrap name inner = Table $ fromList [(name, inner), (name ++ "0", inner)]
       wrap name inner = Table $ fromList [(name, inner)]
@@ -126,3 +177,8 @@ test = do
     (["a","c"],VInt 2)
     ]
   
+
+test = do
+  putStrLn "SynthTools.Dataflow"
+  -- test_mangle
+  test_fft

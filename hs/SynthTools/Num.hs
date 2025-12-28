@@ -245,26 +245,21 @@ instance Fractional t => Fractional (Dual t) where
 
 
 
--- 6. Finite Fields for testing FFT-based algorithms.  I'm interested
---    in power-of-two FFTs, so this needs a field of order 2^n+1 to
---    have an order 2^n root of unity. This is covered by Fermat
---    primes F_n=2^(2^n)+1 where n=1,2,3,4 for orders 3,5,17,257 and
---    65537.
+-- 6. Finite Fields, initially added here to have an exact number
+--    system for testing FFT partitioned convolution algorithms.
 --
---    See SynthTools.DFT for generic FF DFT code
+--    I'm interested in simulating power-of-two DFTs to allow for FFT
+--    testing as well, so this needs a field of order 2^n+1 and to use
+--    its order 2^n root of unity to define the DFT. This is covered
+--    by Fermat primes F_n=2^(2^n)+1 where n=1,2,3,4 for orders
+--    3,5,17,257 and 65537.
 --
---    Note that 3 works as a generator for the roots of unity for all
---    fields F2,F3,F4.  This is chosen as the "most natural" analogy
---    to e^{i 2pi / N}, because it yields the "sinusoid"
---    1,3,9,27,... that looks "most natural" because 3 is small.
+--    See SynthTools.NNT for generic DFT/FFT code
+--
 
 -- Non-negative modulo.  Note that argument order is flipped.
 nnMod :: Int -> Int -> Int
 nnMod n a = if b>=0 then b else b + n where  b = a `mod` n
-
--- For eacht field pick a default root of unity generator to base the DFT on.
-class (Eq n, Num n, Show n) => FFRoot n where
-  ffRoot :: n
 
 -- For Num members that have no reasonable definition.
 _NI tag = error $ tag ++ " is not defined"
@@ -288,8 +283,6 @@ instance Num F2 where
   abs    (F2 _) = _NI "F3.abs"
   signum (F2 _) = _NI "F3.signum"
 
-instance FFRoot F2 where
-  ffRoot = 3
 
 -- 6.2 F_3
 --
@@ -303,6 +296,7 @@ opF3 op (F3 a) (F3 b) = F3 $ modF3 $ op a b
 
 instance Num F3 where
   fromInteger = F3 . modF3 . fromInteger
+  
   (+) = opF3 (+)
   (-) = opF3 (-)
   (*) = opF3 (*)
@@ -310,8 +304,6 @@ instance Num F3 where
   abs    (F3 _) = _NI "F3.abs"
   signum (F3 _) = _NI "F3.signum"
 
-instance FFRoot F3 where
-  ffRoot = 3
 
 -- 6.3 F_4
 --
@@ -334,7 +326,12 @@ instance Num F4 where
   abs    (F4 _) = _NI "F4.abs"
   signum (F4 _) = _NI "F4.signum"
 
-instance FFRoot F4 where
-  ffRoot = 3
+
+
+
+-- Another number type I would like is something that can compute the
+-- number of operations that gets executed.  This probably involves
+-- letting the interpretation create a data structure and passing it
+-- to a stateful evaluator.
 
 

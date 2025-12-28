@@ -35,6 +35,7 @@ import SynthTools.Eval
 import SynthTools.Num
 import SynthTools.Filter
 import SynthTools.NTT
+import SynthTools.DataFlow
 
 import qualified SynthTools.RunC as RunC
 
@@ -356,8 +357,7 @@ testFF = do
 
       dfts sig = do
         putStrLn' $ "dfts: " ++ (show sig)
-        let sig' = pad (sig :: [F2])
-            dft1 = dft $ sig'
+        let dft1 = dft $ (sig :: [F2])
             dft2 = dft $ dft1
             dft3 = dft $ dft2
             dft4 = dft $ dft3
@@ -393,23 +393,28 @@ testFF = do
   dfts [1,2,3]
   quickCheckFF
 
+
+testDataFlow = do
+  return ()
+
   
 main = do
   args <- getArgs
   putStrLn' $ "synth-tools.hs: " ++ (show args)
 
   let tests = [
-        ("Eval",     testEval),
-        ("Variance", testVariance),
-        ("Comp",     testComp),
-        ("BQCoefs",  testBQCoefs),
-        ("Exact",    testExact),
-        ("SNR",      testSNR),
-        ("Biquad",   testBiquad),
-        ("ZT",       testZT),
-        ("Dual",     testDual),
-        ("Moebius",  testMoebius),
-        ("FF",       testFF)
+         ("Eval",     testEval)
+        ,("Variance", testVariance)
+        ,("Comp",     testComp)
+        ,("BQCoefs",  testBQCoefs)
+        ,("Exact",    testExact)
+        ,("SNR",      testSNR)
+        ,("Biquad",   testBiquad)
+        ,("ZT",       testZT)
+        ,("Dual",     testDual)
+        ,("Moebius",  testMoebius)
+        ,("FF",       testFF)
+        ,("DataFlow", testDataFlow)
         ]
       tests' = [
         -- These read from stdin so don't put them in the full list.

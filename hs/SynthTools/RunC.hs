@@ -100,6 +100,17 @@ runPlugin12 cmd args = do
   close p
   return $ chunksOf 12 outputFloat
 
+
+-- Run a single channel raw processor (see test_fft.c)
+runFloat1 :: String -> [String] -> [Float] -> IO [Float]
+runFloat1 cmd args inputFloats = do
+  p@(Proc proc_h stdin_h stdout_h) <- open cmd args
+  writeFloats1 stdin_h inputFloats
+  outputFloats <- readFloats1 stdout_h (length inputFloats)
+  close p
+  return $ outputFloats
+  
+
 -- The plugin API is one float matrix in, one float matrix out.  This
 -- is pretty raw but up to now it has worked just fine.
 bePlugin :: IO ()
@@ -111,6 +122,21 @@ bePlugin = do
   
 
 runGet' = flip runGet
+
+writeFloats1 handle floats = do
+  let bytes = runPut $ do
+        traverse putFloatle floats
+        return ()
+  L.hPut handle bytes
+  hFlush handle
+
+readFloats1 :: Handle -> Int -> IO [Float]
+readFloats1 handle nbFloat = do
+  floats <- L.hGet handle $ 4 * nbFloat
+  let outputFloat = runGet' floats $ replicateM nbFloat getFloatle
+  -- putStrLn' $ show outputFloat
+  return outputFloat
+  
 
 writeMatrix handle rows columns floats = do
   let bytes = runPut $ do
