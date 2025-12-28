@@ -95,6 +95,7 @@ idft = (map (*(-1))) . (dft' 1)
 
 
 -- Use the tested DFT implementation to test the FFT
+-- This is what the "butterflies" do.
 fftCombine qn@(q,n) fft0 fft1 = sumv fft0' fft1' where
   -- The first FFT can just be periodically extended.  The periodic
   -- extension implements the oversampling (interleave zeros) when
@@ -103,6 +104,7 @@ fftCombine qn@(q,n) fft0 fft1 = sumv fft0' fft1' where
   -- In addition the second FFT needs modulation of the spectrum
   -- applied to implement the 1 sample shift.
   fft1' = modulate qn $ (fft1 ++ fft1)
+
 
 fftRec :: forall n. (Show n, Num n) => (n, Int) -> [n] -> [n]
 fftRec qn@(_,1) [x] = [x]

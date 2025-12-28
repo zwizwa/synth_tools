@@ -43,7 +43,10 @@ class RunC r where
 -- Simplify: there is already an API to run the process code for
 -- Octave.  Just reuse that.
 
--- From Claude
+-- Started from Claude examples.
+
+
+-- 1. Everything needed to run the ad-hoc areal 12-channel API
 
 data Proc = Proc ProcessHandle Handle Handle 
 
@@ -101,15 +104,6 @@ runPlugin12 cmd args = do
   return $ chunksOf 12 outputFloat
 
 
--- Run a single channel raw processor (see test_fft.c)
-runFloat1 :: String -> [String] -> [Float] -> IO [Float]
-runFloat1 cmd args inputFloats = do
-  p@(Proc proc_h stdin_h stdout_h) <- open cmd args
-  writeFloats1 stdin_h inputFloats
-  outputFloats <- readFloats1 stdout_h (length inputFloats)
-  close p
-  return $ outputFloats
-  
 
 -- The plugin API is one float matrix in, one float matrix out.  This
 -- is pretty raw but up to now it has worked just fine.
@@ -123,19 +117,7 @@ bePlugin = do
 
 runGet' = flip runGet
 
-writeFloats1 handle floats = do
-  let bytes = runPut $ do
-        traverse putFloatle floats
-        return ()
-  L.hPut handle bytes
-  hFlush handle
 
-readFloats1 :: Handle -> Int -> IO [Float]
-readFloats1 handle nbFloat = do
-  floats <- L.hGet handle $ 4 * nbFloat
-  let outputFloat = runGet' floats $ replicateM nbFloat getFloatle
-  -- putStrLn' $ show outputFloat
-  return outputFloat
   
 
 writeMatrix handle rows columns floats = do
@@ -166,3 +148,34 @@ run' cmd args = do
 
 close' proc_h = do
   waitForProcess proc_h
+
+
+
+-- 2. Additional routines for simpler raw formats to run individual
+-- processors.
+
+readFloats1 :: Handle -> Int -> IO [Float]
+readFloats1 handle nbFloat = do
+  floats <- L.hGet handle $ 4 * nbFloat
+  let outputFloat = runGet' floats $ replicateM nbFloat getFloatle
+  -- putStrLn' $ show outputFloat
+  return outputFloat
+
+writeFloats1 handle floats = do
+  let bytes = runPut $ do
+        traverse putFloatle floats
+        return ()
+  L.hPut handle bytes
+  hFlush handle
+
+-- Run a single channel raw processor (see test_fft.c)
+runFloat1 :: String -> [String] -> [Float] -> IO [Float]
+runFloat1 cmd args inputFloats = do
+  p@(Proc proc_h stdin_h stdout_h) <- open cmd args
+  writeFloats1 stdin_h inputFloats
+  outputFloats <- readFloats1 stdout_h (length inputFloats)
+  close p
+  return $ outputFloats
+
+
+

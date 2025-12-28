@@ -131,6 +131,12 @@ pp = pPrintNoColor
 
 c = Prelude.concat
 
+writeString :: String -> String -> IO ()
+writeString filename string = do
+  writeFile filename string
+  
+mod_fft_h = "// FIXME\n"
+
 
 test_fft = do
   let elf = "linux/test_fft.dynamic.host.elf"
@@ -138,12 +144,13 @@ test_fft = do
   -- -- setCurrentDirectory "/i/exo/synth_tools"
   
   -- 1. Generate the header
+  writeFile "generic/mod_fft.h" mod_fft_h
 
   -- 2. Compile the code
   command_ [] "./make.sh" [elf]
   
   -- 3. Run the code with i/o
-  let input = fmap fromIntegral [0..256-1]
+  let input = fmap fromIntegral [0..2*256-1]
   m <- RunC.runFloat1 elf [] input
   traverse (putStrLn . show) $ m
   
