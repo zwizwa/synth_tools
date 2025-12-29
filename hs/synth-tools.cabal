@@ -44,3 +44,5 @@ executable test-cproc
                    SynthTools.RunC
                    SynthTools.Dataflow
                    SynthTools.IO
+                   SynthTools.Num
+                   SynthTools.NTT

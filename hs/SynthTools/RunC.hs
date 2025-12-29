@@ -1,6 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
+-- General idea: a collection of ad-hoc binary protocols to run over
+-- stdio.  These are "no design" protocols: just make something that
+-- is easy to bulk read/write at the C end.
 
 
 module SynthTools.RunC where
@@ -154,28 +157,64 @@ close' proc_h = do
 -- 2. Additional routines for simpler raw formats to run individual
 -- processors.
 
-readFloats1 :: Handle -> Int -> IO [Float]
-readFloats1 handle nbFloat = do
-  floats <- L.hGet handle $ 4 * nbFloat
-  let outputFloat = runGet' floats $ replicateM nbFloat getFloatle
-  -- putStrLn' $ show outputFloat
-  return outputFloat
-
-writeFloats1 handle floats = do
-  let bytes = runPut $ do
-        traverse putFloatle floats
-        return ()
-  L.hPut handle bytes
-  hFlush handle
-
--- Run a single channel raw processor (see test_fft.c)
-runFloat1 :: String -> [String] -> [Float] -> IO [Float]
-runFloat1 cmd args inputFloats = do
+runWither (word_size, put, get, cmd, args) = do
+  
   p@(Proc proc_h stdin_h stdout_h) <- open cmd args
-  writeFloats1 stdin_h inputFloats
-  outputFloats <- readFloats1 stdout_h (length inputFloats)
-  close p
-  return $ outputFloats
+
+  let read nb = do
+        bytes <- L.hGet stdout_h $ word_size * nb
+        let output = runGet' bytes $ replicateM nb get
+        return output
+
+      write words = do
+        let bytes = runPut $ do traverse put words ; return ()
+        L.hPut stdin_h bytes
+        hFlush stdin_h
+
+      tick [] = do
+        close p
+        return []
+        
+      tick input = do
+        write input
+        output <- read (length input)
+        return $ output
+
+  return tick
+
+runWith cfg input = do
+  tick <- runWither cfg
+  output <- tick input
+  tick [] -- close
+  return output
+
+runFloat c a = runWith (4, putFloatle, getFloatle, c, a)
+runInt32 c a = runWith (4, putInt32le, getInt32le, c, a)
+
+floatRunner c a = runWither (4, putFloatle, getFloatle, c, a)
+int32Runner c a = runWither (4, putInt32le, getInt32le, c, a)
+
+-- readInt321 :: Handle -> Int -> IO [Int]
+-- readInt321 handle nb = do
+--   floats <- L.hGet handle $ 4 * nb
+--   let output = runGet' floats $ replicateM nb getInt32le
+--   return $ fromIntegral output
+
+-- writeInt321 handle ints = do
+--   let bytes = runPut $ do
+--         traverse putInt32le $ map fromIntegral ints
+--         return ()
+--   L.hPut handle bytes
+--   hFlush handle
+
+-- -- Run a single channel raw processor (see test_fft.c)
+-- runInt321 :: String -> [String] -> [Int] -> IO [Int]
+-- runInt321 cmd args inputInt32 = do
+--   p@(Proc proc_h stdin_h stdout_h) <- open cmd args
+--   writeInt321 stdin_h inputInt32
+--   outputInt32 <- readInt321 stdout_h (length inputInt32)
+--   close p
+--   return $ outputInt32
 
 
 

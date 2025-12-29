@@ -14,6 +14,7 @@ module SynthTools.Num where
 
 import Data.Ratio
 import GHC.Float
+import GHC.Int
 
 -- 0. Tools
 
@@ -258,7 +259,7 @@ instance Fractional t => Fractional (Dual t) where
 --
 
 -- Non-negative modulo.  Note that argument order is flipped.
-nnMod :: Int -> Int -> Int
+nnMod :: Integral i => i -> i -> i
 nnMod n a = if b>=0 then b else b + n where  b = a `mod` n
 
 -- For Num members that have no reasonable definition.
@@ -269,7 +270,7 @@ _NI tag = error $ tag ++ " is not defined"
 --
 -- Useful for illustrations of basic principles.
 
-data F2 = F2 Int deriving (Eq)
+data F2 = F2 { unF2 :: Int32 } deriving (Eq)
 instance Show F2 where show (F2 n) = show n
 
 modF2 = nnMod 17
@@ -288,7 +289,7 @@ instance Num F2 where
 --
 -- Useful for illustrations of a realistic 256 tap DFT size.
 
-data F3 = F3 Int deriving (Eq)
+data F3 = F3 { unF3 :: Int32 } deriving (Eq)
 instance Show F3 where show (F3 n) = show n
 
 modF3 = nnMod 257
@@ -311,7 +312,7 @@ instance Num F3 where
 -- inefficient implementation.  It is possible to use it for smaller
 -- DFTs though: any subcycle of 65536 should work.
 
-data F4 = F4 Int deriving (Eq)
+data F4 = F4 Int32 deriving (Eq)
 instance Show F4 where show (F4 n) = show n
 
 modF4 = nnMod 65537

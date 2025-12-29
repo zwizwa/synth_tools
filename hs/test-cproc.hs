@@ -12,8 +12,22 @@ import qualified SynthTools.RunC as RunC
 import System.Directory (setCurrentDirectory)
 import Data.List.Split
 import Data.List
+import Data.IORef
+import GHC.Int
 
 import qualified SynthTools.Dataflow as Dataflow
+-- import qualified SynthTools.NTT as NTT
+-- import qualified SynthTools.Num as Num
+import SynthTools.NTT
+import SynthTools.Num
+
+
+import SynthTools.IO
+
+import Test.QuickCheck
+import Test.QuickCheck.Monadic
+import System.Command
+
 
 ir_areal = do
   setCurrentDirectory "/i/exo/areal/src/"
@@ -22,9 +36,80 @@ ir_areal = do
   let (m':_) = transpose m
   traverse (putStrLn . show) $ m'
 
+
+
+
+test_fft_elf = "linux/test_fft.dynamic.host.elf"
+
+test_common = do
+  let elf = test_fft_elf
+  -- Note: test-cproc.sh will cd to synth_tools
+  -- -- setCurrentDirectory "/i/exo/synth_tools"
+  
+  -- 1. Generate the header
+  writeFile "generic/ns_fft_gen.h" "// FIXME\n"
+
+  -- 2. Compile the code
+  command_ [] "./make.sh" [elf]
+  return elf
+
+test_fft = do
+  elf <- test_common
+  
+  -- 3. Run the code with i/o
+  let input = fmap fromIntegral [0..2*256-1]
+  m <- RunC.runFloat elf ["fft"] input
+  traverse (putStrLn . show) $ m
+  
+  return ()
+
+test_ntt = do
+  elf <- test_common
+  
+  -- 3. Run the code with i/o
+  let input = fmap fromIntegral [0..256-1]
+  m <- RunC.runInt32 elf ["ntt"] input
+  traverse (putStrLn . show) $ m
+  
+  return ()
+
+-- Most natural form of the ntt operation: lifted by `run` and
+-- operating on the same data as ifft.
+type NTTIO = [F3] -> PropertyM IO [F3]
+
+
+prop_elf :: NTTIO -> VecDFT F3 -> Property
+prop_elf ntt (VecDFT i) = monadicIO $ do
+  o <- ntt i
+  let oF3 = fft $ i
+  assert (oF3 == o)
+  
+  -- let randVecF3 = map F3
+  return ()
+
+qc_nttIO = do
+  -- Create a single process to compute the NTTs in the test.
+  nttIO' <- RunC.int32Runner test_fft_elf ["ntt"]
+  let nttIO i = do
+        --putStrLn' $ "i: " ++ (show $ i)
+        o_raw <- nttIO' $ map unF3 i
+        let o = map F3 o_raw
+        --let o' = fft i
+        --putStrLn' $ "o: " ++ (show $ o)
+        --putStrLn' $ "o': " ++ (show $ o')
+        return $ o
+
+  -- Create a property bound to the reference.
+  quickCheck (prop_elf $ run . nttIO)
+
+  nttIO [] -- close
+  return ()
+
 main = do
   -- ir_areal
-  Dataflow.test
+  -- Dataflow.test
+  qc_nttIO
+  
 
 
 -- NEXT:

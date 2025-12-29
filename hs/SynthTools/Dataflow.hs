@@ -59,7 +59,6 @@ import Control.Monad.Identity
 import Text.Pretty.Simple
 import Data.Map
 
-import System.Command
 import qualified SynthTools.RunC as RunC
 
 -- The basic abstraction is something that can be represented by OSC:
@@ -135,26 +134,10 @@ writeString :: String -> String -> IO ()
 writeString filename string = do
   writeFile filename string
   
-mod_fft_h = "// FIXME\n"
 
 
-test_fft = do
-  let elf = "linux/test_fft.dynamic.host.elf"
-  -- Note: test-cproc.sh will cd to synth_tools
-  -- -- setCurrentDirectory "/i/exo/synth_tools"
-  
-  -- 1. Generate the header
-  writeFile "generic/mod_fft.h" mod_fft_h
 
-  -- 2. Compile the code
-  command_ [] "./make.sh" [elf]
-  
-  -- 3. Run the code with i/o
-  let input = fmap fromIntegral [0..2*256-1]
-  m <- RunC.runFloat1 elf [] input
-  traverse (putStrLn . show) $ m
-  
-  return ()
+
 
 
 test_mangle = do
@@ -187,5 +170,4 @@ test_mangle = do
 
 test = do
   putStrLn "SynthTools.Dataflow"
-  -- test_mangle
-  test_fft
+  test_mangle
