@@ -166,17 +166,20 @@ runWither (word_size, put, get, cmd, args) = do
         let output = runGet' bytes $ replicateM nb get
         return output
 
-      write words = do
-        let bytes = runPut $ do traverse put words ; return ()
+      write hdr words = do
+        let bytes = runPut $ do
+              traverse putInt32le hdr
+              traverse put words
+              return ()
         L.hPut stdin_h bytes
         hFlush stdin_h
 
-      tick [] = do
+      tick [] [] = do
         close p
         return []
         
-      tick input = do
-        write input
+      tick hdr input = do
+        write hdr input
         output <- read (length input)
         return $ output
 
@@ -184,8 +187,9 @@ runWither (word_size, put, get, cmd, args) = do
 
 runWith cfg input = do
   tick <- runWither cfg
-  output <- tick input
-  tick [] -- close
+  let hdr = []
+  output <- tick hdr input
+  tick [] [] -- close
   return output
 
 runFloat c a = runWith (4, putFloatle, getFloatle, c, a)

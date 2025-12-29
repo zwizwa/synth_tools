@@ -312,7 +312,7 @@ instance Num F3 where
 -- inefficient implementation.  It is possible to use it for smaller
 -- DFTs though: any subcycle of 65536 should work.
 
-data F4 = F4 Int32 deriving (Eq)
+data F4 = F4 { unF4 :: Int32 } deriving (Eq)
 instance Show F4 where show (F4 n) = show n
 
 modF4 = nnMod 65537

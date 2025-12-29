@@ -25,6 +25,8 @@ struct NS(_ctx) {
     NS(_data_t) coef[1<<NS(_logn)];
     uint16_t bitrev[1<<NS(_logn)];
     int top_logn;
+    int direction; // 1 use coefs: -1: use reversed coefs
+    NS(_data_t) scale;
 };
 
 struct NS(_sub) {
@@ -71,9 +73,10 @@ void NS(_sub)(const struct NS(_ctx) *x,
             NS(_data_t) o = *bot;
 
             /* The stride is one at the top level, and doubles each level. */
-            int w_stride = 1 << (x->top_logn - s->logn);
-            const NS(_data_t) *w_top = &x->coef[w_stride * i];
-            const NS(_data_t) *w_bot = &x->coef[w_stride * (i + sub_n)];
+            int w_stride = x->direction << (x->top_logn - s->logn);
+            uint32_t mask = (1 << x->top_logn)-1;
+            const NS(_data_t) *w_top = &x->coef[mask & (w_stride * i)];
+            const NS(_data_t) *w_bot = &x->coef[mask & (w_stride * (i + sub_n))];
 
             NS(_butterfly)(top, &e, &o, w_top);
             NS(_butterfly)(bot, &e, &o, w_bot);
@@ -86,28 +89,32 @@ void NS(_sub)(const struct NS(_ctx) *x,
 
 void NS(_process)(const struct NS(_ctx) *ctx,
                   const NS(_data_t) *in,
-                  NS(_data_t) *out,
-                  int logn)
+                  NS(_data_t) *out)
 {
+
     /* To make the algorithm a bit easier to express, permute the
        input to bit-reversed ordering such that all sub-FFTs are
        contigous and the end result has all frequency components in
        linear order.  The bit reversal is done using a pre-computed
        array. */
     const uint16_t *br = ctx->bitrev;
-    int n = 1<<logn;
+    int n = 1<<ctx->top_logn;
     for (int i=0; i<n; i++) {
-        out[i] = in[br[i]];
+        /* Perform the scaling as well. */
+        NS(_data_mul3)(&out[i], &ctx->scale,  &in[br[i]]);
     }
 
     /* Prepare global context and sub-step context to start
        recursion. */
     struct NS(_sub) s = {
         .vec  = out,
-        .logn = logn,
+        .logn = ctx->top_logn,
     };
     NS(_sub)(ctx, &s);
+
+
 }
+
 
 
 void NS(_init_bitrev)(struct NS(_ctx) *x, int logn) {
@@ -128,6 +135,8 @@ void NS(_init_bitrev)(struct NS(_ctx) *x, int logn) {
 void NS(_init_ctx)(struct NS(_ctx) *x) {
     memset(x,0,sizeof(*x));
     x->top_logn = NS(_logn);
+    x->direction = -1;
+    x->scale = NS(_scale_fwd);
     LOG("init logn = %d\n", x->top_logn);
     NS(_data_t) *c = x->coef;
     NS(_init_coefs)(c, x->top_logn);

@@ -15,7 +15,7 @@ static inline void NS(_init_coefs)(NS(_data_t) *c, int logn) {
     int n = 1<<logn;
     c[0] = 1;
     NS(_data_t) generator = 3;
-#if 0
+#if 1
     // Forward
     for (int i=1; i<n; i++) {
         NS(_data_mul3)(&c[i], &c[i-1], &generator);

@@ -77,22 +77,26 @@ test_ntt = do
 -- operating on the same data as ifft.
 type NTTIO = [F3] -> PropertyM IO [F3]
 
+data Ops = Ops { fftOp :: NTTIO, ifftOp :: NTTIO }
 
-prop_elf :: NTTIO -> VecDFT F3 -> Property
-prop_elf ntt (VecDFT i) = monadicIO $ do
+prop_fft :: Ops -> VecDFT F3 -> Property
+prop_fft (Ops ntt intt) (VecDFT i) = monadicIO $ do
   o <- ntt i
-  let oF3 = fft $ i
-  assert (oF3 == o)
-  
-  -- let randVecF3 = map F3
-  return ()
+  let o' = fft $ i
+  assert (o' == o)
+
+prop_ifft :: Ops -> VecDFT F3 -> Property
+prop_ifft (Ops ntt intt) (VecDFT i) = monadicIO $ do
+  o <- intt i
+  let o' = ifft $ i
+  assert (o' == o)
 
 qc_nttIO = do
   -- Create a single process to compute the NTTs in the test.
   nttIO' <- RunC.int32Runner test_fft_elf ["ntt"]
-  let nttIO i = do
+  let nttIO hdr i = do
         --putStrLn' $ "i: " ++ (show $ i)
-        o_raw <- nttIO' $ map unF3 i
+        o_raw <- nttIO' hdr $ map unF3 i
         let o = map F3 o_raw
         --let o' = fft i
         --putStrLn' $ "o: " ++ (show $ o)
@@ -100,9 +104,12 @@ qc_nttIO = do
         return $ o
 
   -- Create a property bound to the reference.
-  quickCheck (prop_elf $ run . nttIO)
+  let ops = Ops (run . (nttIO [0x100])) -- fft
+                (run . (nttIO [0x101])) -- ifft
+  quickCheck (prop_fft ops)
+  quickCheck (prop_ifft ops)
 
-  nttIO [] -- close
+  nttIO [] [] -- close
   return ()
 
 main = do
