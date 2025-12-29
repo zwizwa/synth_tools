@@ -9,6 +9,7 @@
 module SynthTools.RunC where
 
 import Control.Monad
+import Control.Exception
 import System.Process
 import Data.List.Split
 import Data.Binary
@@ -120,11 +121,14 @@ bePlugin = do
 
 runGet' = flip runGet
 
-
-  
+-- 2025/12 switched to uc_tools packet framing by default
+uc_tools_framing = True
 
 writeMatrix handle rows columns floats = do
   let bytes = runPut $ do
+        when uc_tools_framing $ do
+          putInt32be 0 -- FIXME: size
+          putInt32be 0x1EEE0001
         putInt32le rows
         putInt32le columns
         traverse putFloatle floats
@@ -134,8 +138,14 @@ writeMatrix handle rows columns floats = do
 
 readMatrix :: Handle -> IO [Float]
 readMatrix handle = do
-  header <- L.hGet handle 8
-  let [r,c] = runGet' header $ replicateM 2 getInt32le
+  when uc_tools_framing $ do
+    uct_header <- L.hGet handle 8
+    let uct_hdr@[uct_len, uct_tag] = runGet' uct_header $ replicateM 2 getInt32be
+    -- putStrLn' $ show uct_hdr
+    assert (uct_tag == 0x1EEE0001) $ return ()
+  
+  matrix_header <- L.hGet handle 8
+  let [r,c] = runGet' matrix_header $ replicateM 2 getInt32le
       nbFloat' = fromIntegral $ r * c
   
   floats <- L.hGet handle $ 4 * nbFloat'
@@ -155,20 +165,35 @@ close' proc_h = do
 
 
 -- 2. Additional routines for simpler raw formats to run individual
--- processors.
+-- processors.  These are made compatible with the uc_tools tagged
+-- protocol wrapped in {packet,4} framing.
 
 runWither (word_size, put, get, cmd, args) = do
   
   p@(Proc proc_h stdin_h stdout_h) <- open cmd args
 
   let read nb = do
+        -- size, uc_tools compatible tagging (ignored for now)
+        let nb_wrap_bytes = 8
+        header_bytes <- L.hGet stdout_h nb_wrap_bytes
+        -- FIXME: Check what is returned.
         bytes <- L.hGet stdout_h $ word_size * nb
         let output = runGet' bytes $ replicateM nb get
         return output
 
       write hdr words = do
-        let bytes = runPut $ do
-              traverse putInt32le hdr
+        let n = fromIntegral $ length words
+            wrapHdr = [
+              -- Protocol is kept compatible with uc_tools format with
+              -- {packet,4} big endian 32 bit size tag for framing.
+              -- Areal tag space is reserved as A1xx in uc_tools/packet_tags.h
+              -- We have a 16 bit subtag to extend that.
+              4 * (2 + n),
+              0x1EEE0000
+              ]
+            bytes = runPut $ do
+              traverse putInt32be $ wrapHdr
+              traverse putInt32le $ hdr
               traverse put words
               return ()
         L.hPut stdin_h bytes

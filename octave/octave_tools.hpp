@@ -13,8 +13,14 @@
 #ifndef OCTAVE_TOOLS_H
 #define OCTAVE_TOOLS_H
 
+/* Use uc_tools style framing. */
+#define OCTAVE_TOOLS_UC_TOOLS_FRAMING 1
+
 #include <octave/oct.h>
 #include <sys/wait.h>
+
+#define SWAP_U16(x) ((((x)>>8)&0xff) | (((x)&0xff) << 8))
+#define SWAP_U32(x) (SWAP_U16((x)>>16) | (SWAP_U16(x)<<16))
 
 // Templated from uc_tools/linux/assert_execvp.h
 
@@ -83,6 +89,7 @@ static inline void assert_fork_execvp(int *in_fd, int *out_fd, int *out_pid,
     *out_pid = pid;
 }
 
+
 // https://docs.octave.org/v4.2.2/Character-Strings-in-Oct_002dFiles.html  <- for string arg
 
 // Run emulated code.  To keep this uniform, send it a matrix, get
@@ -100,9 +107,26 @@ static inline int write_matrix(Matrix& m_in, int to_process_fd) {
 
   dim_vector in_dims = m_in.dims();
   uint32_t in_dim[2] = {(uint32_t)in_dims(0), (uint32_t)in_dims(1)};
-  octave_stdout << "dims: " << in_dim[0] << " " << in_dim[1] << "\n";
-  fwrite((void*)in_dim, sizeof(uint32_t), 2, to_process_f);
   uint32_t in_n = in_dim[0] * in_dim[1];
+  octave_stdout << "dims: " << in_dim[0] << " " << in_dim[1] << "\n";
+
+#if OCTAVE_TOOLS_UC_TOOLS_FRAMING
+  uint32_t out_hdr[2] = {
+    SWAP_U32(4 * (1 + 2 + in_n)),
+    SWAP_U32(0x1EEE0001) // see uc_tools/packet_tags.h
+  };
+  if (1) {
+    octave_stdout
+      << "write_matrix: tag 0x" 
+      << std::hex << SWAP_U32(out_hdr[1])
+      << ", size "
+      << std::dec << SWAP_U32(out_hdr[0])
+      << "\n";
+  }
+  fwrite((void*)out_hdr, sizeof(uint32_t), 2, to_process_f);
+#endif
+
+  fwrite((void*)in_dim, sizeof(uint32_t), 2, to_process_f);
   if (in_n) {
     float *in_data = (float*)malloc(in_n * sizeof(float));
     for (uint32_t i=0; i<in_n; i++) {
@@ -134,6 +158,26 @@ static inline Matrix read_matrix(int from_process_fd) {
     octave_stdout << "can't open program stdout\n";
     exit(1);
   }
+#if OCTAVE_TOOLS_UC_TOOLS_FRAMING
+  uint32_t in_hdr[2] = {0, 0}; // FIXME: slots not yet used
+  int rv_hdr = fread((void*)in_hdr, sizeof(uint32_t), 2, from_process_f);
+  uint32_t in_size = SWAP_U32(in_hdr[0]);
+  uint32_t in_tag  = SWAP_U32(in_hdr[1]);
+  if (1) {
+    octave_stdout
+      << "read_matrix: tag 0x" 
+      << std::hex << in_tag
+      << ", size "
+      << std::dec << in_size
+      << "\n";
+  }
+  if (rv_hdr != 2) {
+    octave_stdout << "bad read size\n";
+    exit(1);
+  }
+  ASSERT(in_tag == 0x1EEE0001);
+#endif
+
   uint32_t dim[2];
   int rv = fread((void*)dim, sizeof(uint32_t), 2, from_process_f);
   if (rv != 2) {

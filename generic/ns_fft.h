@@ -1,5 +1,13 @@
-/* Playground for hs/test-cproc.hs */
+/* Power of two FFT.  The point here is to just have a dumb reference
+   implementation that can be used to avoid external dependencies, and
+   is implemented with the base field abstract.  See test_fft.c for
+   complex and galois field implemenetation (for exact testing).
 
+   Optimizations that are skipped:
+   - Restrict to real data input
+   - Restrict to half spectrum output
+   - Make use of coefficient symmetry
+*/
 
 #include "macros.h"
 #include <math.h>
@@ -7,19 +15,6 @@
 
 /* Generated header */
 #include "ns_fft_gen.h"
-
-
-/* Power of two FFT.  The point here is to just have a dumb reference
-   implementation that is optimized for code simplicity and that can
-   compute over finite fields as well.
-
-   Optimizations that are skipped in the first iteration:
-   - Restrict to real data input
-   - Restrict to half spectrum output
-   - Make use of coefficient symmetry
-*/
-
-
 
 struct NS(_ctx) {
     NS(_data_t) coef[1<<NS(_logn)];
@@ -132,11 +127,19 @@ void NS(_init_bitrev)(struct NS(_ctx) *x, int logn) {
     }
 }
 
+void NS(_dir_fwd)(struct NS(_ctx) *x) {
+    x->direction = -1;
+    x->scale = NS(_scale_fwd);
+}
+void NS(_dir_rev)(struct NS(_ctx) *x) {
+    x->direction = +1;
+    x->scale = NS(_scale_rev);
+}
+
 void NS(_init_ctx)(struct NS(_ctx) *x) {
     memset(x,0,sizeof(*x));
     x->top_logn = NS(_logn);
-    x->direction = -1;
-    x->scale = NS(_scale_fwd);
+    NS(_dir_fwd)(x);
     LOG("init logn = %d\n", x->top_logn);
     NS(_data_t) *c = x->coef;
     NS(_init_coefs)(c, x->top_logn);

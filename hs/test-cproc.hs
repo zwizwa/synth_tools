@@ -29,14 +29,6 @@ import Test.QuickCheck.Monadic
 import System.Command
 
 
-ir_areal = do
-  setCurrentDirectory "/i/exo/areal/src/"
-  putStrLn "test_cproc.hs"
-  m <- RunC.runPlugin12 "./armv7-nix/test_armv7.elf" ["ir_areal"]
-  let (m':_) = transpose m
-  traverse (putStrLn . show) $ m'
-
-
 
 
 test_fft_elf = "linux/test_fft.dynamic.host.elf"
@@ -73,23 +65,27 @@ test_ntt = do
   
   return ()
 
--- Most natural form of the ntt operation: lifted by `run` and
--- operating on the same data as ifft.
+-- Most natural form of the ntt operation exposed by the process
+-- running in the backtround: lifted by `run` and operating on the
+-- same data representation as SynthTools.NTT functions.
 type NTTIO = [F3] -> PropertyM IO [F3]
 
+-- The test_fft.c binary can support both forward and reverse ops.
+-- Both are presented as NTTIO functions.
 data Ops = Ops { fftOp :: NTTIO, ifftOp :: NTTIO }
 
-prop_fft :: Ops -> VecDFT F3 -> Property
-prop_fft (Ops ntt intt) (VecDFT i) = monadicIO $ do
-  o <- ntt i
-  let o' = fft $ i
-  assert (o' == o)
 
-prop_ifft :: Ops -> VecDFT F3 -> Property
-prop_ifft (Ops ntt intt) (VecDFT i) = monadicIO $ do
-  o <- intt i
-  let o' = ifft $ i
-  assert (o' == o)
+
+
+prop_eq :: Ops -> VecDFT F3 -> Property
+prop_eq (Ops ntt intt) (VecDFT probe) = monadicIO $ do
+  let eq ref_op io_op = do
+        o <- io_op probe
+        let o' = ref_op probe
+        assert (o' == o)
+  eq fft  ntt
+  eq ifft intt
+
 
 qc_nttIO = do
   -- Create a single process to compute the NTTs in the test.
@@ -103,17 +99,17 @@ qc_nttIO = do
         --putStrLn' $ "o': " ++ (show $ o')
         return $ o
 
-  -- Create a property bound to the reference.
+  -- The Ops bundle is set up so it can be used directly inside the
+  -- property monad, i.e. already lifted by run.  The Int32 header
+  -- serves as a command to the C code, see test_fft.c
   let ops = Ops (run . (nttIO [0x100])) -- fft
                 (run . (nttIO [0x101])) -- ifft
-  quickCheck (prop_fft ops)
-  quickCheck (prop_ifft ops)
+  quickCheck (prop_eq ops)
 
   nttIO [] [] -- close
   return ()
 
 main = do
-  -- ir_areal
   -- Dataflow.test
   qc_nttIO
   
