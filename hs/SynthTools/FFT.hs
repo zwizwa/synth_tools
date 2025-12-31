@@ -1,5 +1,7 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 -- Numer Theoretic Transform: DFT/FFT-like algorithms over Galois
 -- fields.  The roots of unity have been kept generic so these can
@@ -7,7 +9,7 @@
 
 
 
-module SynthTools.NTT where
+module SynthTools.FFT where
 
 import SynthTools.Num
 import Test.QuickCheck
@@ -33,19 +35,25 @@ import Debug.Trace
 -- It doesn't seem too important, a can of worms, and I don't have the
 -- energy atm. )
 
-class (Eq n, Num n, Show n) => FFRoot n where
-  ffRoot :: n
+class (Eq n, Num n, Show n) => UnitRoot n where
+  unitRoot :: Int -> n
 
-rootParams :: forall n. FFRoot n => n -> (n,n,Int)
-rootParams root = (root, cycle !! (n-1), n) where
+rootParams :: forall n. UnitRoot n => n -> (n,n)
+rootParams root = (root, cycle !! (n-1)) where
   cycle = genCycle root
   n = length cycle
 
-instance FFRoot F2 where ffRoot = 3
-instance FFRoot F3 where ffRoot = 3
-instance FFRoot F4 where ffRoot = 3
+badroot tag n = error (tag ++ " bad root: " ++ show n)
 
-instance (Eq n, Show n, RealFloat n) => FFRoot (Complex n) where ffRoot = 1
+-- Support multiple roots of unity for each field, depending on
+-- requested order.  For complex numbers the order just needs to be an
+-- integer.  For the finite fields the order has to divide the
+-- multiplicative group order.
+instance UnitRoot F2 where unitRoot 16 = 3    ; unitRoot n = badroot "F2" n
+instance UnitRoot F3 where unitRoot 256 = 3   ; unitRoot n = badroot "F3"  n
+instance UnitRoot F4 where unitRoot 65536 = 3 ; unitRoot n = badroot "F4" n
+
+instance (Eq n, Show n, RealFloat n) => UnitRoot (Complex n) where unitRoot _ = 1
 
 
 
@@ -62,13 +70,13 @@ exp :: Num a => a -> [a]
 exp a = (1 : exp a) where
   exp x = (x : exp (a * x))
 
-dft' :: forall n. FFRoot n => Int -> [n] -> [n]
+dft' :: forall n. UnitRoot n => Int -> [n] -> [n]
 dft' dir input = output where
-  input' = pad order input
-  (rootGen, invRootGen, order) = rootParams (ffRoot :: n)
+  order = length input
+  (rootGen, invRootGen) = rootParams ((unitRoot order) :: n)
   roots = genCycle $ rootGen
   vec i = take order $ exp $ (roots !! (nnMod order (dir*i)))
-  bin i = iprod input' $ vec i 
+  bin i = iprod input $ vec i 
   output = map bin [0..(order-1)] where
 
 
@@ -88,10 +96,10 @@ pad order sig = sig' where
 -- spectrum in the context of sinusoidal base functions.  ( Here my
 -- intuition is just "orthogonal smear". )
 
-dft :: FFRoot n => [n] -> [n]
+dft :: UnitRoot n => [n] -> [n]
 dft = dft' (-1)
 
-idft :: FFRoot n => [n] -> [n]
+idft :: UnitRoot n => [n] -> [n]
 idft = (map (*(-1))) . (dft' 1)
 
 
@@ -126,15 +134,17 @@ fftRec qn@(q,n) sig = fft01 where
 uninterleave (a:b:abs) = (a:as, b:bs) where (as, bs) = uninterleave abs
 uninterleave _ = ([], [])
 
-fft :: forall n. (Show n, FFRoot n) => [n] -> [n]
-fft sig = fftRec (q',n) $ pad n sig where
+fft :: forall n. (Show n, UnitRoot n) => [n] -> [n]
+fft sig = fftRec (q',n) $ sig where
   -- Use the inverse root just like the DFT.  This is arbitrary but
   -- feels right to keep the analogy going (to build some FF FFT intuition).
-  (q, q', n) = rootParams (ffRoot :: n)
+  n = length sig
+  (q, q') = rootParams ((unitRoot n) :: n)
 
-ifft :: forall n. (Show n, FFRoot n) => [n] -> [n]
-ifft sig = map (* (-1)) $ fftRec (q,n) $ pad n sig where
-  (q, q', n) = rootParams (ffRoot :: n)
+ifft :: forall n. (Show n, UnitRoot n) => [n] -> [n]
+ifft sig = map (* (-1)) $ fftRec (q,n) $ sig where
+  n = length sig
+  (q, q') = rootParams ((unitRoot n) :: n)
 
 
 -- The "fold with output" state,in->state,out stateful signal operator.
@@ -169,7 +179,7 @@ conv a b = ab where
   ab = foldr sumv [] (map prod [0..n-1])
 
 -- Circular convolution
-convc :: forall n. FFRoot n => [n]->[n]->[n]
+convc :: forall n. UnitRoot n => [n]->[n]->[n]
 convc a b = ifft $ prodv (fft a) (fft b)
 
 -- Partitioned convolution
@@ -178,28 +188,38 @@ convp a b = undefined
 
 
 
+newtype V16 n = V16 [n] deriving Show
+newtype V256 n = V256 [n] deriving Show
 
-newtype VecDFT n = VecDFT [n] deriving Show
+class UnitRoot n => VN v n where unV :: v n -> [n]
+instance UnitRoot n => VN V16  n where unV (V16  ns) = ns
+instance UnitRoot n => VN V256 n where unV (V256 ns) = ns
 
-instance FFRoot n => Arbitrary (VecDFT n) where
-  arbitrary = fmap VecDFT $ traverse (\_ -> arbitraryFF) [1..order] where
-    (gen, gen', order) = rootParams (ffRoot :: n)
-    arbitraryFF = fmap fromInteger arbitrary
+
+instance Arbitrary (V16  F2) where arbitrary = fmap V16  $ arbitraryV 16
+instance Arbitrary (V256 F3) where arbitrary = fmap V256 $ arbitraryV 256
+
+arbitraryV :: forall n. UnitRoot n => Int -> Gen [n]
+arbitraryV order = traverse (\_ -> arb_n) [1..order] where
+  (gen, gen') = rootParams ((unitRoot order) :: n)
+  arb_n = fmap fromInteger arbitrary
+
+-- Function is an identify function.
+isID :: forall v n. VN v n => ([n]->[n]) -> v n -> Bool
+isID id x' = x == id x where x = unV x'
+
+-- Functions are equal
+isEQ :: forall v n. VN v n => ([n]->[n]) -> ([n]->[n]) -> v n -> Bool
+isEQ f g x' = f x == g x where x = unV x'
+
 
 quickCheckFF = do
   let check  = quickCheck
       check' = verboseCheck
 
-      -- Function is an identify function.
-      isID :: forall n. FFRoot n => ([n]->[n]) -> VecDFT n -> Bool
-      isID id (VecDFT x) = x == id x
-
-      -- Functions are equal
-      isEQ :: forall n. FFRoot n => ([n]->[n]) -> ([n]->[n]) -> VecDFT n -> Bool
-      isEQ f g (VecDFT x) = f x == g x
   
       -- Time-reflected vector
-      reflect :: forall n. FFRoot n => [n] -> [n]
+      reflect :: forall n. UnitRoot n => [n] -> [n]
       reflect v = map v' [0..n-1] where
         n = length v
         v' i = v !! (nnMod n (-i))
@@ -208,7 +228,7 @@ quickCheckFF = do
 
       -- Separate DFT tests since these are quadriatic and too time
       -- consuming for F3 F4.
-      propsDFT :: forall n. FFRoot n => [VecDFT n -> Bool]
+      propsDFT :: forall v n. VN v n => [v n -> Bool]
       propsDFT = [
         -- Inverses
          isID (idft . dft)
@@ -222,7 +242,7 @@ quickCheckFF = do
         ,isEQ fft dft
         ]
       -- Separate FFT to run on F3 as well
-      propsFFT :: forall n. FFRoot n => [VecDFT n -> Bool]
+      propsFFT :: forall v n. VN v n => [v n -> Bool]
       propsFFT = [
         isID (fft . fft . fft . fft)
         ,isID (fft . ifft)
@@ -230,8 +250,8 @@ quickCheckFF = do
         ]
 
       
-  traverse check (propsDFT :: [VecDFT F2 -> Bool])
-  traverse check (propsFFT :: [VecDFT F3 -> Bool])
+  traverse check (propsDFT :: [V16  F2 -> Bool])
+  traverse check (propsFFT :: [V256 F3 -> Bool])
 
 
   -- Too compute intensive

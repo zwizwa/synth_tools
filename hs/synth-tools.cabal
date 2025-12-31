@@ -11,7 +11,8 @@ cabal-version: >= 1.10
 
 executable synth-tools
     build-depends: base, Stream, data-reify, containers, data-fix, mtl, lens,
-                   process, binary, bytestring, split, QuickCheck
+                   process, binary, bytestring, split, QuickCheck,
+                   pretty-simple
 
  -- finite-fields
     main-is: synth-tools.hs
@@ -27,7 +28,8 @@ executable synth-tools
                    SynthTools.ToC
                    SynthTools.RunC
                    SynthTools.ToV
-                   SynthTools.NTT
+                   SynthTools.FFT
+                   SynthTools.Dataflow
 
 -- This is for the growing the higher level combinators used in the
 -- headphones project.
@@ -45,4 +47,4 @@ executable test-cproc
                    SynthTools.Dataflow
                    SynthTools.IO
                    SynthTools.Num
-                   SynthTools.NTT
+                   SynthTools.FFT

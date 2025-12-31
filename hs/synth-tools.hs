@@ -34,8 +34,8 @@ import SynthTools.Comp
 import SynthTools.Eval
 import SynthTools.Num
 import SynthTools.Filter
-import SynthTools.NTT
-import SynthTools.DataFlow
+import SynthTools.FFT
+import SynthTools.Dataflow
 
 import qualified SynthTools.RunC as RunC
 
@@ -344,20 +344,22 @@ testFF = do
   let cyc n = putStrLn' $ show $ (length c, c) where
         c = genCycle $ F2 n
 
+      pad' = pad 16
+  
       conv' :: [F2] -> [F2] -> IO ()
       conv' a b = do
         putStrLn' $ "conv: " ++ show a ++ " " ++ show b
         putStrLn' $ show $ conv a b
-        putStrLn' $ show $ convc a b
+        putStrLn' $ show $ convc (pad' a) (pad' b)
 
       fft' :: [F2] -> IO ()
       fft' sig = do
-        putStrLn' $ "fft: " ++ (show $ fft sig)
-        putStrLn' $ "dft: " ++ (show $ dft sig)
+        putStrLn' $ "fft: " ++ (show $ fft $ pad' sig)
+        putStrLn' $ "dft: " ++ (show $ dft $ pad' sig)
 
       dfts sig = do
         putStrLn' $ "dfts: " ++ (show sig)
-        let dft1 = dft $ (sig :: [F2])
+        let dft1 = dft $ pad' (sig :: [F2])
             dft2 = dft $ dft1
             dft3 = dft $ dft2
             dft4 = dft $ dft3
@@ -373,24 +375,29 @@ testFF = do
 
       complexity' logn = putStrLn' $ show (logn, 2^logn, complexity logn)
 
+
+  putStrLn' "testF3"
+
+  -- cyc 2 ; cyc 3  -- just to find the generator
+  
   putStrLn' "testF3:complexity'"
   complexity' 9
   complexity' 10
   complexity' 11
-      
-  putStrLn' "testF3:fft'"
-  -- fft' [0,1,0,1,16,16,0,0,16,0,1,0,1,0,1,16]
-  fft' [0,1]
 
-  putStrLn' "testF3"
+  putStrLn' "testF3:conv'"
   conv' [1] [1]
   conv' [1] [1,1]
   conv' [1,1] [1,1]
   conv' [1,1,1] [1,1,1]
 
-  
-  -- cyc 2 ; cyc 3  -- just to find the generator
+  putStrLn' "testF3:fft'"
+  -- fft' [0,1,0,1,16,16,0,0,16,0,1,0,1,0,1,16]
+  fft' [0,1]
+
   dfts [1,2,3]
+
+    
   quickCheckFF
 
 

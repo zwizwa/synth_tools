@@ -16,9 +16,7 @@ import Data.IORef
 import GHC.Int
 
 import qualified SynthTools.Dataflow as Dataflow
--- import qualified SynthTools.NTT as NTT
--- import qualified SynthTools.Num as Num
-import SynthTools.NTT
+import SynthTools.FFT
 import SynthTools.Num
 
 
