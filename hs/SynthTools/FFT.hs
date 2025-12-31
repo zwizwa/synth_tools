@@ -12,9 +12,13 @@
 module SynthTools.FFT where
 
 import SynthTools.Num
+import SynthTools.IO
+
 import Test.QuickCheck
 import Prelude hiding (exp)
+
 import Data.Complex
+import Control.Monad
 
 import Debug.Trace
 
@@ -47,14 +51,23 @@ badroot tag n = error (tag ++ " bad root: " ++ show n)
 -- multiplicative group order.
 instance UnitRoot F2 where unitRoot    16 = ffRoots 3 ; unitRoot n = badroot "F2" n
 instance UnitRoot F3 where unitRoot   256 = ffRoots 3 ; unitRoot n = badroot "F3" n
-instance UnitRoot F4 where unitRoot 65536 = ffRoots 3 ; unitRoot n = badroot "F4" n
+
+instance UnitRoot F4 where
+  unitRoot n = find (ffRoots' 3 :: (F4,F4,F4,Int)) where
+    find (_,_,_,0)= badroot "F4" n
+    find gen@(r,i,s,o) = rv where
+      -- n' = trace ("order " ++ show n) n
+      rv = if o == n then (r,i,s)
+           else find (r*r, i*i, s*2, o `div` 2)
 
 -- For finite fields the inverse root can just be found from the exact
 -- cycle.  The IFFT scaling factor is N^-1 which is -1.
-ffRoots :: forall n. UnitRoot n => n -> (n,n,n)
-ffRoots root = (root, cycle !! (n-1), -1) where
+ffRoots' :: forall n. UnitRoot n => n -> (n,n,n,Int)
+ffRoots' root = (root, cycle !! (order-1), -1, order) where
   cycle = genCycle root
-  n = length cycle
+  order = length cycle
+
+ffRoots root = (r,r',s) where (r,r',s,_) = ffRoots' root
 
 -- For 
 
@@ -63,6 +76,27 @@ instance (Eq n, Show n, RealFloat n) => UnitRoot (Complex n) where
     inv_n = 1 / (fromIntegral n)
     w = 2 * pi * inv_n
     ej = mkPolar 1
+
+
+-- FIXME: Replace this with some indexed type.
+
+newtype V16    n = V16    [n] deriving Show
+newtype V256   n = V256   [n] deriving Show
+newtype V512   n = V512   [n] deriving Show
+newtype V65536 n = V65536 [n] deriving Show
+
+class UnitRoot n => VN v n where unVN :: v n -> [n] ; size :: v n -> Int
+instance UnitRoot n => VN V16    n where unVN (V16 ns)    = ns ; size _ = 16
+instance UnitRoot n => VN V256   n where unVN (V256 ns)   = ns ; size _ = 256
+instance UnitRoot n => VN V512   n where unVN (V512 ns)   = ns ; size _ = 512
+instance UnitRoot n => VN V65536 n where unVN (V65536 ns) = ns ; size _ = 65536
+
+instance UnitRoot n => Arbitrary (V16    n) where arbitrary = fmap V16    $ arbitraryV 16
+instance UnitRoot n => Arbitrary (V256   n) where arbitrary = fmap V256   $ arbitraryV 256
+instance UnitRoot n => Arbitrary (V512   n) where arbitrary = fmap V512   $ arbitraryV 512
+instance UnitRoot n => Arbitrary (V65536 n) where arbitrary = fmap V65536 $ arbitraryV 65536
+
+
 
 
 
@@ -80,12 +114,11 @@ exp :: Num a => a -> [a]
 exp a = (1 : exp a) where
   exp x = (x : exp (a * x))
 
-dft' :: forall n. UnitRoot n => Int -> [n] -> [n]
-dft' dir input = output where
+dft' :: forall n. UnitRoot n => n -> [n] -> [n]
+dft' rootGen input = output where
   order = length input
-  (rootGen, invRootGen, _) = unitRoot order
   roots = genCycle $ rootGen
-  vec i = take order $ exp $ (roots !! (nnMod order (dir*i)))
+  vec i = take order $ exp $ (roots !! i)
   bin i = iprod input $ vec i 
   output = map bin [0..(order-1)] where
 
@@ -107,10 +140,14 @@ pad order sig = sig' where
 -- intuition is just "orthogonal smear". )
 
 dft :: UnitRoot n => [n] -> [n]
-dft = dft' (-1)
+dft sig = dft' q' $ sig where
+  n = length sig
+  (q, q', _) = unitRoot n
 
 idft :: UnitRoot n => [n] -> [n]
-idft = (map (*(-1))) . (dft' 1)
+idft sig = map (* inv_n) $ dft' q $ sig where
+  n = length sig
+  (q, q', inv_n) = unitRoot n
 
 
 -- Use the tested DFT implementation to test the FFT
@@ -198,16 +235,6 @@ convp a b = undefined
 
 
 
-newtype V16 n = V16 [n] deriving Show
-newtype V256 n = V256 [n] deriving Show
-
-class UnitRoot n => VN v n where unVN :: v n -> [n]
-instance UnitRoot n => VN V16  n where unVN (V16  ns) = ns
-instance UnitRoot n => VN V256 n where unVN (V256 ns) = ns
-
-
-instance UnitRoot n => Arbitrary (V16  n) where arbitrary = fmap V16  $ arbitraryV 16
-instance UnitRoot n => Arbitrary (V256 n) where arbitrary = fmap V256 $ arbitraryV 256
 
 arbitraryV :: forall n. UnitRoot n => Int -> Gen [n]
 arbitraryV order = traverse (\_ -> arb_n) [1..order] where
@@ -255,67 +282,6 @@ instance (Show n, RealFloat n) => ApproxEq (Complex n) where
 
 
 
-quickCheckFFT = do
-  let check  = quickCheck
-      check' = verboseCheck
-
-  
-      -- Time-reflected vector
-      reflect :: forall n. UnitRoot n => [n] -> [n]
-      reflect v = map v' [0..n-1] where
-        n = length v
-        v' i = v !! (nnMod n (-i))
-
-      scale n = map (* n)
-
-      -- Separate DFT tests since these are quadriatic and too time
-      -- consuming for F3 F4.
-      propsDFT :: forall v n. VN v n => [v n -> Bool]
-      propsDFT = [
-        -- Inverses
-         isID (idft . dft)
-        ,isID (dft . idft)
-        -- Applied twice scales by N == -1
-        ,isID ((scale (-1)) . reflect . dft . dft)
-        -- Applied 4x scales by N^2 = 1
-        ,isID (dft . dft . dft . dft)
-        ,isID (idft . idft . idft . idft)
-        -- FFT and DFT are the same
-        ,isEQ fft dft
-        ]
-      -- Separate FFT tests to run on F3 as well
-      propsFFT :: forall v n. VN v n => [v n -> Bool]
-      propsFFT = [
-         isID (fft . ifft)
-        ,isID (ifft . fft)
-        -- This depends on scaling which happens to cancel out to 1 in the FF case.
-        ,isID (fft . fft . fft . fft) 
-        ]
-
-      -- Inexact comparison for Complex
-      propsFFT' :: forall v n. (ApproxEq n, VN v n) => [v n -> Bool]
-      propsFFT' = [
-         isID' (fft . ifft)
-        ,isID' (ifft . fft)
-        --,isID' (fft . fft . fft . fft)
-        ]
-
-
-      
-  traverse check (propsDFT :: [V16  F2 -> Bool])
-  traverse check (propsFFT :: [V256 F3 -> Bool])
-  traverse check (propsFFT' :: [V16 (Complex Double) -> Bool])
-  traverse check (propsFFT' :: [V256 (Complex Double) -> Bool])
-
-
-  -- Too compute intensive
-  -- traverse check (props :: [VecDFT F3 -> Bool])
-  -- traverse check (props :: [VecDFT F4 -> Bool])
-
-  -- It might actually be good to try a setup where N != -1 etc,
-  -- e.g. N smaller than F_4 order.
-
-  return ()
 
 -- Divide with negative remainder (smallest multiple that fits).
 fits x y = q_nr where
@@ -362,3 +328,141 @@ complexity logn = (sections, cost_fft, cost_mul, cost_dir) where
   cost_fft = c_fft * n * logn
   cost_mul = c_mul * sections * n
   cost_dir = c_dir * b * l
+
+
+----------------------------------- TEST -----------------------------------
+
+quickCheckFFT = do
+  let check  = quickCheck
+      check' = verboseCheck
+  
+      -- Time-reflected vector
+      reflect :: forall n. UnitRoot n => [n] -> [n]
+      reflect v = map v' [0..n-1] where
+        n = length v
+        v' i = v !! (nnMod n (-i))
+
+      scale n = map (* n)
+
+      -- Separate DFT tests since these are quadriatic and too time
+      -- consuming for F3 F4.
+      propsDFT :: forall v n. VN v n => [v n -> Bool]
+      propsDFT = [
+        -- Inverses
+         isID (idft . dft)
+        ,isID (dft . idft)
+        -- Applied twice scales by N == -1
+        ,isID ((scale (-1)) . reflect . dft . dft)
+        -- Applied 4x scales by N^2 = 1
+        ,isID (dft . dft . dft . dft)
+        ,isID (idft . idft . idft . idft)
+        -- FFT and DFT are the same
+        ,isEQ fft dft
+        ]
+      -- Separate FFT tests to run on F3 as well
+      propsFFT :: forall v n. VN v n => [v n -> Bool]
+      propsFFT = [
+         isID (fft . ifft)
+        ,isID (ifft . fft)
+        -- This depends on scaling which happens to cancel out to 1 in the FF case.
+        ,isID (fft . fft . fft . fft) 
+        ]
+
+      -- Inexact comparison for Complex
+      propsFFT' :: forall v n. (ApproxEq n, VN v n) => [v n -> Bool]
+      propsFFT' = [
+         isID' (fft . ifft)
+        ,isID' (ifft . fft)
+        --,isID' (fft . fft . fft . fft)
+        ]
+
+
+  traverse check (propsDFT :: [V16  F2 -> Bool])
+  traverse check (propsFFT :: [V16  F2 -> Bool])
+  traverse check (propsFFT :: [V256 F3 -> Bool])
+  traverse check (propsFFT' :: [V16 (Complex Double) -> Bool])
+  traverse check (propsFFT' :: [V256 (Complex Double) -> Bool])
+  traverse check (propsFFT' :: [V512 (Complex Double) -> Bool])
+  traverse check (propsFFT' :: [V512 F4 -> Bool])
+
+  -- traverse check (propsFFT :: [V65536 F4 -> Bool])  -- Works but is very slow
+
+  -- Too compute intensive
+  -- traverse check (props :: [VecDFT F3 -> Bool])
+  -- traverse check (props :: [VecDFT F4 -> Bool])
+
+  -- It might actually be good to try a setup where N != -1 etc,
+  -- e.g. N smaller than F_4 order.
+
+  return ()
+
+testFF = do
+  let cyc n = putStrLn' $ show $ (length c, c) where
+        c = genCycle $ F4 n
+
+      pad' = pad 16
+  
+      conv' :: [F2] -> [F2] -> IO ()
+      conv' a b = do
+        putStrLn' $ "conv: " ++ show a ++ " " ++ show b
+        putStrLn' $ show $ conv a b
+        putStrLn' $ show $ convc (pad' a) (pad' b)
+
+      fft' :: [F2] -> IO ()
+      fft' sig = do
+        putStrLn' $ "fft: " ++ (show $ fft $ pad' sig)
+        putStrLn' $ "dft: " ++ (show $ dft $ pad' sig)
+
+      dfts sig = do
+        putStrLn' $ "dfts: " ++ (show sig)
+        let dft1 = dft $ pad' (sig :: [F2])
+            dft2 = dft $ dft1
+            dft3 = dft $ dft2
+            dft4 = dft $ dft3
+            idft1 = idft $ dft1
+            p x = putStrLn' $ show x
+
+        p dft1
+        p dft2
+        p dft3
+        p dft4
+        putStrLn' "idft1"
+        p idft1
+
+      -- FIXME: Trace it
+      complexity' logn = putStrLn' $ show (logn, 2^logn, complexity logn)
+
+      unitRoot' n = putStrLn' $ show $ (unitRoot n :: (F4,F4,F4))
+
+  putStrLn' "testF3"
+  putStrLn' "testF3:unitroot'"
+  unitRoot' 65536
+  unitRoot' 512
+
+
+  putStrLn' "testF3:cyc"
+  -- cyc 2 ; cyc 3  -- just to find the generator
+  -- cyc (3^16) -- 4096
+  
+  putStrLn' "testF3:complexity'"
+  complexity' 9
+  complexity' 10
+  complexity' 11
+
+  putStrLn' "testF3:conv'"
+  conv' [1] [1]
+  conv' [1] [1,1]
+  conv' [1,1] [1,1]
+  conv' [1,1,1] [1,1,1]
+
+  putStrLn' "testF3:fft'"
+  -- fft' [0,1,0,1,16,16,0,0,16,0,1,0,1,0,1,16]
+  fft' [0,1]
+
+  putStrLn' "testF3:dfts"
+  dfts [1,2,3]
+ 
+  putStrLn' "testF3:quickCheckFFT"
+  quickCheckFFT
+
+  return ()
