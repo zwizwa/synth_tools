@@ -36,12 +36,8 @@ import Debug.Trace
 -- energy atm. )
 
 class (Eq n, Num n, Show n) => UnitRoot n where
-  unitRoot :: Int -> n
+  unitRoot :: Int -> (n, n, n)
 
-rootParams :: forall n. UnitRoot n => n -> (n,n)
-rootParams root = (root, cycle !! (n-1)) where
-  cycle = genCycle root
-  n = length cycle
 
 badroot tag n = error (tag ++ " bad root: " ++ show n)
 
@@ -49,11 +45,25 @@ badroot tag n = error (tag ++ " bad root: " ++ show n)
 -- requested order.  For complex numbers the order just needs to be an
 -- integer.  For the finite fields the order has to divide the
 -- multiplicative group order.
-instance UnitRoot F2 where unitRoot 16 = 3    ; unitRoot n = badroot "F2" n
-instance UnitRoot F3 where unitRoot 256 = 3   ; unitRoot n = badroot "F3"  n
-instance UnitRoot F4 where unitRoot 65536 = 3 ; unitRoot n = badroot "F4" n
+instance UnitRoot F2 where unitRoot    16 = ffRoots 3 ; unitRoot n = badroot "F2" n
+instance UnitRoot F3 where unitRoot   256 = ffRoots 3 ; unitRoot n = badroot "F3" n
+instance UnitRoot F4 where unitRoot 65536 = ffRoots 3 ; unitRoot n = badroot "F4" n
 
-instance (Eq n, Show n, RealFloat n) => UnitRoot (Complex n) where unitRoot _ = 1
+-- For finite fields the inverse root can just be found from the exact
+-- cycle.  The IFFT scaling factor is N^-1 which is -1.
+ffRoots :: forall n. UnitRoot n => n -> (n,n,n)
+ffRoots root = (root, cycle !! (n-1), -1) where
+  cycle = genCycle root
+  n = length cycle
+
+-- For 
+
+instance (Eq n, Show n, RealFloat n) => UnitRoot (Complex n) where
+  unitRoot n = (ej (-w), ej w, inv_n) where
+    inv_n = 1 / (fromIntegral n)
+    w = 2 * pi * inv_n
+    ej = mkPolar 1
+
 
 
 
@@ -73,7 +83,7 @@ exp a = (1 : exp a) where
 dft' :: forall n. UnitRoot n => Int -> [n] -> [n]
 dft' dir input = output where
   order = length input
-  (rootGen, invRootGen) = rootParams ((unitRoot order) :: n)
+  (rootGen, invRootGen, _) = unitRoot order
   roots = genCycle $ rootGen
   vec i = take order $ exp $ (roots !! (nnMod order (dir*i)))
   bin i = iprod input $ vec i 
@@ -139,12 +149,12 @@ fft sig = fftRec (q',n) $ sig where
   -- Use the inverse root just like the DFT.  This is arbitrary but
   -- feels right to keep the analogy going (to build some FF FFT intuition).
   n = length sig
-  (q, q') = rootParams ((unitRoot n) :: n)
+  (q, q', _) = unitRoot n
 
 ifft :: forall n. (Show n, UnitRoot n) => [n] -> [n]
-ifft sig = map (* (-1)) $ fftRec (q,n) $ sig where
+ifft sig = map (* inv_n) $ fftRec (q,n) $ sig where
   n = length sig
-  (q, q') = rootParams ((unitRoot n) :: n)
+  (q, q', inv_n) = unitRoot n
 
 
 -- The "fold with output" state,in->state,out stateful signal operator.
@@ -191,29 +201,61 @@ convp a b = undefined
 newtype V16 n = V16 [n] deriving Show
 newtype V256 n = V256 [n] deriving Show
 
-class UnitRoot n => VN v n where unV :: v n -> [n]
-instance UnitRoot n => VN V16  n where unV (V16  ns) = ns
-instance UnitRoot n => VN V256 n where unV (V256 ns) = ns
+class UnitRoot n => VN v n where unVN :: v n -> [n]
+instance UnitRoot n => VN V16  n where unVN (V16  ns) = ns
+instance UnitRoot n => VN V256 n where unVN (V256 ns) = ns
 
 
-instance Arbitrary (V16  F2) where arbitrary = fmap V16  $ arbitraryV 16
-instance Arbitrary (V256 F3) where arbitrary = fmap V256 $ arbitraryV 256
+instance UnitRoot n => Arbitrary (V16  n) where arbitrary = fmap V16  $ arbitraryV 16
+instance UnitRoot n => Arbitrary (V256 n) where arbitrary = fmap V256 $ arbitraryV 256
 
 arbitraryV :: forall n. UnitRoot n => Int -> Gen [n]
 arbitraryV order = traverse (\_ -> arb_n) [1..order] where
-  (gen, gen') = rootParams ((unitRoot order) :: n)
+  (gen, gen', _) = unitRoot order
   arb_n = fmap fromInteger arbitrary
 
 -- Function is an identify function.
 isID :: forall v n. VN v n => ([n]->[n]) -> v n -> Bool
-isID id x' = x == id x where x = unV x'
+isID id x' = x == id x where x = unVN x'
 
 -- Functions are equal
 isEQ :: forall v n. VN v n => ([n]->[n]) -> ([n]->[n]) -> v n -> Bool
-isEQ f g x' = f x == g x where x = unV x'
+isEQ f g x' = f x == g x where x = unVN x'
 
 
-quickCheckFF = do
+-- Same, but for approximate identity.
+isID' :: forall v n. (ApproxEq n, VN v n) => ([n]->[n]) -> v n -> Bool
+isID' id x' = x `approxListEq` (id x) where x = unVN x'
+
+isEQ' :: forall v n. (ApproxEq n, VN v n) => ([n]->[n]) -> ([n]->[n]) -> v n -> Bool
+isEQ' f g x' = f x `approxListEq` g x where x = unVN x'
+
+class ApproxEq n where
+  approxListEq :: [n] -> [n] -> Bool
+
+-- Make it work for the exact numbers as well.
+instance ApproxEq F2 where approxListEq = (==)
+instance ApproxEq F3 where approxListEq = (==)
+instance ApproxEq F4 where approxListEq = (==)
+  
+-- Test vectors can be exact zero so avoid the divide by zero if error
+-- is exactly 0, and use a reasonable relative error of 10 decimal
+-- places.
+instance (Show n, RealFloat n) => ApproxEq (Complex n) where
+  approxListEq as bs = isEq where
+    -- isEq' trace msg isEq
+    msg = "approxListEq: " ++ show (error,relError)
+    isEq = if abs error == 0 then True
+           else relError < 10 ^^ (-10)
+    relError = error / norm
+    norm  = sum $ map magnitude as
+    error = sum $ zipWith error' as bs
+    error' a b = magnitude $ a - b
+    sum = foldr (+) 0
+
+
+
+quickCheckFFT = do
   let check  = quickCheck
       check' = verboseCheck
 
@@ -241,17 +283,29 @@ quickCheckFF = do
         -- FFT and DFT are the same
         ,isEQ fft dft
         ]
-      -- Separate FFT to run on F3 as well
+      -- Separate FFT tests to run on F3 as well
       propsFFT :: forall v n. VN v n => [v n -> Bool]
       propsFFT = [
-        isID (fft . fft . fft . fft)
-        ,isID (fft . ifft)
+         isID (fft . ifft)
         ,isID (ifft . fft)
+        -- This depends on scaling which happens to cancel out to 1 in the FF case.
+        ,isID (fft . fft . fft . fft) 
         ]
+
+      -- Inexact comparison for Complex
+      propsFFT' :: forall v n. (ApproxEq n, VN v n) => [v n -> Bool]
+      propsFFT' = [
+         isID' (fft . ifft)
+        ,isID' (ifft . fft)
+        --,isID' (fft . fft . fft . fft)
+        ]
+
 
       
   traverse check (propsDFT :: [V16  F2 -> Bool])
   traverse check (propsFFT :: [V256 F3 -> Bool])
+  traverse check (propsFFT' :: [V16 (Complex Double) -> Bool])
+  traverse check (propsFFT' :: [V256 (Complex Double) -> Bool])
 
 
   -- Too compute intensive

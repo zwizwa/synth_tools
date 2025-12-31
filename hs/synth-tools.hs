@@ -395,10 +395,13 @@ testFF = do
   -- fft' [0,1,0,1,16,16,0,0,16,0,1,0,1,0,1,16]
   fft' [0,1]
 
+  putStrLn' "testF3:dfts"
   dfts [1,2,3]
+ 
+  putStrLn' "testF3:quickCheckFFT"
+  quickCheckFFT
 
-    
-  quickCheckFF
+  return ()
 
 
 testDataFlow = do
