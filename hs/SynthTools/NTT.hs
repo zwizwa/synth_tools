@@ -12,6 +12,7 @@ module SynthTools.NTT where
 import SynthTools.Num
 import Test.QuickCheck
 import Prelude hiding (exp)
+import Data.Complex
 
 import Debug.Trace
 
@@ -44,7 +45,7 @@ instance FFRoot F2 where ffRoot = 3
 instance FFRoot F3 where ffRoot = 3
 instance FFRoot F4 where ffRoot = 3
 
-
+instance (Eq n, Show n, RealFloat n) => FFRoot (Complex n) where ffRoot = 1
 
 
 

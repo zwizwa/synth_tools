@@ -50,7 +50,13 @@ class RunC r where
 -- Started from Claude examples.
 
 
--- 1. Everything needed to run the ad-hoc areal 12-channel API
+-- 1. Everything needed to run the 12-channel API used for the Areal
+--    test binary test_armv7.elf -- This uses a float matrix to
+--    configure the impulse response which makes it a bit easier to
+--    interface from octave.  Since 2025/12 an extra message handler
+--    has been added to further customize the emulation.  Note that
+--    this is not an i/o processor: the input is always the impulse
+--    simulation built into test_armv7.c
 
 data Proc = Proc ProcessHandle Handle Handle 
 
@@ -72,18 +78,22 @@ close (Proc proc_h stdin_h stdout_h) = do
   waitForProcess proc_h
 
 
--- Method 1: Using Data.Binary (recommended)
-runPlugin12 :: String -> [String] -> IO [[Float]]
-runPlugin12 cmd args = do
+-- The configuration is awkward.  It is kept for backwards
+-- compatibility with the octave code, but it seems that wherever
+-- possible the OSC commands should be used instead to make everything
+-- more uniform.
+
+runPlugin12 :: (String, [String]) -> [String] -> Int -> IO [[Float]]
+runPlugin12 (cmd, args) presets nb_blocks' = do
   p@(Proc proc_h stdin_h stdout_h) <- open cmd args
 
   let
     rows = 2
     columns = 12 -- AREAL_NB_IN_CHANNELS
-    nb_blocks = 1
     block_size = 256
+    nb_blocks = fromIntegral nb_blocks'
     preset = 3
-    use_float = 1
+    use_float = 1  -- Tests only run the full integer plugin with output stage.
     monitor_L = 0
     monitor_R = 0
     noise = 0
@@ -96,16 +106,18 @@ runPlugin12 cmd args = do
       impulse
       ]
     nbFloat = nb_blocks * block_size * columns
-    signal = replicate nbFloat 0
 
-  writeMatrix stdin_h rows columns $ concat config_matrix ++ signal
+  -- Additional test binary config
+  traverse (writePreset stdin_h) presets
+
+  -- Write the old 2 x 12 config matrix, also used by octave.
+  writeMatrix stdin_h rows columns $ concat config_matrix
       
 
-  outputFloat <- readMatrix stdout_h
-  
+  outputMatrix <- readMatrix stdout_h
   
   close p
-  return $ chunksOf 12 outputFloat
+  return $ outputMatrix
 
 
 
@@ -124,10 +136,27 @@ runGet' = flip runGet
 -- 2025/12 switched to uc_tools packet framing by default
 uc_tools_framing = True
 
-writeMatrix handle rows columns floats = do
-  let bytes = runPut $ do
+writePreset handle preset = do
+  let tag32 = 0xA1000001
+      bytes = runPut $ do
         when uc_tools_framing $ do
-          putInt32be 0 -- FIXME: size
+          putInt32be $ 4 + fromIntegral (L.length data_bytes)
+          putInt32be tag32
+        return ()
+      data_bytes = runPut $ do
+        putStringUtf8 preset
+        return ()
+
+  L.hPut handle bytes
+  L.hPut handle data_bytes
+
+
+writeMatrix handle rows columns floats = do
+  -- putStrLn' $ show (rows,columns,floats)
+  let len = fromIntegral $ 4 * (1 + 2 + length floats)
+      bytes = runPut $ do
+        when uc_tools_framing $ do
+          putInt32be len
           putInt32be 0x1EEE0001
         putInt32le rows
         putInt32le columns
@@ -136,7 +165,7 @@ writeMatrix handle rows columns floats = do
   L.hPut handle bytes
   hFlush handle
 
-readMatrix :: Handle -> IO [Float]
+readMatrix :: Handle -> IO [[Float]]
 readMatrix handle = do
   when uc_tools_framing $ do
     uct_header <- L.hGet handle 8
@@ -147,11 +176,14 @@ readMatrix handle = do
   matrix_header <- L.hGet handle 8
   let [r,c] = runGet' matrix_header $ replicateM 2 getInt32le
       nbFloat' = fromIntegral $ r * c
+
+  --putStrLn' $ show ("readMatrix",[r,c])
   
-  floats <- L.hGet handle $ 4 * nbFloat'
-  let outputFloat = runGet' floats $ replicateM nbFloat' getFloatle
-  -- putStrLn' $ show outputFloat
-  return outputFloat
+  floats_bin <- L.hGet handle $ 4 * nbFloat'
+  let outputFloat = runGet' floats_bin $ replicateM nbFloat' getFloatle
+  -- putStrLn' $ show ("size", length outputFloat)
+
+  return $ chunksOf (fromIntegral c) outputFloat
 
 
 run' cmd args = do
@@ -168,7 +200,7 @@ close' proc_h = do
 -- processors.  These are made compatible with the uc_tools tagged
 -- protocol wrapped in {packet,4} framing.
 
-runWither (word_size, put, get, cmd, args) = do
+runRaw (word_size, put, get, cmd, args) = do
   
   p@(Proc proc_h stdin_h stdout_h) <- open cmd args
 
@@ -210,18 +242,18 @@ runWither (word_size, put, get, cmd, args) = do
 
   return tick
 
-runWith cfg input = do
-  tick <- runWither cfg
+runRawWith cfg input = do
+  tick <- runRaw cfg
   let hdr = []
   output <- tick hdr input
   tick [] [] -- close
   return output
 
-runFloat c a = runWith (4, putFloatle, getFloatle, c, a)
-runInt32 c a = runWith (4, putInt32le, getInt32le, c, a)
+runFloat c a = runRawWith (4, putFloatle, getFloatle, c, a)
+runInt32 c a = runRawWith (4, putInt32le, getInt32le, c, a)
 
-floatRunner c a = runWither (4, putFloatle, getFloatle, c, a)
-int32Runner c a = runWither (4, putInt32le, getInt32le, c, a)
+floatRunner c a = runRaw (4, putFloatle, getFloatle, c, a)
+int32Runner c a = runRaw (4, putInt32le, getInt32le, c, a)
 
 -- readInt321 :: Handle -> Int -> IO [Int]
 -- readInt321 handle nb = do
