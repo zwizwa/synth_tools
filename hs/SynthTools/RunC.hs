@@ -60,7 +60,7 @@ class RunC r where
 
 data Proc = Proc ProcessHandle Handle Handle 
 
-open :: String -> [String] -> IO Proc
+open :: String -> [String] -> IO (Proc, IO ())
 open cmd args = do
   (Just stdin_h, Just stdout_h, Nothing, proc_h) <- 
     createProcess (proc cmd args) { 
@@ -70,7 +70,8 @@ open cmd args = do
     }
   hSetBinaryMode stdin_h  True
   hSetBinaryMode stdout_h True
-  return $ Proc proc_h stdin_h stdout_h
+  let p = Proc proc_h stdin_h stdout_h
+  return $ (p, do close p ; return ())
 
 close (Proc proc_h stdin_h stdout_h) = do
   hClose stdin_h
@@ -78,55 +79,7 @@ close (Proc proc_h stdin_h stdout_h) = do
   waitForProcess proc_h
 
 
--- The configuration is awkward.  It is kept for backwards
--- compatibility with the octave code, but it seems that wherever
--- possible the OSC commands should be used instead to make everything
--- more uniform.
 
-
-
-
-
-runPlugin12Once p@(Proc proc_h stdin_h stdout_h) presets nb_blocks' = do
-  let
-    rows = 2
-    columns = 12 -- AREAL_NB_IN_CHANNELS
-    block_size = 256
-    nb_blocks = fromIntegral nb_blocks'
-    preset = 3
-    use_float = 1  -- Tests only run the full integer plugin with output stage.
-    monitor_L = 0
-    monitor_R = 0
-    noise = 0
-    tc = 0
-    impulse = [1,0,0,0,0,0,0,0,0,0,0,0]
-    config_matrix = [
-      [nb_blocks, block_size, preset, use_float,
-       monitor_L, monitor_R,  noise,  tc,
-       0,         0,          0,      0],
-      impulse
-      ]
-    nbFloat = nb_blocks * block_size * columns
-
-  -- Additional test binary config
-  traverse (writePreset stdin_h) presets
-
-  -- Write the old 2 x 12 config matrix, also used by octave.
-  writeMatrix stdin_h rows columns $ concat config_matrix
-
-  outputMatrix <- readMatrix stdout_h
-  return outputMatrix
-
-makeRunPlugin12 (cmd, args) = do
-  p@(Proc proc_h stdin_h stdout_h) <- open cmd args
-  return (runPlugin12Once p, close p)
-
-runPlugin12 :: (String, [String]) -> [String] -> Int -> IO [[Float]]
-runPlugin12 (cmd, args) presets nb_blocks' = do
-  (run, close) <- makeRunPlugin12 (cmd, args)
-  outputMatrix <- run presets nb_blocks'
-  close
-  return $ outputMatrix
 
   
 
@@ -211,7 +164,7 @@ close' proc_h = do
 
 runRaw (word_size, put, get, cmd, args) = do
   
-  p@(Proc proc_h stdin_h stdout_h) <- open cmd args
+  p@(Proc proc_h stdin_h stdout_h, closeit) <- open cmd args
 
   let read nb = do
         -- size, uc_tools compatible tagging (ignored for now)
@@ -245,7 +198,7 @@ runRaw (word_size, put, get, cmd, args) = do
         output <- read (length input)
         return $ output
 
-  return (tick, close p)
+  return (tick, closeit)
 
 runRawWith cfg input = do
   (tick, close) <- runRaw cfg
