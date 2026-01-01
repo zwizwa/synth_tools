@@ -9,10 +9,13 @@ cabal-version: >= 1.10
 -- The finite-fields package didn't compile out of the box.  I don't
 -- want to mess with it.
 
+-- To build this in an open setup using cabal build instead of
+-- nix-build, make sure the library dependencies are accessible: fftw
+
 executable synth-tools
     build-depends: base, Stream, data-reify, containers, data-fix, mtl, lens,
                    process, binary, bytestring, split, QuickCheck,
-                   pretty-simple
+                   pretty-simple, pure-fft
 
  -- finite-fields
     main-is: synth-tools.hs

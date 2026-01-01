@@ -75,8 +75,8 @@ data Ops = Ops { fftOp :: NTTIO, ifftOp :: NTTIO }
 
 
 
-prop_eq :: Ops -> VecDFT F3 -> Property
-prop_eq (Ops ntt intt) (VecDFT probe) = monadicIO $ do
+prop_eq :: Ops -> V256 F3 -> Property
+prop_eq (Ops ntt intt) (V256 probe) = monadicIO $ do
   let eq ref_op io_op = do
         o <- io_op probe
         let o' = ref_op probe
@@ -87,7 +87,7 @@ prop_eq (Ops ntt intt) (VecDFT probe) = monadicIO $ do
 
 qc_nttIO = do
   -- Create a single process to compute the NTTs in the test.
-  nttIO' <- RunC.int32Runner test_fft_elf ["ntt"]
+  (nttIO', nttClose) <- RunC.int32Runner test_fft_elf ["ntt"]
   let nttIO hdr i = do
         --putStrLn' $ "i: " ++ (show $ i)
         o_raw <- nttIO' hdr $ map unF3 i
@@ -104,7 +104,7 @@ qc_nttIO = do
                 (run . (nttIO [0x101])) -- ifft
   quickCheck (prop_eq ops)
 
-  nttIO [] [] -- close
+  nttClose
   return ()
 
 main = do

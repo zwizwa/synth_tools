@@ -7,4 +7,9 @@ cd $HERE/..
 echo "make: Entering directory '$(pwd)'"
 ./make.sh linux/test_fft.dynamic.host.elf
 
+cd $HERE
+echo "make: Entering directory '$(pwd)'"
+cabal build
+
+cd $HERE/..
 exec $HERE/test-cproc.elf "$@"

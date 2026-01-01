@@ -83,10 +83,11 @@ close (Proc proc_h stdin_h stdout_h) = do
 -- possible the OSC commands should be used instead to make everything
 -- more uniform.
 
-runPlugin12 :: (String, [String]) -> [String] -> Int -> IO [[Float]]
-runPlugin12 (cmd, args) presets nb_blocks' = do
-  p@(Proc proc_h stdin_h stdout_h) <- open cmd args
 
+
+
+
+runPlugin12Once p@(Proc proc_h stdin_h stdout_h) presets nb_blocks' = do
   let
     rows = 2
     columns = 12 -- AREAL_NB_IN_CHANNELS
@@ -112,14 +113,22 @@ runPlugin12 (cmd, args) presets nb_blocks' = do
 
   -- Write the old 2 x 12 config matrix, also used by octave.
   writeMatrix stdin_h rows columns $ concat config_matrix
-      
 
   outputMatrix <- readMatrix stdout_h
-  
-  close p
+  return outputMatrix
+
+makeRunPlugin12 (cmd, args) = do
+  p@(Proc proc_h stdin_h stdout_h) <- open cmd args
+  return (runPlugin12Once p, close p)
+
+runPlugin12 :: (String, [String]) -> [String] -> Int -> IO [[Float]]
+runPlugin12 (cmd, args) presets nb_blocks' = do
+  (run, close) <- makeRunPlugin12 (cmd, args)
+  outputMatrix <- run presets nb_blocks'
+  close
   return $ outputMatrix
 
-
+  
 
 -- The plugin API is one float matrix in, one float matrix out.  This
 -- is pretty raw but up to now it has worked just fine.
@@ -231,22 +240,18 @@ runRaw (word_size, put, get, cmd, args) = do
         L.hPut stdin_h bytes
         hFlush stdin_h
 
-      tick [] [] = do
-        close p
-        return []
-        
       tick hdr input = do
         write hdr input
         output <- read (length input)
         return $ output
 
-  return tick
+  return (tick, close p)
 
 runRawWith cfg input = do
-  tick <- runRaw cfg
+  (tick, close) <- runRaw cfg
   let hdr = []
   output <- tick hdr input
-  tick [] [] -- close
+  close
   return output
 
 runFloat c a = runRawWith (4, putFloatle, getFloatle, c, a)
