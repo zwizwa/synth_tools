@@ -42,6 +42,8 @@ import qualified SynthTools.RunC as RunC
 import qualified SynthTools.ToC as ToC
 import qualified SynthTools.ToV as ToV
 
+import qualified SynthTools.TestCproc as TestCproc
+
 import System.Environment
 
 import Debug.Trace
@@ -343,6 +345,8 @@ testMoebius = do
 
 
 testDataFlow = do
+  putStrLn' "SynthTools.Dataflow"
+  test_mangle
   return ()
 
   
@@ -361,8 +365,9 @@ main = do
         ,("ZT",       testZT)
         ,("Dual",     testDual)
         ,("Moebius",  testMoebius)
-        ,("FF",       testFF)
+        ,("FFT",      testFFT)
         ,("DataFlow", testDataFlow)
+        ,("nntIO",    TestCproc.qc_nttIO)
         ]
       tests' = [
         -- These read from stdin so don't put them in the full list.
@@ -383,8 +388,8 @@ main = do
     args ->
       putStrLn' $ "invalid args: " ++ show args
 
-      
   -- RunC.test
+  return ()
   
 
 

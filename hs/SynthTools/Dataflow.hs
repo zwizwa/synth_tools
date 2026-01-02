@@ -168,6 +168,3 @@ test_mangle = do
     ]
   
 
-test = do
-  putStrLn "SynthTools.Dataflow"
-  test_mangle

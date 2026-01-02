@@ -1,3 +1,15 @@
+
+module SynthTools.TestCproc where
+
+-- The point of this module is to:
+-- . expose QuickCheck IO monad functions
+-- . interface with external binary using RunC
+-- . TODO: test generated cproc code (now only using manual test_fft.c)
+
+
+
+-- Old comments:
+
 -- Idea here is to port the Lua code used in Areal project.
 
 -- There are a couple of new ideas in that code that should probably
@@ -107,9 +119,6 @@ qc_nttIO = do
   nttClose
   return ()
 
-main = do
-  -- Dataflow.test
-  qc_nttIO
   
 
 

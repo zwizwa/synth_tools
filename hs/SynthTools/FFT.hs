@@ -396,7 +396,7 @@ quickCheckFFT = do
 
   return ()
 
-testFF = do
+testFFT = do
   let cyc n = putStrLn' $ show $ (length c, c) where
         c = genCycle $ F4 n
 

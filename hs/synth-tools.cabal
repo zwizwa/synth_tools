@@ -4,20 +4,17 @@ build-type: Simple
 license: BSD3
 cabal-version: >= 1.10
 
--- This is for the DSL and support code.
+-- Trampoline binary for tests and standalone functionality.
 
--- The finite-fields package didn't compile out of the box.  I don't
--- want to mess with it.
-
--- To build this in an open setup using cabal build instead of
--- nix-build, make sure the library dependencies are accessible: fftw
+-- It seems better to build one binary that can dispatch to an ad-hoc
+-- collection of tests and examples based on its first argument,
+-- compared to having a collection of distinct binaries.
 
 executable synth-tools
     build-depends: base, Stream, data-reify, containers, data-fix, mtl, lens,
                    process, binary, bytestring, split, QuickCheck,
-                   pretty-simple, pure-fft
+                   pretty-simple, pure-fft, directory, command
 
- -- finite-fields
     main-is: synth-tools.hs
     default-language: Haskell2010
     ghc-options: -fprint-potential-instances
@@ -33,21 +30,6 @@ executable synth-tools
                    SynthTools.ToV
                    SynthTools.FFT
                    SynthTools.Dataflow
+                   SynthTools.CProc
+                   SynthTools.TestCproc
 
--- This is for the growing the higher level combinators used in the
--- headphones project.
-
--- base, language-lua, mtl, containers, lens, text
-executable test-cproc
-    build-depends: base, Stream, data-reify, containers, data-fix, mtl, lens,
-                   process, binary, bytestring, directory, split, pretty-simple,
-                   QuickCheck, command
-    main-is: test-cproc.hs
-    default-language: Haskell2010
-    ghc-options: -fprint-potential-instances
-    other-modules: SynthTools.CProc
-                   SynthTools.RunC
-                   SynthTools.Dataflow
-                   SynthTools.IO
-                   SynthTools.Num
-                   SynthTools.FFT
