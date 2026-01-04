@@ -351,9 +351,6 @@ testDataFlow = do
 
   
 main = do
-  args <- getArgs
-  putStrLn' $ "synth-tools.hs: " ++ (show args)
-
   let tests = [
          ("Eval",     testEval)
         ,("Variance", testVariance)
@@ -373,23 +370,8 @@ main = do
         -- These read from stdin so don't put them in the full list.
         ("Octave",   testOctave)
         ]
-      doRun name run = do
-        putStrLn' $ "\ntest: " ++ name
-        run
-        
-  case args of
-    [] -> do
-      traverse' tests $ \(name, run) -> doRun name run
-      return ()
-    [name] ->
-      case Prelude.lookup name (tests ++ tests') of
-        Nothing  -> putStrLn' $ "unknown test: " ++ name
-        Just run -> doRun name run
-    args ->
-      putStrLn' $ "invalid args: " ++ show args
 
-  -- RunC.test
-  return ()
+  trampoline' "synth-tools.hs: " tests tests'
   
 
 

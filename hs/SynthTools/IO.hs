@@ -14,7 +14,7 @@ traverse' = flip traverse
 
 
 -- Trampoline binary entry point.
-trampoline tag tests = do
+trampoline' tag tests tests' = do
   args <- getArgs
   putStrLn' $ tag ++ (show args)
 
@@ -24,12 +24,16 @@ trampoline tag tests = do
 
   case args of
     [] -> do
+      -- Run all execpt those in tests;
       traverse' tests $ \(name, run) -> doRun name run
       return ()
     [name] ->
-      case Prelude.lookup name tests of
+      case Prelude.lookup name (tests ++ tests') of
         Nothing  -> putStrLn' $ tag ++ "unknown test: " ++ name
         Just run -> doRun name run
     args ->
       putStrLn' $ tag ++ "invalid args: " ++ show args
   return ()
+
+trampoline tag tests = trampoline' tag tests []
+
