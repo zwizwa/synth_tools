@@ -16,7 +16,7 @@ import Data.Binary
 import Data.Binary.Put
 import Data.Binary.Get
 import System.IO
-import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString.Lazy as BS
 --import qualified Data.ByteString as B
 import Control.Exception (bracket)
 
@@ -102,15 +102,15 @@ writePreset handle preset = do
   let tag32 = 0xA1000001
       bytes = runPut $ do
         when uc_tools_framing $ do
-          putInt32be $ 4 + fromIntegral (L.length data_bytes)
+          putInt32be $ 4 + fromIntegral (BS.length data_bytes)
           putInt32be tag32
         return ()
       data_bytes = runPut $ do
         putStringUtf8 preset
         return ()
 
-  L.hPut handle bytes
-  L.hPut handle data_bytes
+  BS.hPut handle bytes
+  BS.hPut handle data_bytes
 
 
 writeMatrix handle rows columns floats = do
@@ -124,28 +124,35 @@ writeMatrix handle rows columns floats = do
         putInt32le columns
         traverse putFloatle floats
         return ()
-  L.hPut handle bytes
+  BS.hPut handle bytes
   hFlush handle
 
-readMatrix :: Handle -> IO [[Float]]
 readMatrix handle = do
-  when uc_tools_framing $ do
-    uct_header <- L.hGet handle 8
-    let uct_hdr@[uct_len, uct_tag] = runGet' uct_header $ replicateM 2 getInt32be
-    -- putStrLn' $ show uct_hdr
-    assert (uct_tag == 0x1EEE0001) $ return ()
+  (m, _) <- readMatrix' handle
+  return m
+
+readMatrix' :: Handle -> IO ([[Float]], BS.ByteString)
+readMatrix' handle = do
+  let read_uct_header = do
+        uct_header <- BS.hGet handle 8
+        let uct_hdr@[uct_len, uct_tag] = runGet' uct_header $ replicateM 2 getInt32be
+        -- putStrLn' $ show uct_hdr
+        assert (uct_tag == 0x1EEE0001) $ return uct_header
+
+  uct_header <- if uc_tools_framing then read_uct_header else return ""
   
-  matrix_header <- L.hGet handle 8
+  matrix_header <- BS.hGet handle 8
   let [r,c] = runGet' matrix_header $ replicateM 2 getInt32le
       nbFloat' = fromIntegral $ r * c
 
   --putStrLn' $ show ("readMatrix",[r,c])
   
-  floats_bin <- L.hGet handle $ 4 * nbFloat'
+  floats_bin <- BS.hGet handle $ 4 * nbFloat'
   let outputFloat = runGet' floats_bin $ replicateM nbFloat' getFloatle
+      outputMatrix = chunksOf (fromIntegral c) outputFloat
   -- putStrLn' $ show ("size", length outputFloat)
 
-  return $ chunksOf (fromIntegral c) outputFloat
+  return $ (outputMatrix, BS.concat [uct_header, matrix_header, floats_bin])
 
 
 run' cmd args = do
@@ -169,9 +176,9 @@ runRaw (word_size, put, get, cmd, args) = do
   let read nb = do
         -- size, uc_tools compatible tagging (ignored for now)
         let nb_wrap_bytes = 8
-        header_bytes <- L.hGet stdout_h nb_wrap_bytes
+        header_bytes <- BS.hGet stdout_h nb_wrap_bytes
         -- FIXME: Check what is returned.
-        bytes <- L.hGet stdout_h $ word_size * nb
+        bytes <- BS.hGet stdout_h $ word_size * nb
         let output = runGet' bytes $ replicateM nb get
         return output
 
@@ -190,7 +197,7 @@ runRaw (word_size, put, get, cmd, args) = do
               traverse putInt32le $ hdr
               traverse put words
               return ()
-        L.hPut stdin_h bytes
+        BS.hPut stdin_h bytes
         hFlush stdin_h
 
       tick hdr input = do
@@ -215,7 +222,7 @@ int32Runner c a = runRaw (4, putInt32le, getInt32le, c, a)
 
 -- readInt321 :: Handle -> Int -> IO [Int]
 -- readInt321 handle nb = do
---   floats <- L.hGet handle $ 4 * nb
+--   floats <- BS.hGet handle $ 4 * nb
 --   let output = runGet' floats $ replicateM nb getInt32le
 --   return $ fromIntegral output
 
@@ -223,7 +230,7 @@ int32Runner c a = runRaw (4, putInt32le, getInt32le, c, a)
 --   let bytes = runPut $ do
 --         traverse putInt32le $ map fromIntegral ints
 --         return ()
---   L.hPut handle bytes
+--   BS.hPut handle bytes
 --   hFlush handle
 
 -- -- Run a single channel raw processor (see test_fft.c)
