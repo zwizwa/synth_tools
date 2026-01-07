@@ -34,7 +34,7 @@ static inline void NS(_butterfly)(NS(_data_t) *out,
                                   const NS(_data_t) *o,
                                   const NS(_data_t) *w) {
     NS(_data_mul3)(out, o, w);
-    NS(_data_add2)(out, e);
+    NS(_data_acc2)(out, e);
 }
 
 void NS(_sub)(const struct NS(_ctx) *x,
@@ -86,7 +86,6 @@ void NS(_process)(const struct NS(_ctx) *ctx,
                   const NS(_data_t) *in,
                   NS(_data_t) *out)
 {
-
     /* To make the algorithm a bit easier to express, permute the
        input to bit-reversed ordering such that all sub-FFTs are
        contigous and the end result has all frequency components in
@@ -106,8 +105,26 @@ void NS(_process)(const struct NS(_ctx) *ctx,
         .logn = ctx->top_logn,
     };
     NS(_sub)(ctx, &s);
+}
 
-
+/* Same as NS(_process) but take input from a real array.
+   Only meaningful for float complex data. */
+void NS(_process_real)(const struct NS(_ctx) *ctx,
+                       const NS(_real_t) *in,
+                       NS(_data_t) *out)
+{
+    const uint16_t *br = ctx->bitrev;
+    int n = 1<<ctx->top_logn;
+    for (int i=0; i<n; i++) {
+        NS(_data_t) d;
+        NS(_from_real)(&d, in[br[i]]);
+        NS(_data_mul3)(&out[i], &ctx->scale, &d);
+    }
+    struct NS(_sub) s = {
+        .vec  = out,
+        .logn = ctx->top_logn,
+    };
+    NS(_sub)(ctx, &s);
 }
 
 

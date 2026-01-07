@@ -13,6 +13,7 @@ module SynthTools.FFT where
 
 import SynthTools.Num
 import SynthTools.IO
+import SynthTools.Misc
 
 import Test.QuickCheck
 import Prelude hiding (exp)
@@ -376,6 +377,24 @@ quickCheckFFT = do
         --,isID' (fft . fft . fft . fft)
         ]
 
+      -- Circular convolution.
+      circDelays n = do
+        let choose' = choose (0, n-1)
+        a <- choose'
+        b <- choose'
+        return (a, b)
+
+
+      propConv :: forall n. UnitRoot n => Int -> n -> (Int, Int) -> Bool
+      propConv n one (a,b) = vec_c == vec_c' where
+        -- The effect of the convolution of 2 shifted impulses is a
+        -- shifted impulse.
+        vec = shiftedImpulse n one
+        vec_c' = vec $ (a + b) `mod` n
+        vec_c  = ifft $ zipWith (*) (fft $ vec a) (fft $ vec b)
+
+      -- forAll :: (Show a, Testable prop) => Gen a -> (a -> prop) -> Property
+      propConv' n one = forAll (circDelays n) (propConv n one)
 
   traverse check (propsDFT :: [V16  F2 -> Bool])
   traverse check (propsFFT :: [V16  F2 -> Bool])
@@ -385,14 +404,15 @@ quickCheckFFT = do
   traverse check (propsFFT' :: [V512 (Complex Double) -> Bool])
   traverse check (propsFFT' :: [V512 F4 -> Bool])
 
-  -- traverse check (propsFFT :: [V65536 F4 -> Bool])  -- Works but is very slow
+
+  check $ propConv' 16 (1::F2)
+  check $ propConv' 256 (1::F3)
 
   -- Too compute intensive
   -- traverse check (props :: [VecDFT F3 -> Bool])
   -- traverse check (props :: [VecDFT F4 -> Bool])
+  -- traverse check (propsFFT :: [V65536 F4 -> Bool])
 
-  -- It might actually be good to try a setup where N != -1 etc,
-  -- e.g. N smaller than F_4 order.
 
   return ()
 

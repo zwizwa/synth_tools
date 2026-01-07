@@ -16,7 +16,7 @@ traverse' = flip traverse
 -- Trampoline binary entry point.
 trampoline' tag tests tests' = do
   args <- getArgs
-  putStrLn' $ tag ++ (show args)
+  -- putStrLn' $ tag ++ (show args)
 
   let doRun name run = do
         putStrLn' $ "\n" ++ tag ++ name
@@ -24,7 +24,11 @@ trampoline' tag tests tests' = do
 
   case args of
     [] -> do
-      -- Run all execpt those in tests;
+      putStrLn' $ (tag ++ "choose a test or 'all':")
+      putStrLn' $ (tag ++ show (map fst (tests ++ tests')))
+      
+    ["all"] -> do
+      -- Run all execpt those in tests'
       traverse' tests $ \(name, run) -> doRun name run
       return ()
     [name] ->

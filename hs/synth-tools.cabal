@@ -31,5 +31,6 @@ executable synth-tools
                    SynthTools.FFT
                    SynthTools.Dataflow
                    SynthTools.CProc
+                   SynthTools.Misc
                    SynthTools.TestCproc
 

@@ -33,6 +33,7 @@ import SynthTools.Num
 
 
 import SynthTools.IO
+import SynthTools.Misc
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -82,19 +83,42 @@ type NTTIO = [F3] -> PropertyM IO [F3]
 
 -- The test_fft.c binary can support both forward and reverse ops.
 -- Both are presented as NTTIO functions.
-data Ops = Ops { fftOp :: NTTIO, ifftOp :: NTTIO }
+data Ops t = Ops {
+  fftOp  :: t,
+  ifftOp :: t,
+  olsOp  :: t
+  }
 
 
 
 
-prop_eq :: Ops -> V256 F3 -> Property
-prop_eq (Ops ntt intt) (V256 probe) = monadicIO $ do
-  let eq ref_op io_op = do
+prop_fft :: Ops NTTIO -> V256 F3 -> Property
+prop_fft ops (V256 probe) = monadicIO $ do
+  let ntt  = fftOp  ops
+      intt = ifftOp ops
+      eq ref_op io_op = do
         o <- io_op probe
         let o' = ref_op probe
         assert (o' == o)
   eq fft  ntt
   eq ifft intt
+
+-- prop_ols :: Ops NTTIO -> V256 F3 -> Property
+-- prop_ols ops (V256 probe) = monadicIO $ do
+--   let ols = olsOp ops
+--       eq ref_op io_op = do
+--         o <- io_op probe
+--         let o' = ref_op probe
+--         assert (o' == o)
+--   eq fft  ntt
+--   eq ifft intt
+
+-- Note that the ola function in test_fft_elf is not stateless, so it
+-- needs to be wrapped as a sequence like:
+-- . opload coefficients and reset state
+-- . run a number of frames
+
+
 
 
 qc_nttIO = do
@@ -109,12 +133,39 @@ qc_nttIO = do
         --putStrLn' $ "o': " ++ (show $ o')
         return $ o
 
+      op' id = nttIO [id]
+      op  id = run . (op' id)
+      
+      ols_tick = op' 0x102
+      ols_init = op' 0x103
+      
+      -- FIXME: Placeholder composit: 1 upload coefficients, reset the
+      -- filter feed a number of signal blocks.
+      ols a = do
+        ols_init [1,0,0]
+        b <- ols_tick a
+        return b
+
+  -- Note that the _stateless_ op for ols testing is composed of
+  -- stateful ops.
+
   -- The Ops bundle is set up so it can be used directly inside the
   -- property monad, i.e. already lifted by run.  The Int32 header
   -- serves as a command to the C code, see test_fft.c
-  let ops = Ops (run . (nttIO [0x100])) -- fft
-                (run . (nttIO [0x101])) -- ifft
-  quickCheck (prop_eq ops)
+  let ops = Ops (op 0x100)  -- fft
+                (op 0x101)  -- ifft
+                (run . ols) -- composite
+
+      qc prop = quickCheck (prop ops)
+
+  -- Run a number of tests
+  qc prop_fft
+
+
+  -- Some ad-hoc testing.
+  putStrLn' "ols"
+  ols $ shiftedImpulse 128 1 0
+
 
   nttClose
   return ()

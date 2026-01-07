@@ -192,7 +192,6 @@ testComp = do
 
 
 
-traverse' = flip traverse
 
 -- The faulty behavior is that an EQ with 0 gain and high q will cause
 -- problems.

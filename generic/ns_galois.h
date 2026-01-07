@@ -1,11 +1,17 @@
 // See test_fft.
 typedef uint32_t NS(_data_t);
+typedef uint32_t NS(_real_t);
 static inline void NS(_data_mul3)(NS(_data_t) *o,
                                   const NS(_data_t) *a,
                                   const NS(_data_t) *b) {
     *o = ((*a) * (*b)) % NS(_field_mod);
 }
-static inline void NS(_data_add2)(NS(_data_t) *o,
+static inline void NS(_data_mac3)(NS(_data_t) *acc,
+                                  const NS(_data_t) *a,
+                                  const NS(_data_t) *b) {
+    *acc = ((*acc) + (*a) * (*b)) % NS(_field_mod);
+}
+static inline void NS(_data_acc2)(NS(_data_t) *o,
                                   const NS(_data_t) *a) {
     *o = ((*o) + (*a)) % NS(_field_mod);
 }
@@ -29,4 +35,8 @@ static inline void NS(_init_coefs)(NS(_data_t) *c, int logn) {
         //LOG("%d %d\n", i, c[i]);
     }
 #endif
+}
+
+static inline void NS(_from_real)(NS(_data_t) *o, NS(_real_t) a) {
+    *o = a;
 }

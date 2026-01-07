@@ -19,6 +19,7 @@ import System.IO
 import qualified Data.ByteString.Lazy as BS
 --import qualified Data.ByteString as B
 import Control.Exception (bracket)
+import Debug.Trace
 
 import SynthTools.IO
 
@@ -127,6 +128,9 @@ writeMatrix handle rows columns floats = do
   BS.hPut handle bytes
   hFlush handle
 
+-- Write this as 3 bin -> data, with forward lazy references for the
+-- sizes.
+
 readMatrix handle = do
   (m, _) <- readMatrix' handle
   return m
@@ -170,14 +174,18 @@ close' proc_h = do
 -- protocol wrapped in {packet,4} framing.
 
 runRaw (word_size, put, get, cmd, args) = do
-  
+
   p@(Proc proc_h stdin_h stdout_h, closeit) <- open cmd args
 
-  let read nb = do
+  let read = do
         -- size, uc_tools compatible tagging (ignored for now)
         let nb_wrap_bytes = 8
         header_bytes <- BS.hGet stdout_h nb_wrap_bytes
-        -- FIXME: Check what is returned.
+        let nb = runGet' header_bytes $ do
+              n   <- getInt32be
+              tag <- getWord32be
+              -- FIXME: How to generically test the tag?
+              return $ fromIntegral $ (n - 4) `div` 4
         bytes <- BS.hGet stdout_h $ word_size * nb
         let output = runGet' bytes $ replicateM nb get
         return output
@@ -202,7 +210,7 @@ runRaw (word_size, put, get, cmd, args) = do
 
       tick hdr input = do
         write hdr input
-        output <- read (length input)
+        output <- read
         return $ output
 
   return (tick, closeit)
