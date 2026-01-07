@@ -24,3 +24,12 @@ cscope.po.out
 *.core
 a.out
 rustup.out
+ebin
+hs/dist-newstyle
+hs/resul
+jack
+maxima/moebius4.mac
+pd
+rkt/compiled
+signalsmith/dsp
+zig/zig-cache

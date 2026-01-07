@@ -1,0 +1,29 @@
+/* The two Moebius transforms. */
+m1(z) := (a1 * z + b1) / (c1 * z + d1);
+m2(z) := (a2 * z + b2) / (c2 * z + d2);
+
+/* The composition. */
+m12(z) := m1(m2(z));
+
+/* The 4 parameters of the composition
+
+   a * z + b
+   ---------
+   c * z + d
+
+*/
+
+print(ratsimp(m12(z)));
+
+
+/* This is just matrix multiplication.
+   https://en.wikipedia.org/wiki/M%C3%B6bius_transformation#Projective_matrix_representations
+
+   PGL(2,C)
+
+   PGL(V) = GL(V) / Z(V)   general linear group / nozero scalar transformations
+
+   Maybe also interesting is that SL(2,C) is a simply connected double
+   cover of PSL(2,C)
+
+*/
