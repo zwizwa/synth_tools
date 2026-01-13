@@ -182,7 +182,7 @@ test_nttIO_16 (nttIO', nttClose) = do
         
       ols_impulse' = do
         putStrLn' "ols_impulse'"
-        ols_init [1,2,3,4,5,6,7,8,9,10]  -- The ,10 is where it starts going wrong
+        ols_init [1,2,3,4,5,6,7,8,9,10,11,12]
         traverse ols_impulse [-8 .. 7]
 
 
@@ -202,8 +202,10 @@ test_nttIO_16 (nttIO', nttClose) = do
 
   when False $ do
     putStrLn' "\n\nCurrent:"
-    ols_init [1,2,3,4,5,6,7,8]
-    ols_impulse (1)
+    -- ols_init [1,2,3,4,5,6,7,8,9,0]
+    -- ols_init [1,2,3,4,5,6,7,8,9,10]
+    ols_init [0,0,0,0,0,0,0,0,0,1]
+    ols_impulse (-6)
 
   ols_impulse'
   

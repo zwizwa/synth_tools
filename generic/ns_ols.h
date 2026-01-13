@@ -50,11 +50,12 @@ static inline void NS(_ols)(struct NS(_ols_state) *s,
     /* Perform frequency domain convolution for all the blocks in the
        FFT delay line. */
     int nb = NS(_ols_nb_blocks);
+    //LOG("fd:\n");
     NS(_data_t) *o = s->output.freq;
     {
         int b = 0;
         int b_offset = b_first;
-        // LOG("input %d x filter %d\n", b_offset, b);
+        //LOG("input %d x filter %d\n", b_offset, b);
 
         NS(_data_t) *i = s->input[b_offset].freq;
         NS(_data_t) *f = s->filter[b].freq;
@@ -64,7 +65,7 @@ static inline void NS(_ols)(struct NS(_ols_state) *s,
     }
     for (int b=1; b<NS(_ols_nb_blocks); b++) {
         int b_offset = (nb + b_first - b) % nb;
-        // LOG("input %d x filter %d\n", b_offset, b);
+        //LOG("input %d x filter %d\n", b_offset, b);
 
         NS(_data_t) *i = s->input[b_offset].freq;
         NS(_data_t) *f = s->filter[b].freq;
@@ -106,7 +107,7 @@ static inline void NS(_ols_init)(struct NS(_ols_state) *s,
     NS(_dir_fwd)(&s->fft_ctx);
     int n = 1 << NS(_logn);
     int offset = 0;
-    int chunk_size = n/2 + 1;
+    int chunk_size = n/2; // + 1;
     for (int block = 0; block < NS(_ols_nb_blocks); block++) {
         LOG("block %d\n", block);
         NS(_data_t) *ir_chunk_fft = s->filter[block].freq;
@@ -118,9 +119,13 @@ static inline void NS(_ols_init)(struct NS(_ols_state) *s,
                 ir_chunk_padded[i] = impulse[oi];
             }
         }
+        LOG("filter block %d: ", block);
+        NS(_log_real_vec)(ir_chunk_padded, n);
         NS(_process_real)(&s->fft_ctx, ir_chunk_padded, ir_chunk_fft);
 
-        offset += chunk_size;
+        // FIXME: Review this!
+        // offset += chunk_size;
+        offset += n/2;
 
     }
 
