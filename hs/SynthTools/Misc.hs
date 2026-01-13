@@ -17,3 +17,11 @@ rle = rle' 0 0 where
 
 zeros i = replicate i 0
 shiftedImpulse n one i = (zeros i) ++ [one] ++ (zeros (n-i-1))
+
+
+-- List reference with zero padding.
+paddedRef list = c where
+  n = length list
+  c i | (i>=0) && (i<n) = list !! i
+      | otherwise = 0
+  

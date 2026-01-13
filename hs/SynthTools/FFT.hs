@@ -21,6 +21,8 @@ import Prelude hiding (exp)
 import Data.Complex
 import Control.Monad
 
+import Data.List.Split
+
 import Debug.Trace
 
 -- Instances
@@ -416,6 +418,12 @@ quickCheckFFT = do
 
   return ()
 
+-- The idea here is to explain why the OLS method works in order to
+-- find the conceptual error, using two filter chunks.
+olsExample = do
+  return ()
+
+
 testFFT = do
   let p = putStrLn' . show
       cyc n = putStrLn' $ show $ (length c, c) where
@@ -462,11 +470,15 @@ testFFT = do
       --
       -- If t=0 this gives instantaneous impulse.
       -- If t=-8 this gives the second frame of instantaneous impulse in last step.
+
+      vmul = zipWith (*)
+      vadd = zipWith (+)
+
+
       ols_step t = do
         let pulse t = (zeros $ 8 + t) ++ [1] ++ (zeros $ 7 - t)
             input   = pulse t
             filter  = [1,2,3,4,5,6,7,8,9] ++ zeros 7 :: [F2]
-            vmul    = zipWith (*)
         -- putStrLn' $ "testFFT:ols_step " ++ show t
         -- p input
         -- p filter
@@ -476,6 +488,68 @@ testFFT = do
       ols_steps = do
         putStrLn' $ "testFFT:ols_steps"
         traverse' [-8..7] ols_step
+        return ()
+
+      overlap_example = do
+        let a = pad 16 $ [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+            b = pad 16 $ [1,1]
+            c = ifft $ (fft a) `vmul` (fft b) :: [F2]
+        putStrLn' $ "testFFT:overlap_example"
+        p c
+        return ()
+
+
+      -- Illustrate OLS operation with 2 sections to make sure at
+      -- least one IR chunking step and spectrum addition step is
+      -- happening, and attempt to reproduce the filter IR by feeding
+      -- the algorithm with impulse input.  Then once this works, make
+      -- a prop test for it.
+      full_ols = do
+        let filter = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16] -- Impulse response
+            filterRef = paddedRef filter
+            filter' c_n = pad 16 $ chunk where
+              -- To perform the convolution, the filter needs to be
+              -- reversed and chunked.
+              chunk = map filterRef $ map (+ (c_n * 8)) [0..7] -- [7,6 .. 0]
+        
+            filter0 = filter' 0
+            filter1 = filter' 1
+
+            -- The FFTs of the filter chunks can be computed ahead of time.
+            filter0' = fft filter0
+            filter1' = fft filter1
+            
+
+            -- 3 distinct input chunks are needed for two spectra
+            t = 4
+            -- impulse position relative to start of last block
+            [in2,in1,in0] = chunksOf 8 $ shiftedImpulse (8 * 3) 1 (16 + t)
+
+            -- Overlap the inputs
+            in21' = fft $ (in2 ++ in1) -- oldest
+            in10' = fft $ (in1 ++ in0) -- newest
+
+            -- Compute the multiplication in the frequency domain (parallel)
+            conv0' = filter0' `vmul` in10'
+            conv1' = filter1' `vmul` in21'
+
+            -- Add together the spectra and convert back to time domain.
+            out_ = ifft (conv0' `vadd` conv1')
+
+            -- Only the second half contains correct data.  The rest
+            -- has a wrap-around effect.
+            [out_w,out] = chunksOf 8 out_
+
+            dbg tag thing = putStrLn' (tag ++ show thing)
+
+            
+            
+        putStrLn' $ "testFFT:full_ols"
+        dbg "filter0: " filter0
+        dbg "filter1: " filter1
+        putStrLn' $ show $ (out_w :: [F2])
+        putStrLn' $ show $ (out :: [F2])
+        return ()
 
   when False $ do
   
@@ -507,8 +581,11 @@ testFFT = do
     putStrLn' "testFFT:dfts"
     dfts [1,2,3]
 
-  ols_steps
-  
+    ols_steps
+
+  full_ols
+    
+  -- overlap_example
 
   --putStrLn' "testFFT:quickCheckFFT"
   --quickCheckFFT
