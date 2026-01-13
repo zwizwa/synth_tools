@@ -417,7 +417,8 @@ quickCheckFFT = do
   return ()
 
 testFFT = do
-  let cyc n = putStrLn' $ show $ (length c, c) where
+  let p = putStrLn' . show
+      cyc n = putStrLn' $ show $ (length c, c) where
         c = genCycle $ F4 n
 
       pad' = pad 16
@@ -454,35 +455,62 @@ testFFT = do
 
       unitRoot' n = putStrLn' $ show $ (unitRoot n :: (F4,F4,F4))
 
-  putStrLn' "testF3"
-  putStrLn' "testF3:unitroot'"
-  unitRoot' 65536
-  unitRoot' 512
+      -- This is a reference point for a single-step OLS setup which
+      -- is fed an impulse in 8 different places, pluse one extra
+      -- frame delay.  It is used to make sure the C implementation
+      -- does the same.
+      --
+      -- If t=0 this gives instantaneous impulse.
+      -- If t=-8 this gives the second frame of instantaneous impulse in last step.
+      ols_step t = do
+        let pulse t = (zeros $ 8 + t) ++ [1] ++ (zeros $ 7 - t)
+            input   = pulse t
+            filter  = [1,2,3,4,5,6,7,8,9] ++ zeros 7 :: [F2]
+            vmul    = zipWith (*)
+        -- putStrLn' $ "testFFT:ols_step " ++ show t
+        -- p input
+        -- p filter
+        let out = ifft ((fft input) `vmul` (fft filter))
+        p $ (t, drop 8 out)
+        return ()
+      ols_steps = do
+        putStrLn' $ "testFFT:ols_steps"
+        traverse' [-8..7] ols_step
 
-
-  putStrLn' "testF3:cyc"
-  -- cyc 2 ; cyc 3  -- just to find the generator
-  -- cyc (3^16) -- 4096
+  when False $ do
   
-  putStrLn' "testF3:complexity'"
-  complexity' 9
-  complexity' 10
-  complexity' 11
+    putStrLn' "testFFT"
+    putStrLn' "testFFT:unitroot'"
+    unitRoot' 65536
+    unitRoot' 512
 
-  putStrLn' "testF3:conv'"
-  conv' [1] [1]
-  conv' [1] [1,1]
-  conv' [1,1] [1,1]
-  conv' [1,1,1] [1,1,1]
 
-  putStrLn' "testF3:fft'"
-  -- fft' [0,1,0,1,16,16,0,0,16,0,1,0,1,0,1,16]
-  fft' [0,1]
+    putStrLn' "testFFT:cyc"
+    -- cyc 2 ; cyc 3  -- just to find the generator
+    -- cyc (3^16) -- 4096
+  
+    putStrLn' "testFFT:complexity'"
+    complexity' 9
+    complexity' 10
+    complexity' 11
 
-  putStrLn' "testF3:dfts"
-  dfts [1,2,3]
- 
-  putStrLn' "testF3:quickCheckFFT"
-  quickCheckFFT
+    putStrLn' "testFFT:conv'"
+    conv' [1] [1]
+    conv' [1] [1,1]
+    conv' [1,1] [1,1]
+    conv' [1,1,1] [1,1,1]
+
+    putStrLn' "testFFT:fft'"
+    -- fft' [0,1,0,1,16,16,0,0,16,0,1,0,1,0,1,16]
+    fft' [0,1]
+
+    putStrLn' "testFFT:dfts"
+    dfts [1,2,3]
+
+  ols_steps
+  
+
+  --putStrLn' "testFFT:quickCheckFFT"
+  --quickCheckFFT
 
   return ()

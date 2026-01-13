@@ -25,7 +25,9 @@ import System.Directory (setCurrentDirectory)
 import Data.List.Split
 import Data.List
 import Data.IORef
+import Control.Monad
 import GHC.Int
+import Debug.Trace
 
 import qualified SynthTools.Dataflow as Dataflow
 import SynthTools.FFT
@@ -71,7 +73,7 @@ test_ntt = do
   
   -- 3. Run the code with i/o
   let input = fmap fromIntegral [0..256-1]
-  m <- RunC.runInt32 elf ["ntt"] input
+  m <- RunC.runInt32 elf ["ntt8"] input
   traverse (putStrLn . show) $ m
   
   return ()
@@ -85,23 +87,23 @@ type NTTIO = [F3] -> PropertyM IO [F3]
 -- Both are presented as NTTIO functions.
 data Ops t = Ops {
   fftOp  :: t,
-  ifftOp :: t,
-  olsOp  :: t
+  ifftOp :: t
   }
 
 
 
-
+-- Compare test_fft.c implementation (ns_fft.h) to SynthTools.FFT
+-- Haskell implementation.
 prop_fft :: Ops NTTIO -> V256 F3 -> Property
 prop_fft ops (V256 probe) = monadicIO $ do
-  let ntt  = fftOp  ops
-      intt = ifftOp ops
+  let fft'  = fftOp  ops
+      ifft' = ifftOp ops
       eq ref_op io_op = do
         o <- io_op probe
         let o' = ref_op probe
         assert (o' == o)
-  eq fft  ntt
-  eq ifft intt
+  eq fft  fft'
+  eq ifft ifft'
 
 -- prop_ols :: Ops NTTIO -> V256 F3 -> Property
 -- prop_ols ops (V256 probe) = monadicIO $ do
@@ -121,9 +123,96 @@ prop_fft ops (V256 probe) = monadicIO $ do
 
 
 
-qc_nttIO = do
+run_test_fft_elf' tag = do
   -- Create a single process to compute the NTTs in the test.
-  (nttIO', nttClose) <- RunC.int32Runner test_fft_elf ["ntt"]
+  service@(nttIO', nttClose) <- RunC.int32Runner test_fft_elf [tag]
+  -- Get the logn of the instantiated service.
+  [logn] <- nttIO' [0x104] []
+  -- Verify size and run the corrsponding test.
+  case tag of
+    "ntt4" -> do
+      let True = 4 == logn
+      test_nttIO_16 service
+    "ntt8" -> do
+      let True = 8 == logn
+      test_nttIO_256 service
+
+run_test_fft_elf = do
+  run_test_fft_elf' "ntt8"
+  run_test_fft_elf' "ntt4"
+
+test_nttIO_16 (nttIO', nttClose) = do
+  putStrLn' "test_nttIO_16"
+
+  let nttIO hdr i = do
+        --putStrLn' $ "i: " ++ (show $ i)
+        o_raw <- nttIO' hdr $ map unF2 i
+        let o = map F2 o_raw
+        --let o' = fft i
+        --putStrLn' $ "o: " ++ (show $ o)
+        --putStrLn' $ "o': " ++ (show $ o')
+        return $ o
+
+      op' id = nttIO [id]
+      op  id = run . (op' id)
+      
+      ols_tick = op' 0x102
+      ols_init = op' 0x103
+
+      ols = do
+        let init1 = ([9,3,1] ++ (take 20 $ cycle [1,2]))
+            init2 = [1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13]
+            init  = [1,1,2,2,3,3,4,4, 5,5,6,6,7,7,8,8]
+        ols_init init
+        traverse' [1,0,0] $ \i -> do
+          ols' <- ols_tick $ shiftedImpulse 8 i 0
+          putStrLn' $ show $ ols'
+
+      ols_impulse n' = do
+        let n = n' + 8
+            frames = (zeros n) ++ [1] ++ (zeros $ 16-1-n)
+            [frame1, frame2] = chunksOf 8 frames
+        --putStrLn' $ show (frame1, frame2)
+        ols_tick frame1
+        --putStrLn' "frame2:"
+        out <- ols_tick frame2
+        --putStrLn' "out:"
+        putStrLn' $ show out
+        
+        
+      ols_impulse' = do
+        putStrLn' "ols_impulse'"
+        ols_init [1,2,3,4,5,6,7,8,9,10]  -- The ,10 is where it starts going wrong
+        traverse ols_impulse [-8 .. 7]
+
+
+  -- 1. I have a reference test in SynthTools.FFT that can compute the
+  --    output of a circular convolution with an impulse in any of the
+  --    16 positions, where 0-8 is past, 9 is current, and 10-16 are
+  --    future.
+  --
+  -- 2. Simulate that input by sending 2 frames.  Instrument the C
+  --    code to print the contents of the buffer.
+  
+  -- Some ad-hoc testing.
+  when False $ do
+    putStrLn' "ols"
+    ols' <- ols
+    putStrLn' $ show $ ols'
+
+  when False $ do
+    putStrLn' "\n\nCurrent:"
+    ols_init [1,2,3,4,5,6,7,8]
+    ols_impulse (1)
+
+  ols_impulse'
+  
+
+  return ()
+
+test_nttIO_256 (nttIO', nttClose) = do
+  putStrLn' "test_nttIO_256"
+  
   let nttIO hdr i = do
         --putStrLn' $ "i: " ++ (show $ i)
         o_raw <- nttIO' hdr $ map unF3 i
@@ -139,12 +228,6 @@ qc_nttIO = do
       ols_tick = op' 0x102
       ols_init = op' 0x103
       
-      -- FIXME: Placeholder composit: 1 upload coefficients, reset the
-      -- filter feed a number of signal blocks.
-      ols a = do
-        ols_init [1,0,0]
-        b <- ols_tick a
-        return b
 
   -- Note that the _stateless_ op for ols testing is composed of
   -- stateful ops.
@@ -154,19 +237,13 @@ qc_nttIO = do
   -- serves as a command to the C code, see test_fft.c
   let ops = Ops (op 0x100)  -- fft
                 (op 0x101)  -- ifft
-                (run . ols) -- composite
 
       qc prop = quickCheck (prop ops)
 
   -- Run a number of tests
   qc prop_fft
 
-
-  -- Some ad-hoc testing.
-  putStrLn' "ols"
-  ols $ shiftedImpulse 128 1 0
-
-
+  -- Clean up the service process when done.
   nttClose
   return ()
 

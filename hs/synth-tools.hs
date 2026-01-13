@@ -351,23 +351,24 @@ testDataFlow = do
   
 main = do
   let tests = [
-         ("Eval",     testEval)
-        ,("Variance", testVariance)
-        ,("Comp",     testComp)
-        ,("BQCoefs",  testBQCoefs)
-        ,("Exact",    testExact)
-        ,("SNR",      testSNR)
-        ,("Biquad",   testBiquad)
-        ,("ZT",       testZT)
-        ,("Dual",     testDual)
-        ,("Moebius",  testMoebius)
-        ,("FFT",      testFFT)
-        ,("DataFlow", testDataFlow)
-        ,("nntIO",    TestCproc.qc_nttIO)
+         ("Eval",         testEval)
+        ,("Variance",     testVariance)
+        ,("Comp",         testComp)
+        ,("BQCoefs",      testBQCoefs)
+        ,("Exact",        testExact)
+        ,("SNR",          testSNR)
+        ,("Biquad",       testBiquad)
+        ,("ZT",           testZT)
+        ,("Dual",         testDual)
+        ,("Moebius",      testMoebius)
+        ,("FFT",          testFFT)
+        ,("qFFT",         quickCheckFFT)
+        ,("DataFlow",     testDataFlow)
+        ,("test_fft_elf", TestCproc.run_test_fft_elf)
         ]
       tests' = [
         -- These read from stdin so don't put them in the full list.
-        ("Octave",   testOctave)
+        ("Octave",        testOctave)
         ]
 
   trampoline' "synth-tools.hs: " tests tests'

@@ -117,7 +117,7 @@ void NS(_process_real)(const struct NS(_ctx) *ctx,
     int n = 1<<ctx->top_logn;
     for (int i=0; i<n; i++) {
         NS(_data_t) d;
-        NS(_from_real)(&d, in[br[i]]);
+        NS(_from_real)(&d, &in[br[i]]);
         NS(_data_mul3)(&out[i], &ctx->scale, &d);
     }
     struct NS(_sub) s = {
@@ -126,8 +126,6 @@ void NS(_process_real)(const struct NS(_ctx) *ctx,
     };
     NS(_sub)(ctx, &s);
 }
-
-
 
 void NS(_init_bitrev)(struct NS(_ctx) *x, int logn) {
     uint16_t *br = x->bitrev;
@@ -157,7 +155,7 @@ void NS(_init_ctx)(struct NS(_ctx) *x) {
     memset(x,0,sizeof(*x));
     x->top_logn = NS(_logn);
     NS(_dir_fwd)(x);
-    LOG("init logn = %d\n", x->top_logn);
+    LOG("init logn=%d\n", x->top_logn);
     NS(_data_t) *c = x->coef;
     NS(_init_coefs)(c, x->top_logn);
     NS(_init_bitrev)(x, x->top_logn);

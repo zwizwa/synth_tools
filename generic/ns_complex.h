@@ -33,7 +33,15 @@ static inline void NS(_init_coefs)(NS(_data_t) *c, int logn) {
         c[i].im = sinf(phase);
     }
 }
-static inline void NS(_from_real)(NS(_data_t) *o, NS(_real_t) a) {
-    o->re = a;
+static inline void NS(_from_real)(NS(_data_t) *o, const NS(_real_t) *a) {
+    o->re = *a;
     o->im = 0;
+}
+static inline void NS(_to_real)(NS(_real_t) *o, const NS(_data_t) *a) {
+    *o = a->re;
+}
+
+static inline void NS(_log_real_vec)(NS(_real_t) *v, int size) {
+}
+static inline void NS(_log_data_vec)(NS(_data_t) *v, int size) {
 }

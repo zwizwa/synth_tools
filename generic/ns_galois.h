@@ -37,6 +37,19 @@ static inline void NS(_init_coefs)(NS(_data_t) *c, int logn) {
 #endif
 }
 
-static inline void NS(_from_real)(NS(_data_t) *o, NS(_real_t) a) {
-    *o = a;
+static inline void NS(_from_real)(NS(_data_t) *o, const NS(_real_t) *a) {
+    *o = *a;
+}
+static inline void NS(_to_real)(NS(_real_t) *o, const NS(_data_t) *a) {
+    *o = *a;
+}
+
+static inline void NS(_log_data_vec)(NS(_data_t) *v, int size) {
+    for (int k=0; k<size; k++) {
+        LOG(" %d", v[k]);
+    }
+    LOG("\n");
+}
+static inline void NS(_log_real_vec)(NS(_real_t) *v, int size) {
+    NS(_log_data_vec)((void*)v, size); // same
 }

@@ -45,7 +45,8 @@ void NS(_io_serve)(void) {
 
     /* FFT sizes are hardcoded.  For each message we need to check
        that the size is correct. */
-    int n = 1 << ctx.top_logn;
+    int32_t logn = ctx.top_logn;
+    int32_t n = 1 << logn;
 
     for(;;) {
         /* Header is 3 words: 2 words BE uc_tools header and one LE
@@ -83,25 +84,31 @@ void NS(_io_serve)(void) {
             break;
         }
         case 0x102: /* ols tick */ {
-            LOG("ols tick %d begin\n", nb_el);
+            //LOG("ols tick %d begin\n", nb_el);
             ASSERT(nb_el == n/2);
             NS(_real_t) ibuf[nb_el];
             NS(_real_t) obuf[nb_el] = {};
             assert_read_fixed(0, ibuf, sizeof(ibuf));
             NS(_ols)(&ols, ibuf, obuf);
             NS(_io_serve_reply)(obuf, sizeof(obuf));
-            LOG("ols tick %d begin end\n", nb_el);
+            //LOG("ols tick %d begin end\n", nb_el);
             break;
         }
         case 0x103: /* ols init */ {
-            LOG("ols init %d begin\n", nb_el);
+            //LOG("ols init %d begin\n", nb_el);
             int nb_impulse = NS(_ols_nb_blocks) * (n/2 + 1);
             ASSERT(nb_el <= nb_impulse);
             NS(_real_t) ibuf[nb_impulse] = {};
             assert_read_fixed(0, ibuf, nb_el * sizeof(ibuf[0]));
             NS(_ols_init)(&ols, ibuf, nb_el);
-            LOG("ols init %d end\n", nb_el);
+            //LOG("ols init %d end\n", nb_el);
             NS(_io_serve_reply)(NULL, 0);
+            break;
+        }
+        case 0x104: /* get config */ {
+            LOG("ols config, logn=%d, size=%d\n", logn, n);
+            ASSERT(nb_el == 0); // nothing left to read
+            NS(_io_serve_reply)(&logn, sizeof(logn));
             break;
         }
         default:
