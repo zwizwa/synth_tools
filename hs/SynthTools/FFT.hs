@@ -552,12 +552,10 @@ testFFT = do
         let 
             bs = length $ head input_blocks     -- Block size of the process routine
             n = 2 * bs -- FFT size
+            
             filter_chunks = map (pad n) (chunksOf bs filter)
             nb_sections = length filter_chunks
 
-            -- The FFTs of the filter chunks can be computed ahead of
-            -- time.  Order them so the left one corresponds to the
-            -- oldest input delay.
             filter_chunks' = map fft (reverse filter_chunks)
 
             -- Overlap the inputs and perform fft.
@@ -578,7 +576,7 @@ testFFT = do
 
             dbg tag thing = putStrLn' (tag ++ show thing)
 
-            
+          
             
         putStrLn' $ "testFFT:full_ols_prop"
         dbg "filter:    " filter_chunks
@@ -587,6 +585,55 @@ testFFT = do
         dbg "out_w:     " (out_w :: [F2])
         dbg "out:       " (out :: [F2])
         return ()
+
+
+      -- The FFTs of the filter chunks can be computed ahead of time.
+      -- Order them so the left one corresponds to the oldest input
+      -- delay.  The state is initialized to zero.  Variables with
+      -- tick are frequency domain.
+      make_ols bs filter = (tick, (last_block0, delay_line0')) where
+        n = 2 * bs
+        filter_chunks  = map (pad n) (chunksOf bs filter)
+        filter_chunks' = map fft (reverse filter_chunks)
+        last_block0 = pad bs []
+        nb_sections = length filter_chunks
+        delay_line0' = [ fft (pad n [0 :: F2]) | _ <- [1..nb_sections] ]
+
+        tick (last_block, delay_line') new_block = (next_state, out) where
+          -- Overlap new input and last input.
+          overlap = last_block ++ new_block
+          new_delay_line' = (tail delay_line') ++ [fft overlap]
+          -- Multiple FFT spectra for all sections
+          conv' = zipWith vmul filter_chunks' new_delay_line'
+          -- Convert back to time domain and use last half of block.
+          -- First half of block is discarded as it contains circular
+          -- convolution overlap.
+          out_ = ifft $ foldr vadd (pad n []) conv'
+          [out_w,out] = chunksOf bs out_
+          next_state = (new_block, new_delay_line')
+
+      test_make_ols = do
+        let bs = 8 :: Int
+            filter = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 :: F2]
+            (tick, s0) = make_ols bs filter
+            dbg tag thing = putStrLn' (tag ++ show thing)
+            input = chunksOf 8 $ shiftedImpulse (8 * 3) (1 :: F2) t
+            t = 7
+
+            run _ [] = return []
+            run s (i:is) = do
+              let (s1, o) = tick s i
+              dbg "o: " o
+              run s1 is
+
+        run s0 input
+
+        -- traverse doTick $ chunksOf 8 $ shiftedImpulse (8 * 2) 1 9
+        return ()
+              
+       
+  
+        
   
   when False $ do
   
@@ -621,9 +668,9 @@ testFFT = do
     ols_steps
 
   -- full_ols
-  let ols_in = chunksOf 8 $ shiftedImpulse (8 * 2) 1 9
-
-  full_ols_prop [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16] ols_in
+  --let ols_in = chunksOf 8 $ shiftedImpulse (8 * 2) 1 9
+  --full_ols_prop [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16] ols_in
+  test_make_ols
     
   -- overlap_example
 
