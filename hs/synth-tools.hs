@@ -362,7 +362,7 @@ main = do
         ,("Dual",         testDual)
         ,("Moebius",      testMoebius)
         ,("FFT",          testFFT)
-        ,("qFFT",         quickCheckFFT)
+        ,("qcFFT",        quickCheckFFT)
         ,("DataFlow",     testDataFlow)
         ,("test_fft_elf", TestCproc.run_test_fft_elf)
         ]
