@@ -508,9 +508,7 @@ testFFT = do
         let filter = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16] -- Impulse response
             filterRef = paddedRef filter
             filter' c_n = pad 16 $ chunk where
-              -- To perform the convolution, the filter needs to be
-              -- reversed and chunked.
-              chunk = map filterRef $ map (+ (c_n * 8)) [0..7] -- [7,6 .. 0]
+              chunk = map filterRef $ map (+ (c_n * 8)) [0..7]
         
             filter0 = filter' 0
             filter1 = filter' 1
@@ -518,7 +516,6 @@ testFFT = do
             -- The FFTs of the filter chunks can be computed ahead of time.
             filter0' = fft filter0
             filter1' = fft filter1
-            
 
             -- 3 distinct input chunks are needed for two spectra
             t = 4
@@ -551,6 +548,46 @@ testFFT = do
         putStrLn' $ show $ (out :: [F2])
         return ()
 
+      full_ols_prop filter input_blocks = do
+        let 
+            bs = length $ head input_blocks     -- Block size of the process routine
+            n = 2 * bs -- FFT size
+            filter_chunks = map (pad n) (chunksOf bs filter)
+            nb_sections = length filter_chunks
+
+            -- The FFTs of the filter chunks can be computed ahead of
+            -- time.  Order them so the left one corresponds to the
+            -- oldest input delay.
+            filter_chunks' = map fft (reverse filter_chunks)
+
+            -- Overlap the inputs and perform fft.
+            -- First element in input_ola is the oldest (hence reverse).
+            zb = pad bs []
+            input_ola = zipWith (++) ([zb] ++ input_blocks) (input_blocks ++ [zb])
+            input_ola' = map fft input_ola 
+
+            -- Compute the multiplication in the frequency domain (parallel)
+            conv' = zipWith vmul filter_chunks' input_ola'
+
+            -- Add together the spectra and convert back to time domain.
+            out_ = ifft $ foldr vadd (pad n []) conv'
+
+            -- Only the second half contains correct data.  The rest
+            -- has a wrap-around effect.
+            [out_w,out] = chunksOf bs out_
+
+            dbg tag thing = putStrLn' (tag ++ show thing)
+
+            
+            
+        putStrLn' $ "testFFT:full_ols_prop"
+        dbg "filter:    " filter_chunks
+        dbg "input:     " input_blocks
+        dbg "input_ola: " input_ola
+        dbg "out_w:     " (out_w :: [F2])
+        dbg "out:       " (out :: [F2])
+        return ()
+  
   when False $ do
   
     putStrLn' "testFFT"
@@ -583,7 +620,10 @@ testFFT = do
 
     ols_steps
 
-  full_ols
+  -- full_ols
+  let ols_in = chunksOf 8 $ shiftedImpulse (8 * 2) 1 9
+
+  full_ols_prop [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16] ols_in
     
   -- overlap_example
 
