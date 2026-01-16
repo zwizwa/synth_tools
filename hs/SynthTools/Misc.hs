@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- Misc functions
 
 module SynthTools.Misc where
@@ -25,3 +27,7 @@ paddedRef list = c where
   c i | (i>=0) && (i<n) = list !! i
       | otherwise = 0
   
+-- Truncate or zero-extend to requested length.
+pad :: forall n. Num n => Int -> [n] -> [n]
+pad len sig = sig' where
+  sig' = take len (sig ++ (cycle [0]))

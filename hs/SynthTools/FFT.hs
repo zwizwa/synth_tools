@@ -128,10 +128,6 @@ dft' rootGen input = output where
   output = map bin [0..(order-1)] where
 
 
-pad :: forall n. Num n => Int -> [n] -> [n]
-pad order sig = sig' where
-  sig' = take order (sig ++ (cycle [0]))
-
 
 -- Note that the ( idft . dft ) composition defined by just inverting
 -- the rootGen (traversing the roots of unity cycle backwards) will
@@ -463,16 +459,19 @@ quickCheckFFT = do
       trace' _ a = a
 
       -- Test that the OLS implementation shifts the impulse.
-      propOLS :: [F2] -> Bool
-      propOLS filter = pass where
+      propOLS :: Int -> [F2] -> Bool
+      propOLS t filter = pass where
         bs = 8
-        is = [pad bs [1],
-              pad bs [0]]
+        nb_blocks = 3
+        n = bs * nb_blocks
+        
+        is = chunksOf bs $ shiftedImpulse n (1 :: F2) t
         os = app_ols u s0 is
         o = concat os
         (u, s0) = make_ols bs filter
         -- filter impulse response is reproduced with zero padding
-        pass = o == (pad (length o) filter)
+        delay = pad t []
+        pass = o == (pad n (delay ++ filter))
 
   check $ propOLS
 
