@@ -168,22 +168,25 @@ test_nttIO_16 (nttIO', nttClose) = do
           ols' <- ols_tick $ shiftedImpulse 8 i 0
           putStrLn' $ show $ ols'
 
-      ols_impulse n' = do
-        let n = n' + 8
-            frames = (zeros n) ++ [1] ++ (zeros $ 16-1-n)
-            [frame1, frame2] = chunksOf 8 frames
-        --putStrLn' $ show (frame1, frame2)
-        ols_tick frame1
-        --putStrLn' "frame2:"
-        out <- ols_tick frame2
-        --putStrLn' "out:"
+      ols_impulse t = do
+        let nb_blocks = 3
+            bs = 8
+            frames = shiftedImpulse (nb_blocks * bs) 1 t
+            frames_list = chunksOf bs frames
+        ols_init [1,2,3,4,5,6,7,8,9,10,11,12]
+        out <- traverse ols_tick frames_list
         putStrLn' $ show out
+        return out
         
         
       ols_impulse' = do
         putStrLn' "ols_impulse'"
-        ols_init [1,2,3,4,5,6,7,8,9,10,11,12]
-        traverse ols_impulse [-8 .. 7]
+        log <- traverse ols_impulse [0 .. 15]
+        putStrLn' "ols_impulse':log"
+        traverse (putStrLn' . show) log
+        return ()
+
+      
 
 
   -- 1. I have a reference test in SynthTools.FFT that can compute the
@@ -206,8 +209,10 @@ test_nttIO_16 (nttIO', nttClose) = do
     -- ols_init [1,2,3,4,5,6,7,8,9,10]
     ols_init [0,0,0,0,0,0,0,0,0,1]
     ols_impulse (-6)
+    return ()
 
   ols_impulse'
+  -- ols_impulse 15
   
 
   return ()
