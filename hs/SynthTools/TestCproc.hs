@@ -175,7 +175,7 @@ test_nttIO_16 (nttIO', nttClose) = do
             frames_list = chunksOf bs frames
         ols_init [1,2,3,4,5,6,7,8,9,10,11,12]
         out <- traverse ols_tick frames_list
-        putStrLn' $ show out
+        -- putStrLn' $ show out
         return out
         
         
@@ -197,21 +197,9 @@ test_nttIO_16 (nttIO', nttClose) = do
   -- 2. Simulate that input by sending 2 frames.  Instrument the C
   --    code to print the contents of the buffer.
   
-  -- Some ad-hoc testing.
-  when False $ do
-    putStrLn' "ols"
-    ols' <- ols
-    putStrLn' $ show $ ols'
-
-  when False $ do
-    putStrLn' "\n\nCurrent:"
-    -- ols_init [1,2,3,4,5,6,7,8,9,0]
-    -- ols_init [1,2,3,4,5,6,7,8,9,10]
-    ols_init [0,0,0,0,0,0,0,0,0,1]
-    ols_impulse (-6)
-    return ()
-
   ols_impulse'
+
+  
   -- ols_impulse 15
   
 
