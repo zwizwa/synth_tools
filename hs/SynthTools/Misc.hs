@@ -18,7 +18,7 @@ rle = rle' 0 0 where
         
 
 zeros i = replicate i 0
-shiftedImpulse n one i = (zeros i) ++ [one] ++ (zeros (n-i-1))
+shiftedImpulse n one i = pad n $ (zeros i ++ [one])
 
 
 -- List reference with zero padding.

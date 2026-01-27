@@ -33,7 +33,7 @@ ntt8_data_t ntt8_scale_rev = (1<<ntt8_logn);
 ntt4_data_t ntt4_scale_fwd = 1;
 ntt4_data_t ntt4_scale_rev = (1<<ntt4_logn);
 #include "ns_fft.h"
-#define ntt4_ols_nb_blocks 4
+#define ntt4_ols_nb_blocks 5
 #include "ns_ols.h"
 #include "ns_fft_io.h"
 #undef NS

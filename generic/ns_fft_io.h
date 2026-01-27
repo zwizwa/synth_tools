@@ -85,7 +85,10 @@ void NS(_io_serve)(void) {
         }
         case 0x102: /* ols tick */ {
             //LOG("ols tick %d begin\n", nb_el);
-            ASSERT(nb_el == n/2);
+            // ASSERT(nb_el == n/2);
+            if (nb_el != n/2) {
+                ERROR("nb_el == %d != n/2 == %d\n", nb_el, n/2);
+            }
             NS(_real_t) ibuf[nb_el];
             NS(_real_t) obuf[nb_el] = {};
             assert_read_fixed(0, ibuf, sizeof(ibuf));

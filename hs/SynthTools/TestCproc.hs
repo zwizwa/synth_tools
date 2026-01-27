@@ -86,9 +86,13 @@ type NTTIO = [F3] -> PropertyM IO [F3]
 -- The test_fft.c binary can support both forward and reverse ops.
 -- Both are presented as NTTIO functions.
 data Ops t = Ops {
-  fftOp  :: t,
-  ifftOp :: t
+  fftOp   :: t,
+  ifftOp  :: t,
+  olsInit :: t, --(*)
+  olsTick :: t
   }
+-- (*) This is actually :: []->m(), but is embedded in []->m[] to
+-- avoid more typing red tape.  It's close enough.
 
 
 
@@ -104,6 +108,57 @@ prop_fft ops (V256 probe) = monadicIO $ do
         assert (o' == o)
   eq fft  fft'
   eq ifft ifft'
+
+
+
+-- The OLS impulse reproduction test has parameters that can use some
+-- correlation to be better targeted, so generate them togeter:
+-- . number of blocks to compute
+-- . meaningful filter length (e.g. between 2x and 1/4 of sample size)
+-- . delay for the input impulse
+--
+-- The C implementation has a hard coded limit so use that to first
+-- generate the FIR order and derive the rest of the parameters
+-- correlated to the order.
+
+
+prop_ols :: Int -> Ops NTTIO -> Property
+prop_ols bs remote_ops = forAll ols_param eval where
+
+  -- Structural parameters, context.
+  ols_fir_max_nb_blocks = 5 -- (1)
+  max_fir = bs * ols_fir_max_nb_blocks
+  ols_init = olsInit remote_ops
+  ols_tick = olsTick remote_ops
+
+  -- Random parameterization.
+  ols_param :: Gen (Int,Int,[F3])
+  ols_param = do
+    let max_nb = ols_fir_max_nb_blocks * 2
+    
+    order <- choose (1, max_fir)      -- Filter order
+    ir    <- vectorOf order arbitrary -- Filter impulse response
+    delay <- choose (0, order)        -- Input impulse delay
+    nb    <- choose (1, max_nb)       -- Number of input blocks
+    return (nb, delay, ir)
+
+  -- Property evaluation using the remote C calls wrapped monadic
+  -- functions in ops.
+  eval params@(nb, delay, ir) = monadicIO $ do
+    let n = nb * bs
+        frames = shiftedImpulse n 1 delay
+        frames_list = chunksOf bs frames
+        out_predict = chunksOf bs $ pad n ( zeros delay ++ ir )
+    ols_init ir
+    out <- traverse ols_tick frames_list
+    assert $ out == out_predict
+    return ()
+    
+  -- (1) FIXME: Is hardcoded in test_fft.c and should be queried and
+  -- passed as param.
+
+    
+
 
 -- prop_ols :: Ops NTTIO -> V256 F3 -> Property
 -- prop_ols ops (V256 probe) = monadicIO $ do
@@ -171,12 +226,17 @@ test_nttIO_16 (nttIO', nttClose) = do
       ols_impulse t = do
         let nb_blocks = 3
             bs = 8
-            frames = shiftedImpulse (nb_blocks * bs) 1 t
+            n = nb_blocks * bs
+            -- Input is a delayed impulse.
+            frames = shiftedImpulse n 1 t
             frames_list = chunksOf bs frames
-        ols_init [1,2,3,4,5,6,7,8,9,10,11,12]
+            ir = [1,2,3,4,5,6,7,8,9,10,11,12]
+            -- Output is a delayed impulse response.
+            out_predict = chunksOf bs $ pad n ( zeros t ++ ir )
+        ols_init ir
         out <- traverse ols_tick frames_list
         -- putStrLn' $ show out
-        return out
+        return (out_predict == out, out)
         
         
       ols_impulse' = do
@@ -185,6 +245,11 @@ test_nttIO_16 (nttIO', nttClose) = do
         putStrLn' "ols_impulse':log"
         traverse (putStrLn' . show) log
         return ()
+
+      --ols_param = do
+      --  ir <- vectorOf 10 arbitrary
+      --  return ()
+      --prop_ols_impulse = forAll ols_param _
 
       
 
@@ -232,11 +297,14 @@ test_nttIO_256 (nttIO', nttClose) = do
   -- serves as a command to the C code, see test_fft.c
   let ops = Ops (op 0x100)  -- fft
                 (op 0x101)  -- ifft
+                (op 0x103)  -- ols_init
+                (op 0x102)  -- ols_tick
 
       qc prop = quickCheck (prop ops)
 
   -- Run a number of tests
   qc prop_fft
+  qc (prop_ols 128)
 
   -- Clean up the service process when done.
   nttClose
