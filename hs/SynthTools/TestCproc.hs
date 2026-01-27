@@ -122,8 +122,8 @@ prop_fft ops (V256 probe) = monadicIO $ do
 -- correlated to the order.
 
 
-prop_ols :: Int -> Ops NTTIO -> Property
-prop_ols bs remote_ops = forAll ols_param eval where
+prop_ols_impulse :: Int -> Ops NTTIO -> Property
+prop_ols_impulse bs remote_ops = forAll ols_param eval where
 
   -- Structural parameters, context.
   ols_fir_max_nb_blocks = 5 -- (1)
@@ -149,6 +149,40 @@ prop_ols bs remote_ops = forAll ols_param eval where
         frames = shiftedImpulse n 1 delay
         frames_list = chunksOf bs frames
         out_predict = chunksOf bs $ pad n ( zeros delay ++ ir )
+    ols_init ir
+    out <- traverse ols_tick frames_list
+    assert $ out == out_predict
+    return ()
+    
+  -- (1) FIXME: Is hardcoded in test_fft.c and should be queried and
+  -- passed as param.
+
+prop_ols_filter :: Int -> Ops NTTIO -> Property
+prop_ols_filter bs remote_ops = forAll ols_param eval where
+
+  -- Structural parameters, context.
+  ols_fir_max_nb_blocks = 5 -- (1)
+  max_fir = bs * ols_fir_max_nb_blocks
+  ols_init = olsInit remote_ops
+  ols_tick = olsTick remote_ops
+
+  -- Random parameterization.
+  ols_param :: Gen ([F3],[F3])
+  ols_param = do
+    let max_nb = ols_fir_max_nb_blocks * 2
+    
+    order <- choose (1, max_fir)        -- Filter order
+    ir    <- vectorOf order arbitrary   -- Filter impulse response
+    nb    <- choose (1, max_nb)         -- Number of input blocks
+    input <- vectorOf (nb*bs) arbitrary -- Random input signal
+    return (input, ir)
+
+  -- Property evaluation using the remote C calls wrapped monadic
+  -- functions in ops.
+  eval params@(input, ir) = monadicIO $ do
+    let n = length input
+        frames_list = chunksOf bs input
+        out_predict = chunksOf bs $ pad n $ conv input ir
     ols_init ir
     out <- traverse ols_tick frames_list
     assert $ out == out_predict
@@ -304,7 +338,8 @@ test_nttIO_256 (nttIO', nttClose) = do
 
   -- Run a number of tests
   qc prop_fft
-  qc (prop_ols 128)
+  qc (prop_ols_impulse 128)
+  qc (prop_ols_filter 128)
 
   -- Clean up the service process when done.
   nttClose
