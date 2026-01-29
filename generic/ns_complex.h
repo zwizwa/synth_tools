@@ -45,3 +45,4 @@ static inline void NS(_log_real_vec)(NS(_real_t) *v, int size) {
 }
 static inline void NS(_log_data_vec)(NS(_data_t) *v, int size) {
 }
+

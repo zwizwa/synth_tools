@@ -173,7 +173,7 @@ close' proc_h = do
 -- processors.  These are made compatible with the uc_tools tagged
 -- protocol wrapped in {packet,4} framing.
 
-runRaw (word_size, put, get, cmd, args) = do
+runRaw (word_size, uc_tag, put, get, cmd, args) = do
 
   p@(Proc proc_h stdin_h stdout_h, closeit) <- open cmd args
 
@@ -198,7 +198,7 @@ runRaw (word_size, put, get, cmd, args) = do
               -- Areal tag space is reserved as A1xx in uc_tools/packet_tags.h
               -- We have a 16 bit subtag to extend that.
               4 * (2 + n),
-              0x1EEE0000
+              uc_tag
               ]
             bytes = runPut $ do
               traverse putInt32be $ wrapHdr
@@ -222,11 +222,17 @@ runRawWith cfg input = do
   close
   return output
 
-runFloat c a = runRawWith (4, putFloatle, getFloatle, c, a)
-runInt32 c a = runRawWith (4, putInt32le, getInt32le, c, a)
+-- 0x1xxxx is synth_tools number collection protocol with BE uc_tools
+-- tagging and LE data, where F 32 is 32 bit float and 5(S) 32 is
+-- signed 32 bit integer.
+tag_floats = 0x1F320000
+tag_ints   = 0x15320000  
 
-floatRunner c a = runRaw (4, putFloatle, getFloatle, c, a)
-int32Runner c a = runRaw (4, putInt32le, getInt32le, c, a)
+runFloat c a = runRawWith (4, tag_floats, putFloatle, getFloatle, c, a)
+runInt32 c a = runRawWith (4, tag_ints,   putInt32le, getInt32le, c, a)
+
+floatRunner c a = runRaw (4, tag_floats,  putFloatle, getFloatle, c, a)
+int32Runner c a = runRaw (4, tag_ints,    putInt32le, getInt32le, c, a)
 
 -- readInt321 :: Handle -> Int -> IO [Int]
 -- readInt321 handle nb = do

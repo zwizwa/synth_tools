@@ -11,6 +11,7 @@ fft_data_t fft_scale_rev = { .re = 1, .im = 0 }; // FIXME
 #include "ns_fft.h"
 #define fft_ols_nb_blocks 5
 #include "ns_ols.h"
+#define fft_uc_tag 0x1F320000 // LE 32bit floats
 #include "ns_fft_io.h"
 #undef NS
 
@@ -23,6 +24,7 @@ ntt8_data_t ntt8_scale_rev = (1<<ntt8_logn);
 #include "ns_fft.h"
 #define ntt8_ols_nb_blocks 5
 #include "ns_ols.h"
+#define ntt8_uc_tag 0x15320000 // LE 32bit signed integers
 #include "ns_fft_io.h"
 #undef NS
 
@@ -35,6 +37,7 @@ ntt4_data_t ntt4_scale_rev = (1<<ntt4_logn);
 #include "ns_fft.h"
 #define ntt4_ols_nb_blocks 5
 #include "ns_ols.h"
+#define ntt4_uc_tag 0x15320000
 #include "ns_fft_io.h"
 #undef NS
 

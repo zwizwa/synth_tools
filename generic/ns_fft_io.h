@@ -56,7 +56,7 @@ void NS(_io_serve)(void) {
         /* The uc_tools header size and tag are in BE.  Check the tag
            and make sure the size corresponds to what we are expecting
            here. */
-        ASSERT(0x1EEE0000 == SWAP_U32(in_hdr[1]));
+        ASSERT(NS(_uc_tag) == SWAP_U32(in_hdr[1]));
         uint32_t nb_el = (SWAP_U32(in_hdr[0]) / 4) - 2;
         // LOG("nb_el = %d\n", nb_el);
 
