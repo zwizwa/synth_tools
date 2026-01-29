@@ -33,8 +33,8 @@ static inline void NS(_ols)(struct NS(_ols_state) *s,
     }
 
     /* Print the input time domain signal. */
-    //LOG("overlap_in:");
-    //NS(_log_real_vec)(s->overlap_in, n);
+    // LOG("overlap_in:");
+    // NS(_log_real_vec)(s->overlap_in, n);
 
     /* Compute the FFT of the overlapped input and place it in the FFT
        delay line in the correct slot. */
@@ -114,7 +114,8 @@ static inline void NS(_ols_init)(struct NS(_ols_state) *s,
     for (int block = 0; block < NS(_ols_nb_blocks); block++) {
         //LOG("block %d\n", block);
         NS(_data_t) *ir_chunk_fft = s->filter[block].freq;
-        NS(_real_t) ir_chunk_padded[n] = {};
+        NS(_real_t) ir_chunk_padded[n];
+        memset(ir_chunk_padded, 0, sizeof(ir_chunk_padded));
         for (int i=0; i<chunk_size; i++) {
             int oi = offset + i;
             if (oi < nb_el) {
@@ -125,6 +126,7 @@ static inline void NS(_ols_init)(struct NS(_ols_state) *s,
         //LOG("filter block %d: ", block);
         //NS(_log_real_vec)(ir_chunk_padded, n);
         NS(_process_real)(&s->fft_ctx, ir_chunk_padded, ir_chunk_fft);
+        //NS(_log_data_vec)(ir_chunk_fft, n);
 
         offset += chunk_size;
     }

@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module SynthTools.TestCproc where
 
@@ -36,7 +37,7 @@ import SynthTools.Num
 
 import SynthTools.IO
 import SynthTools.Misc
-
+ 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import System.Command
@@ -81,7 +82,7 @@ test_ntt = do
 -- Most natural form of the ntt operation exposed by the process
 -- running in the backtround: lifted by `run` and operating on the
 -- same data representation as SynthTools.NTT functions.
-type NTTIO = [F3] -> PropertyM IO [F3]
+type NTTIO t = [t] -> PropertyM IO [t]
 
 -- The test_fft.c binary can support both forward and reverse ops.
 -- Both are presented as NTTIO functions.
@@ -98,7 +99,7 @@ data Ops t = Ops {
 
 -- Compare test_fft.c implementation (ns_fft.h) to SynthTools.FFT
 -- Haskell implementation.
-prop_fft :: Ops NTTIO -> V256 F3 -> Property
+prop_fft :: Ops (NTTIO F3) -> V256 F3 -> Property
 prop_fft ops (V256 probe) = monadicIO $ do
   let fft'  = fftOp  ops
       ifft' = ifftOp ops
@@ -121,9 +122,12 @@ prop_fft ops (V256 probe) = monadicIO $ do
 -- generate the FIR order and derive the rest of the parameters
 -- correlated to the order.
 
+c = concat
 
-prop_ols_impulse :: Int -> Ops NTTIO -> Property
-prop_ols_impulse bs remote_ops = forAll ols_param eval where
+prop_ols_impulse ::
+  forall t. (Show t, Eq t, Arbitrary t, Num t) =>
+  Int -> ([t] -> [t] -> Bool) -> Ops (NTTIO t) -> Property
+prop_ols_impulse bs eq remote_ops = forAll ols_param eval where
 
   -- Structural parameters, context.
   ols_fir_max_nb_blocks = 5 -- (1)
@@ -132,7 +136,7 @@ prop_ols_impulse bs remote_ops = forAll ols_param eval where
   ols_tick = olsTick remote_ops
 
   -- Random parameterization.
-  ols_param :: Gen (Int,Int,[F3])
+  ols_param :: Gen (Int,Int,[t])
   ols_param = do
     let max_nb = ols_fir_max_nb_blocks * 2
     
@@ -151,14 +155,16 @@ prop_ols_impulse bs remote_ops = forAll ols_param eval where
         out_predict = chunksOf bs $ pad n ( zeros delay ++ ir )
     ols_init ir
     out <- traverse ols_tick frames_list
-    assert $ out == out_predict
+    assert $ (c out) `eq` (c out_predict)
     return ()
     
   -- (1) FIXME: Is hardcoded in test_fft.c and should be queried and
   -- passed as param.
 
-prop_ols_filter :: Int -> Ops NTTIO -> Property
-prop_ols_filter bs remote_ops = forAll ols_param eval where
+prop_ols_filter ::
+  forall t. (Show t, Eq t, Arbitrary t, Num t) =>
+  Int -> ([t] -> [t] -> Bool) -> Ops (NTTIO t) -> Property
+prop_ols_filter bs eq remote_ops = forAll ols_param eval where
 
   -- Structural parameters, context.
   ols_fir_max_nb_blocks = 5 -- (1)
@@ -167,7 +173,7 @@ prop_ols_filter bs remote_ops = forAll ols_param eval where
   ols_tick = olsTick remote_ops
 
   -- Random parameterization.
-  ols_param :: Gen ([F3],[F3])
+  ols_param :: Gen ([t],[t])
   ols_param = do
     let max_nb = ols_fir_max_nb_blocks * 2
     
@@ -185,31 +191,11 @@ prop_ols_filter bs remote_ops = forAll ols_param eval where
         out_predict = chunksOf bs $ pad n $ conv input ir
     ols_init ir
     out <- traverse ols_tick frames_list
-    assert $ out == out_predict
+    assert $ (c out) `eq` (c out_predict)
     return ()
     
   -- (1) FIXME: Is hardcoded in test_fft.c and should be queried and
   -- passed as param.
-
-
-
-    
-
-
--- prop_ols :: Ops NTTIO -> V256 F3 -> Property
--- prop_ols ops (V256 probe) = monadicIO $ do
---   let ols = olsOp ops
---       eq ref_op io_op = do
---         o <- io_op probe
---         let o' = ref_op probe
---         assert (o' == o)
---   eq fft  ntt
---   eq ifft intt
-
--- Note that the ola function in test_fft_elf is not stateless, so it
--- needs to be wrapped as a sequence like:
--- . opload coefficients and reset state
--- . run a number of frames
 
 
 
@@ -228,9 +214,21 @@ run_test_fft_elf' tag = do
       let True = 8 == logn
       test_nttIO_256 service
 
+run_test_fft_float_elf' tag = do
+  -- Create a single process to compute the NTTs in the test.
+  service@(fftIO', nttClose) <- RunC.floatRunner test_fft_elf [tag]
+  -- Get the logn of the instantiated service.
+  [logn] <- fftIO' [0x104] []
+  -- Verify size and run the corrsponding test.
+  case tag of
+    "fft" -> do
+      let True = 9 == logn
+      test_fft_float service
+
 run_test_fft_elf = do
   run_test_fft_elf' "ntt8"
   run_test_fft_elf' "ntt4"
+  run_test_fft_float_elf' "fft"
 
 test_nttIO_16 (nttIO', nttClose) = do
   putStrLn' "test_nttIO_16"
@@ -249,15 +247,6 @@ test_nttIO_16 (nttIO', nttClose) = do
       
       ols_tick = op' 0x102
       ols_init = op' 0x103
-
-      ols = do
-        let init1 = ([9,3,1] ++ (take 20 $ cycle [1,2]))
-            init2 = [1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13]
-            init  = [1,1,2,2,3,3,4,4, 5,5,6,6,7,7,8,8]
-        ols_init init
-        traverse' [1,0,0] $ \i -> do
-          ols' <- ols_tick $ shiftedImpulse 8 i 0
-          putStrLn' $ show $ ols'
 
       ols_impulse t = do
         let nb_blocks = 3
@@ -281,28 +270,9 @@ test_nttIO_16 (nttIO', nttClose) = do
         putStrLn' "ols_impulse':log"
         traverse (putStrLn' . show) log
         return ()
-
-      --ols_param = do
-      --  ir <- vectorOf 10 arbitrary
-      --  return ()
-      --prop_ols_impulse = forAll ols_param _
-
-      
-
-
-  -- 1. I have a reference test in SynthTools.FFT that can compute the
-  --    output of a circular convolution with an impulse in any of the
-  --    16 positions, where 0-8 is past, 9 is current, and 10-16 are
-  --    future.
-  --
-  -- 2. Simulate that input by sending 2 frames.  Instrument the C
-  --    code to print the contents of the buffer.
   
   ols_impulse'
 
-  
-  -- ols_impulse 15
-  
 
   return ()
 
@@ -340,16 +310,72 @@ test_nttIO_256 (nttIO', nttClose) = do
 
   -- Run a number of tests
   qc prop_fft
-  qc (prop_ols_impulse 128)
-  qc (prop_ols_filter 128)
+  qc (prop_ols_impulse 128 (==))
+  qc (prop_ols_filter  128 (==))
 
   -- Clean up the service process when done.
   nttClose
   return ()
 
+floatEQ :: [Float] -> [Float] -> Bool
+floatEQ a b = (e / (norm a)) < 0.0001 where
+  n = fromIntegral $ length a
+  sum = foldl (+) 0
+  f x y = (x - y) ^ 2
+  e = (sqrt $ sum $ zipWith f a b) / n
+  norm x = nonneg + (sqrt $ sum $ zipWith (*) x x) / n
+  nonneg = 0.00001  -- make sure that floatEQ for 0 returns true
+
+test_fft_float (fftIO, fftClose) = do
+  putStrLn' "test_fft_float"
+
+  let
+      bs = 256
+      op' id = fftIO [id]
+      op  id = run . (op' id)
+      
+      ols_tick = op' 0x102
+      ols_init = op' 0x103
+
+      ols_impulse t = do
+        let nb_blocks = 3
+            n = nb_blocks * bs
+            -- Input is a delayed impulse.
+            frames = shiftedImpulse n 1 t
+            frames_list = chunksOf bs frames
+            ir = [1..700]
+            -- Output is a delayed impulse response.
+            out_predict = chunksOf bs $ pad n ( zeros t ++ ir )
+        ols_init ir
+        out <- traverse ols_tick frames_list
+        -- putStrLn' $ show out
+        return ((c out_predict) `floatEQ` (c out), out)
+        
+      ols_impulse' = do
+        putStrLn' "ols_impulse'"
+        log <- traverse ols_impulse [0 .. 15]
+        -- putStrLn' "ols_impulse':log"
+        -- traverse (putStrLn' . show) log
+        return ()
+
+      ops = Ops (op 0x100)  -- fft
+                (op 0x101)  -- ifft
+                (op 0x103)  -- ols_init
+                (op 0x102)  -- ols_tick
+
+      qc prop = quickCheck (prop ops)
+        
   
+  ols_impulse'
+
+  putStrLn' "float prop_ols_impulse:"
+  qc (prop_ols_impulse bs floatEQ)
+
+  putStrLn' "float prop_ols_filter:"
+  qc (prop_ols_filter  bs floatEQ)
+  
+  fftClose
+
+  return ()
 
 
--- NEXT:
--- . generate FFT routine
--- . create quickcheck for that

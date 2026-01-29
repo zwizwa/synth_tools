@@ -42,7 +42,15 @@ static inline void NS(_to_real)(NS(_real_t) *o, const NS(_data_t) *a) {
 }
 
 static inline void NS(_log_real_vec)(NS(_real_t) *v, int size) {
+    for (int k=0; k<size; k++) {
+        LOG(" %f", v[k]);
+    }
+    LOG("\n");
 }
 static inline void NS(_log_data_vec)(NS(_data_t) *v, int size) {
+    for (int k=0; k<size; k++) {
+        LOG(" (%f,%f)", v[k].re, v[k].im);
+    }
+    LOG("\n");
 }
 

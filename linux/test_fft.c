@@ -3,11 +3,11 @@
 
 
 #define NS(name) fft##name
-#define fft_logn 8
+#define fft_logn 9
 #define fft_scale_fwd fft_scale_fwd
 #include "ns_complex.h"
 fft_data_t fft_scale_fwd = { .re = 1, .im = 0 };
-fft_data_t fft_scale_rev = { .re = 1, .im = 0 }; // FIXME
+fft_data_t fft_scale_rev = { .re = 1.0f / (1<<fft_logn), .im = 0 };
 #include "ns_fft.h"
 #define fft_ols_nb_blocks 5
 #include "ns_ols.h"
