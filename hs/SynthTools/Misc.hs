@@ -31,3 +31,17 @@ paddedRef list = c where
 pad :: forall n. Num n => Int -> [n] -> [n]
 pad len sig = sig' where
   sig' = take len (sig ++ (cycle [0]))
+
+
+-- An ad-hoc inexact Float equality test.
+floatEQ = floatEQ' 0.00001 0.0000001
+
+floatEQ' :: Float -> Float -> [Float] -> [Float] -> Bool
+floatEQ' relError no_nan_offset a b = (e / (norm a)) < 0.00001 where
+  n = fromIntegral $ length a
+  sum = foldl (+) 0
+  f x y = (x - y) ^ 2
+  e = (sqrt $ sum $ zipWith f a b) / n
+  -- add a small offset to norm to avoid NaN when norm is 0.0f
+  norm x = no_nan_offset + (sqrt $ sum $ zipWith (*) x x) / n
+

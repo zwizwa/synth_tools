@@ -155,7 +155,7 @@ void NS(_init_ctx)(struct NS(_ctx) *x) {
     memset(x,0,sizeof(*x));
     x->top_logn = NS(_logn);
     NS(_dir_fwd)(x);
-    LOG("init logn=%d\n", x->top_logn);
+    // LOG("init logn=%d\n", x->top_logn);
     NS(_data_t) *c = x->coef;
     NS(_init_coefs)(c, x->top_logn);
     NS(_init_bitrev)(x, x->top_logn);

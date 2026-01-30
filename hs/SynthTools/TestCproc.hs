@@ -317,14 +317,6 @@ test_nttIO_256 (nttIO', nttClose) = do
   nttClose
   return ()
 
-floatEQ :: [Float] -> [Float] -> Bool
-floatEQ a b = (e / (norm a)) < 0.0001 where
-  n = fromIntegral $ length a
-  sum = foldl (+) 0
-  f x y = (x - y) ^ 2
-  e = (sqrt $ sum $ zipWith f a b) / n
-  norm x = nonneg + (sqrt $ sum $ zipWith (*) x x) / n
-  nonneg = 0.00001  -- make sure that floatEQ for 0 returns true
 
 test_fft_float (fftIO, fftClose) = do
   putStrLn' "test_fft_float"
