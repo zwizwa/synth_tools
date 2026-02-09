@@ -5,19 +5,23 @@ struct NS(_complex) { float re; float im; };
 typedef struct NS(_complex) NS(_data_t);
 typedef float NS(_real_t);
 
-static inline void NS(_data_mul3)(NS(_data_t) *o,
+#ifndef INLINE
+#define INLINE static inline __attribute__((always_inline))
+#endif
+
+INLINE void NS(_data_mul3)(NS(_data_t) *o,
                                   const NS(_data_t) *a,
                                   const NS(_data_t) *b) {
     o->re = a->re * b->re - a->im * b->im;
     o->im = a->re * b->im + a->im * b->re;
 }
-static inline void NS(_data_mac3)(NS(_data_t) *acc,
+INLINE void NS(_data_mac3)(NS(_data_t) *acc,
                                   const NS(_data_t) *a,
                                   const NS(_data_t) *b) {
     acc->re += a->re * b->re - a->im * b->im;
     acc->im += a->re * b->im + a->im * b->re;
 }
-static inline void NS(_data_acc2)(NS(_data_t) *o,
+INLINE void NS(_data_acc2)(NS(_data_t) *o,
                                   const NS(_data_t) *a) {
     o->re += a->re;
     o->im += a->im;
@@ -33,11 +37,11 @@ static inline void NS(_init_coefs)(NS(_data_t) *c, int logn) {
         c[i].im = sinf(phase);
     }
 }
-static inline void NS(_from_real)(NS(_data_t) *o, const NS(_real_t) *a) {
+INLINE void NS(_from_real)(NS(_data_t) *o, const NS(_real_t) *a) {
     o->re = *a;
     o->im = 0;
 }
-static inline void NS(_to_real)(NS(_real_t) *o, const NS(_data_t) *a) {
+INLINE void NS(_to_real)(NS(_real_t) *o, const NS(_data_t) *a) {
     *o = a->re;
 }
 

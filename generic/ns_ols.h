@@ -1,3 +1,4 @@
+//#define NS_OLS_PFFFT
 struct NS(_ols_block) {
     NS(_data_t) freq[1<<NS(_logn)];
 };
@@ -107,6 +108,8 @@ static inline void NS(_ols_init)(struct NS(_ols_state) *s,
                                  const NS(_real_t) *impulse,
                                  int nb_el) {
 
+    fft_init_ctx(&s->fft_ctx);
+
     // Split the impulse in chunks and pre-compute FFT.
     int n = 1 << NS(_logn);
     int offset = 0;
@@ -128,7 +131,6 @@ static inline void NS(_ols_init)(struct NS(_ols_state) *s,
         //NS(_log_real_vec)(ir_chunk_padded, n);
         NS(_process_real)(&s->fft_ctx, ir_chunk_padded, ir_chunk_fft);
         //NS(_log_data_vec)(ir_chunk_fft, n);
-
         offset += chunk_size;
     }
     // Clear the delay state

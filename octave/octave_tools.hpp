@@ -13,9 +13,6 @@
 #ifndef OCTAVE_TOOLS_H
 #define OCTAVE_TOOLS_H
 
-/* Use uc_tools style framing. */
-#define OCTAVE_TOOLS_UC_TOOLS_FRAMING 1
-
 #include <octave/oct.h>
 #include <sys/wait.h>
 
@@ -110,7 +107,6 @@ static inline int write_matrix(Matrix& m_in, int to_process_fd) {
   uint32_t in_n = in_dim[0] * in_dim[1];
   octave_stdout << "dims: " << in_dim[0] << " " << in_dim[1] << "\n";
 
-#if OCTAVE_TOOLS_UC_TOOLS_FRAMING
   uint32_t out_hdr[2] = {
     SWAP_U32(4 * (1 + 2 + in_n)),
     SWAP_U32(0x1EEE0001) // see uc_tools/packet_tags.h
@@ -124,7 +120,6 @@ static inline int write_matrix(Matrix& m_in, int to_process_fd) {
       << "\n";
   }
   fwrite((void*)out_hdr, sizeof(uint32_t), 2, to_process_f);
-#endif
 
   fwrite((void*)in_dim, sizeof(uint32_t), 2, to_process_f);
   if (in_n) {
@@ -158,7 +153,6 @@ static inline Matrix read_matrix(int from_process_fd) {
     octave_stdout << "can't open program stdout\n";
     exit(1);
   }
-#if OCTAVE_TOOLS_UC_TOOLS_FRAMING
   uint32_t in_hdr[2] = {0, 0}; // FIXME: slots not yet used
   int rv_hdr = fread((void*)in_hdr, sizeof(uint32_t), 2, from_process_f);
   uint32_t in_size = SWAP_U32(in_hdr[0]);
@@ -175,14 +169,24 @@ static inline Matrix read_matrix(int from_process_fd) {
     octave_stdout << "bad read size\n";
     exit(1);
   }
-  ASSERT(in_tag == 0x1EEE0001);
-#endif
 
   uint32_t dim[2];
-  int rv = fread((void*)dim, sizeof(uint32_t), 2, from_process_f);
-  if (rv != 2) {
-    octave_stdout << "bad read size\n";
-    exit(1);
+
+  if (in_tag == 0x1F320001) {
+    int rv = fread((void*)dim, sizeof(uint32_t), 2, from_process_f);
+    if (rv != 2) {
+      octave_stdout << "bad read size\n";
+      exit(1);
+    }
+  }
+  else if (in_tag == 0x1F320000) {
+    uint32_t cmd;
+    int rv = fread((void*)&cmd, sizeof(uint32_t), 1, from_process_f);
+    dim[0] = 1;                 // rows
+    dim[1] = (in_size - 8)/4;   // cols
+  }
+  else {
+    ERROR("bad tag 0x%08x\n", in_tag);
   }
   // octave_log_hex("dim", &dim, sizeof(dim));
 

@@ -1,5 +1,6 @@
 UC_TOOLS ?= ../uc_tools
 GIT_VERSION ?= "unknown"
+PFFFT ?= ../pffft
 
 # This is a mixed C/Rust project.  All rust code is collected in a
 # single static lib which is built using cargo.  This rule depends
@@ -114,6 +115,7 @@ HOST_ELF := \
 	$(UC_TOOLS)/linux/test_telnet.dynamic.host.elf \
 	linux/test_osc.dynamic.host.elf \
 	$(UC_TOOLS)/linux/keylog.dynamic.host.elf \
+	linux/test_pffft.dynamic.host.elf \
 
 HOST_ELF_DIS := \
 	linux/clock.dynamic.host.elf \
@@ -317,7 +319,7 @@ A_STM := stm32f103/lib.f103.a $(RS_A_STM)
 	export ARCH=host ; \
 	export BUILD=linux/build.sh ; \
 	export C=$< ; \
-	export CFLAGS=\ -std=gnu99\ -Igeneric\ -Ilinux/\ -Istm32f103/\ -I/usr/include/lua5.1\ -I$(UC_TOOLS)/\ -I$(UC_TOOLS)/stm32f103/\ -I$(UC_TOOLS)/linux/\ -I$${ZWIZWA_DEV}/include\ -DVERSION="\"$(GIT_VERSION)\""; \
+	export CFLAGS=\ -std=gnu99\ -Igeneric\ -Ilinux/\ -Istm32f103/\ -I/usr/include/lua5.1\ -I$(UC_TOOLS)/\ -I$(UC_TOOLS)/stm32f103/\ -I$(UC_TOOLS)/linux/\ -I$${ZWIZWA_DEV}/include\ -I$(PFFFT)\ -DVERSION="\"$(GIT_VERSION)\""; \
 	export D=$(patsubst %.o,%.d,$@) ; \
 	export FIRMWARE=$$(basename $< .c) ; \
 	export O=$@ ; \
