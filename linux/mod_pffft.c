@@ -203,7 +203,6 @@ static inline void pffft_ols_tick(struct pffft_ols *s,
     //LOG("fd:\n");
     float *o = (float*)s->data.output.freq;
 
-#if 1
     /* Current block. */
     pffft_zconvolve_no_accu(&s->wrap.setup,
                             (const float*)s->data.input[b_cur_input].freq,
@@ -211,9 +210,7 @@ static inline void pffft_ols_tick(struct pffft_ols *s,
                             o, 1.0f);
     //LOG("pffft_ols_tick: convolve 0 done, li=%d\n",
     //    (int)ilog_floats(s->ilog, 0, o, n);
-#endif
 
-#if 0
     /* Delayed blocks. */
     for (int b_filter=1; b_filter < MOD_PFFFT_OLS_NB_BLOCKS; b_filter++) {
         int b_input = (nb + b_cur_input - b_filter) % nb;
@@ -224,7 +221,6 @@ static inline void pffft_ols_tick(struct pffft_ols *s,
         //LOG("pffft_ols_tick: convolve %d done\n", b_filter);
         //ilog_floats(s->ilog, 0, o, n);
     }
-#endif
 
     /* Transform back. */
     pffft_transform(&s->wrap.setup,
