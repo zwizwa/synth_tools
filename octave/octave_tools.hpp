@@ -109,7 +109,7 @@ static inline int write_matrix(Matrix& m_in, int to_process_fd) {
 
   uint32_t out_hdr[2] = {
     SWAP_U32(4 * (1 + 2 + in_n)),
-    SWAP_U32(0x1EEE0001) // see uc_tools/packet_tags.h
+    SWAP_U32(0x1F320001) // see uc_tools/packet_tags.h
   };
   if (1) {
     octave_stdout

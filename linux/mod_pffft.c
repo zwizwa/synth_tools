@@ -26,15 +26,20 @@
 
 */
 
-#define  MOD_PFFFT_SIZE          512
-#define  MOD_PFFFT_OLS_NB_BLOCKS 3
-#define  MOD_PFFFT_TRANSFORM     PFFFT_REAL
-#define  MOD_PFFFT_NCVEC         ((MOD_PFFFT_SIZE/2)/SIMD_SZ)
+// #define PFFFT_SIMD_DISABLE // For testing
+
 
 #include "macros.h"
 #include "ilog.h"
 #include "pffft_common.c"
 #include "pffft.c"
+
+#define  MOD_PFFFT_SIZE          512
+#define  MOD_PFFFT_OLS_NB_BLOCKS 3
+#define  MOD_PFFFT_TRANSFORM     PFFFT_REAL
+#define  MOD_PFFFT_NCVEC         ((MOD_PFFFT_SIZE/2)/SIMD_SZ)
+
+
 
 /* This replaces
    SETUP_STRUCT *FUNC_NEW_SETUP(int N, pffft_transform_t transform)
@@ -85,27 +90,34 @@ void uct_pf_init(struct uct_pf *w) {
 */
 
 struct pffft_ols_block {
-    v4sf freq[MOD_PFFFT_NCVEC];
-};
+    v4sf freq[2*MOD_PFFFT_NCVEC];
+} __attribute__((aligned(16)));
+
+struct pffft_ols_data {
+    struct pffft_ols_block filter[MOD_PFFFT_OLS_NB_BLOCKS];
+    struct pffft_ols_block input[MOD_PFFFT_OLS_NB_BLOCKS];
+    float work[MOD_PFFFT_SIZE];
+    float overlap_in[MOD_PFFFT_SIZE];
+    struct pffft_ols_block output;
+    float overlap_out[MOD_PFFFT_SIZE];
+} __attribute__((aligned(16)));
 
 struct pffft_ols {
     struct uct_pf wrap;
-    struct pffft_ols_block filter[MOD_PFFFT_OLS_NB_BLOCKS];
-    struct pffft_ols_block input[MOD_PFFFT_OLS_NB_BLOCKS];
-    float work[MOD_PFFFT_SIZE*2];
-    float overlap_in[MOD_PFFFT_SIZE];
-    struct pffft_ols_block output;
     int next_block;
     struct ilog *ilog;
-};
+    struct pffft_ols_data data;
+} __attribute__((aligned(16)));
 
 static inline void pffft_ols_init(struct pffft_ols *s,
                                   float *impulse,
-                                  int nb_el) {
+                                  int nb_el,
+                                  struct ilog *ilog) {
     //LOG("pffft_ols_init\n");
 
     // Clear the whole state.
     memset(s,0,sizeof(*s));
+    s->ilog = ilog;
 
     uct_pf_init(&s->wrap);
 
@@ -117,7 +129,7 @@ static inline void pffft_ols_init(struct pffft_ols *s,
     int chunk_size = n >> 1;
     for (int block = 0; block < MOD_PFFFT_OLS_NB_BLOCKS; block++) {
         //LOG("block %d\n", block);
-        float *ir_chunk_fft = (float*)s->filter[block].freq;
+        float *ir_chunk_fft = (float*)s->data.filter[block].freq;
         float ir_chunk_padded[n];
         memset(ir_chunk_padded, 0, sizeof(ir_chunk_padded));
         for (int i=0; i<chunk_size; i++) {
@@ -127,12 +139,19 @@ static inline void pffft_ols_init(struct pffft_ols *s,
                 ir_chunk_padded[i] = impulse[oi] * scale;
             }
         }
+
         //LOG("pffft_ols_init: pre trans\n");
         pffft_transform(&s->wrap.setup,
                         ir_chunk_padded, ir_chunk_fft,
-                        s->work,
+                        s->data.work,
                         PFFFT_FORWARD);
         //LOG("pffft_ols_init: post trans\n");
+
+        //LOG("block %d, timei=%d, freqi=%d\n",
+        //    block,
+        //    (int)ilog_floats(s->ilog, 0, ir_chunk_padded, n),
+        //    (int)ilog_floats(s->ilog, 0, ir_chunk_fft, n));
+
         offset += chunk_size;
     }
     //LOG("pffft_ols_init: done\n");
@@ -147,8 +166,8 @@ void vector_log_write_floats_fd(int fd, uint32_t cmd,
 static inline void pffft_ols_tick(struct pffft_ols *s,
                                   const float *in,
                                   float *out) {
-    LOG("pffft_ols_tick\n");
-    ilog_floats(s->ilog, 0, in, 256);
+    //LOG("pffft_ols_tick\n");
+    //ilog_floats(s->ilog, 0, in, 256);
 
     /* Overlap the input: keep a separate delay line for the real
        input.  Input/output block size is half of the FFT size
@@ -157,8 +176,8 @@ static inline void pffft_ols_tick(struct pffft_ols *s,
     int n_div_2 = n/2;
 
     for(int k=0; k<n_div_2; k++) {
-        float *old = &s->overlap_in[k];
-        float *new = &s->overlap_in[k + n_div_2];
+        float *old = &s->data.overlap_in[k];
+        float *new = &s->data.overlap_in[k + n_div_2];
         /* Shift previous input into left (older) slot. */
         *old = *new;
         /* Copy new nput into right (newer) slot. */
@@ -170,8 +189,8 @@ static inline void pffft_ols_tick(struct pffft_ols *s,
     int b_cur_input = s->next_block;
     s->next_block = (s->next_block + 1) % MOD_PFFFT_OLS_NB_BLOCKS;
     pffft_transform(&s->wrap.setup,
-                    s->overlap_in, (float*)s->input[b_cur_input].freq,
-                    s->work,
+                    s->data.overlap_in, (float*)s->data.input[b_cur_input].freq,
+                    s->data.work,
                     PFFFT_FORWARD);
 
     /* Perform frequency domain convolution for all the blocks in the
@@ -182,38 +201,53 @@ static inline void pffft_ols_tick(struct pffft_ols *s,
 
     int nb = MOD_PFFFT_OLS_NB_BLOCKS; (void)nb;
     //LOG("fd:\n");
-    float *o = (float*)s->output.freq;
+    float *o = (float*)s->data.output.freq;
 
+#if 1
     /* Current block. */
-    LOG("pffft_ols_tick: convolve 0\n");
     pffft_zconvolve_no_accu(&s->wrap.setup,
-                            (const float*)s->input[b_cur_input].freq,
-                            (const float*)s->filter[0].freq,
+                            (const float*)s->data.input[b_cur_input].freq,
+                            (const float*)s->data.filter[0].freq,
                             o, 1.0f);
+    //LOG("pffft_ols_tick: convolve 0 done, li=%d\n",
+    //    (int)ilog_floats(s->ilog, 0, o, n);
+#endif
+
+#if 0
     /* Delayed blocks. */
     for (int b_filter=1; b_filter < MOD_PFFFT_OLS_NB_BLOCKS; b_filter++) {
-        LOG("pffft_ols_tick: convolve %d\n", b_filter);
         int b_input = (nb + b_cur_input - b_filter) % nb;
-        pffft_zconvolve_no_accu(&s->wrap.setup,
-                                (float*)s->input[b_input].freq,
-                                (float*)s->filter[b_filter].freq,
-                                o, 1.0f);
+        pffft_zconvolve_accumulate(&s->wrap.setup,
+                                   (const float*)s->data.input[b_input].freq,
+                                   (const float*)s->data.filter[b_filter].freq,
+                                   o, 1.0f);
+        //LOG("pffft_ols_tick: convolve %d done\n", b_filter);
+        //ilog_floats(s->ilog, 0, o, n);
     }
+#endif
 
     /* Transform back. */
-    float o_inv[2*n_div_2];
-
     pffft_transform(&s->wrap.setup,
-                    o, o_inv,
-                    s->work,
+                    o, s->data.overlap_out,
+                    s->data.work,
                     PFFFT_BACKWARD);
 
-    //ilog_floats(s->ilog, 0, o_inv, ARRAY_SIZE(o_inv));
+    //LOG("overlap_out=%d\n",
+    //    (int)ilog_floats(s->ilog, 0, s->data.overlap_out, n));
+
+
+    //ilog_floats(s->ilog, 0, s->overlap_out, n);
 
     /* Save the non-overlapping part of the output. */
+    //LOG("pffft_ols_tick: pre out\n");
     for (int k=0; k<n_div_2; k++) {
-        //out[k] = o_inv[k + n_div_2];
+        out[k] = s->data.overlap_out[k + n_div_2];
     }
+
+    //LOG("out=%d\n",
+    //    (int)ilog_floats(s->ilog, 0, out, n/2));
+
+    //LOG("pffft_ols_tick: post out\n");
 
 }
 
