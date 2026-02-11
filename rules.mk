@@ -116,6 +116,7 @@ HOST_ELF := \
 	linux/test_osc.dynamic.host.elf \
 	$(UC_TOOLS)/linux/keylog.dynamic.host.elf \
 	linux/test_pffft.dynamic.host.elf \
+	$(UC_TOOLS)/linux/test_worksteal.dynamic.host.elf \
 
 HOST_ELF_DIS := \
 	linux/clock.dynamic.host.elf \

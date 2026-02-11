@@ -1,5 +1,6 @@
 /* This module wraps the pffft library from
-   https://github.com/marton78/pffft d321d006467fcdcafc4298901c27541a18da598c
+   https://github.com/marton78/pffft
+   d321d006467fcdcafc4298901c27541a18da598c
    And provides:
 
    - replacement initialization function and struct for static data allocation
@@ -38,6 +39,14 @@
 #include "pffft_common.c"
 #include "pffft.c"
 
+/* See mod_pffft.c for implementation.
+
+   Note that this header contains optional compile-time configuration
+   so maybe better to wrap it in another header that includes the
+   project-specific configuration to make sure the header and
+   implementation do not get out of sync.
+*/
+
 /* These are hardcoded for the default use case which supports 256
    sample blocks OLS partitioned convolution. */
 #ifndef  MOD_PFFFT_CUSTOM
@@ -46,10 +55,47 @@
 #define  MOD_PFFFT_TRANSFORM     PFFFT_REAL
 #endif
 
+/* All float arrays need to be aligned to 4 float vector boundaries
+   for the Neon implementation.  The algorithm will silently produce
+   bad results if not aligned properly. */
+#define MOD_PFFFT_ALIGN __attribute__((aligned(16)))
+
+struct pffft_static {
+    float data[MOD_PFFFT_SIZE];
+    // SETUP_STRUCT setup;
+    PFFFT_Setup setup;
+} MOD_PFFFT_ALIGN;
+
+struct pffft_partition {
+    float freq[MOD_PFFFT_SIZE];
+} MOD_PFFFT_ALIGN;
+
+
+// FD = Frequency Domain
+// TD = Time Domain
+struct pffft_ols_pc { // overlap save partitioned convolution
+    float overlap_in[MOD_PFFFT_SIZE];                        // Previous + current input block concatenated (TD)
+    struct pffft_partition input[MOD_PFFFT_NB_PARTITIONS];   // Input delay line, overlapped (FD)
+    struct pffft_partition filter[MOD_PFFFT_NB_PARTITIONS];  // FIR partitions, zero-padded (FD)
+    struct pffft_partition output;                           // Output accumulator (FD)
+    float overlap_out[MOD_PFFFT_SIZE];                       // Output (TD)
+    float work[MOD_PFFFT_SIZE];
+
+    struct pffft_static fft; // pffft state (coefficients)
+    int next_block;          // next index into the input (FD) delay line
+    uint32_t nb_partitions;  // number of FIR partitions actually populated
+    struct ilog *ilog;       // optional ilog binary logger for logging float blocks
+
+
+} MOD_PFFFT_ALIGN;
+
+
+
 /* The PFFFT_REAL transform produces only half of the complex
    spectrum, so 256 complex bins for 512 bytes real input size.  These
    are then grouped in 4 float vectors on ARM Neon */
 #define  MOD_PFFFT_NCVEC         ((MOD_PFFFT_SIZE/2)/SIMD_SZ)
+
 
 /* This replaces
    SETUP_STRUCT *FUNC_NEW_SETUP(int N, pffft_transform_t transform)
@@ -57,16 +103,8 @@
    with static allocation, i.e. a struct and an init function
 */
 
-/* All float arrays need to be aligned to 4 float vector boundaries
-   for the Neon implementation.  The algorithm will silently produce
-   bad results if not aligned properly. */
-#define MOD_PFFFT_ALIGN __attribute__((aligned(16)))
 
-struct uct_pf {
-    float data[MOD_PFFFT_SIZE];
-    SETUP_STRUCT setup;
-} MOD_PFFFT_ALIGN;
-void uct_pf_init(struct uct_pf *w) {
+void pffft_static_init(struct pffft_static *w) {
     SETUP_STRUCT *s = &w->setup;
     int N = MOD_PFFFT_SIZE;
     int k, m;
@@ -105,42 +143,18 @@ void uct_pf_init(struct uct_pf *w) {
    just re-implement and then validate in a quickcheck test.
 */
 
-struct pffft_partition {
-    float freq[MOD_PFFFT_SIZE];
-} MOD_PFFFT_ALIGN;
 
-struct pffft_ols_data {
-} MOD_PFFFT_ALIGN;
-
-// FD = Frequency Domain
-// TD = Time Domain
-struct pffft_ols_pc { // overlap save partitioned convolution
-    struct pffft_partition filter[MOD_PFFFT_NB_PARTITIONS];  // FIR partitions, zero-padded (FD)
-    float overlap_in[MOD_PFFFT_SIZE];                        // Input block (TD)
-    struct pffft_partition input[MOD_PFFFT_NB_PARTITIONS];   // Input delay line, overlap-padded (FD)
-    struct pffft_partition output;                           // Output accumulator (FD)
-    float overlap_out[MOD_PFFFT_SIZE];                       // Output (TD)
-    float work[MOD_PFFFT_SIZE];
-
-    struct uct_pf fft;       // wrapped pffft state (coefficients)
-    int next_block;          // next index into the input (FD) delay line
-    uint32_t nb_partitions;  // number of FIR partitions actually populated
-    struct ilog *ilog;       // optional ilog binary logger for logging float blocks
-
-
-} MOD_PFFFT_ALIGN;
-
-static inline void pffft_ols_init(struct pffft_ols_pc *s,
-                                  float *impulse,
-                                  int nb_el,
-                                  struct ilog *ilog) {
+static inline void pffft_ols_pc_init(struct pffft_ols_pc *s,
+                                     float *impulse,
+                                     int nb_el,
+                                     struct ilog *ilog) {
     //LOG("pffft_ols_init\n");
 
     // Clear the whole state.
     memset(s,0,sizeof(*s));
     s->ilog = ilog;
 
-    uct_pf_init(&s->fft);
+    pffft_static_init(&s->fft);
 
     // Split the impulse in chunks and pre-compute FFT.
     int n = MOD_PFFFT_SIZE;
@@ -151,7 +165,8 @@ static inline void pffft_ols_init(struct pffft_ols_pc *s,
 
     s->nb_partitions = 1 + (nb_el-1)/chunk_size;
 
-    LOG("nb_el = %d, nb_partitions = %d\n", nb_el, s->nb_partitions);
+    // LOG("nb_el = %d, nb_partitions = %d\n", nb_el, s->nb_partitions);
+
     ASSERT(s->nb_partitions <= MOD_PFFFT_NB_PARTITIONS);
     ASSERT(s->nb_partitions >= 1);
 
@@ -191,9 +206,9 @@ void vector_log_write_floats_fd(int fd, uint32_t cmd,
 
 
 
-static inline void pffft_ols_tick(struct pffft_ols_pc *s,
-                                  const float *in,
-                                  float *out) {
+static inline void pffft_ols_pc_tick(struct pffft_ols_pc *s,
+                                     const float *in,
+                                     float *out) {
     //LOG("pffft_ols_tick\n");
     //ilog_floats(s->ilog, 0, in, 256);
 
@@ -287,5 +302,12 @@ static inline void pffft_ols_tick(struct pffft_ols_pc *s,
 */
 
 // TODO
+
+// - split nb_partitions in delay line and filter, since these will be
+//   separate, e.g. it is possible that an input has delays for 4
+//   partitions to support a 4-partition FIR, but another filter using
+//   the same input could have less partitions.
+
+
 
 #endif

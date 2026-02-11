@@ -11,10 +11,10 @@ PFFFT_Setup *pffft_init(void) {
 #else
 // include the pffft code into this compilation unit
 #include "mod_pffft.c"
-static struct uct_pf uct_pf;
+static struct pffft_static pffft_static;
 PFFFT_Setup *pffft_init(void) {
-    uct_pf_init(&uct_pf);
-    return &uct_pf.setup;
+    pffft_static_init(&pffft_static);
+    return &pffft_static.setup;
 }
 #endif
 
