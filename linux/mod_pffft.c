@@ -103,8 +103,6 @@ struct pffft_pc_input {
     struct pffft_data input[MOD_PFFFT_MAX_NB_PARTITIONS];
     /* Location to write the next input block. */
     int next_block;
-    /* Number of blocks in the delay line. */
-    uint32_t nb_partitions;
 } MOD_PFFFT_ALIGN;
 
 struct pffft_pc_output {
@@ -174,13 +172,15 @@ static inline void pffft_pc_worker_init(struct pffft_pc_worker *w,
     pffft_static_init(&w->fft);
 }
 
-static inline int pffft_pc_fir_init(struct pffft_pc_worker *w,
-                                    struct pffft_pc_fir *s,
-                                    const float *impulse,
-                                    int nb_el) {
+static inline void pffft_pc_fir_init(struct pffft_pc_worker *w,
+                                     struct pffft_pc_fir *s,
+                                     const float *impulse,
+                                     int nb_el) {
 
-    if (!impulse) return 0;
-    if (nb_el == 0) return 0;
+    if (!impulse || !nb_el) {
+        memset(s, 0, sizeof(*s));
+        return;
+    }
 
     // Split the impulse in chunks and pre-compute FFT.
     int n = MOD_PFFFT_SIZE;
@@ -225,13 +225,10 @@ static inline int pffft_pc_fir_init(struct pffft_pc_worker *w,
     }
     //LOG("pffft_ols_init: done\n");
 
-    return s->nb_partitions;
 }
 
-static inline void pffft_pc_input_init(struct pffft_pc_input *s,
-                                       int nb_partitions) {
+static inline void pffft_pc_input_init(struct pffft_pc_input *s) {
     memset(s,0,sizeof(*s));
-    s->nb_partitions = nb_partitions;
 }
 
 static inline void pffft_pc_output_init(struct pffft_pc_output *s) {
@@ -247,10 +244,9 @@ static inline void pffft_pc_init(struct pffft_pc *s,
     pffft_pc_worker_init(&s->worker, ilog);
 
     // FIR, input delay line and output accumulator are stored separately.
-    int nbp = pffft_pc_fir_init(&s->worker, &s->fir, impulse, nb_el);
-    ASSERT(nbp <= MOD_PFFFT_MAX_NB_PARTITIONS);
+    pffft_pc_fir_init(&s->worker, &s->fir, impulse, nb_el);
 
-    pffft_pc_input_init(&s->input, nbp);
+    pffft_pc_input_init(&s->input);
     pffft_pc_output_init(&s->output);
 
 }
@@ -280,9 +276,11 @@ static inline void pffft_pc_input_tick(struct pffft_pc_worker *w,
        other, longer FIRs, but not less. */
 
     /* Compute the FFT of the overlapped input and place it in the FFT
-       delay line in the correct slot. */
+       delay line in the correct slot.  Note that we just use MAX_NB
+       here to keep the implementation of the matrix FIR simpler,
+       i.e. make it more uniform. */
     int b_cur_input = s->next_block;
-    s->next_block = (s->next_block + 1) % s->nb_partitions;
+    s->next_block = (s->next_block + 1) % MOD_PFFFT_MAX_NB_PARTITIONS;
     pffft_transform(&w->fft.setup,
                     s->overlap_in.data,
                     s->input[b_cur_input].data,
@@ -293,7 +291,7 @@ static inline void pffft_pc_input_tick(struct pffft_pc_worker *w,
 
 static inline const float *pffft_pc_input_partition(const struct pffft_pc_input *in,
                                                     int b_filter) {
-    int inbp = in->nb_partitions;
+    int inbp = MOD_PFFFT_MAX_NB_PARTITIONS;
     int b_cur_input = in->next_block - 1;
     int b_input = (inbp*2 + b_cur_input - b_filter) % inbp;
     return in->input[b_input].data;
@@ -371,9 +369,6 @@ static inline void pffft_pc_output_tick(struct pffft_pc_worker *w,
 static inline void pffft_pc_tick(struct pffft_pc *s,
                                  const float *in,
                                  float *out) {
-
-    /* Make sure the input and FIR are compatible. */
-    ASSERT(s->input.nb_partitions >= s->fir.nb_partitions);
 
     /* Push a new block into the input delay line. */
     pffft_pc_input_tick(&s->worker, &s->input, in);
