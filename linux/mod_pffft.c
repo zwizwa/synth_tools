@@ -70,23 +70,36 @@ struct pffft_partition {
     float freq[MOD_PFFFT_SIZE];
 } MOD_PFFFT_ALIGN;
 
+struct pffft_pc_worker {
+    /* Worker state. */
+    struct pffft_static fft;              // pffft state (coefficients)
+    struct pffft_partition output;        // Output FD accumulator
+    float overlap_out[MOD_PFFFT_SIZE];    // Transformed TD output accu
+    float work[MOD_PFFFT_SIZE];
+    struct ilog *ilog;                    // optional ilog binary logger for logging float blocks
+} MOD_PFFFT_ALIGN;
+
+struct pffft_pc_fir {
+    /* FIR coefficients. */
+    struct pffft_partition filter[MOD_PFFFT_NB_PARTITIONS];  // FIR partitions, zero-padded (FD)
+    uint32_t nb_partitions;                                  // number of FIR partitions actually populated
+} MOD_PFFFT_ALIGN;
+
+struct pffft_pc_input {
+    /* Input delay line. */
+    float overlap_in[MOD_PFFFT_SIZE];                        // Previous + current input block concatenated (TD)
+    struct pffft_partition input[MOD_PFFFT_NB_PARTITIONS];   // Input delay line, overlapped (FD)
+    int next_block;                                          // next index into the input (FD) delay line
+    uint32_t nb_partitions;                                  // number of FIR partitions actually populated
+} MOD_PFFFT_ALIGN;
+
 
 // FD = Frequency Domain
 // TD = Time Domain
-struct pffft_ols_pc { // overlap save partitioned convolution
-    float overlap_in[MOD_PFFFT_SIZE];                        // Previous + current input block concatenated (TD)
-    struct pffft_partition input[MOD_PFFFT_NB_PARTITIONS];   // Input delay line, overlapped (FD)
-    struct pffft_partition filter[MOD_PFFFT_NB_PARTITIONS];  // FIR partitions, zero-padded (FD)
-    struct pffft_partition output;                           // Output accumulator (FD)
-    float overlap_out[MOD_PFFFT_SIZE];                       // Output (TD)
-    float work[MOD_PFFFT_SIZE];
-
-    struct pffft_static fft; // pffft state (coefficients)
-    int next_block;          // next index into the input (FD) delay line
-    uint32_t nb_partitions;  // number of FIR partitions actually populated
-    struct ilog *ilog;       // optional ilog binary logger for logging float blocks
-
-
+struct pffft_pc { // overlap save partitioned convolution
+    struct pffft_pc_worker worker;
+    struct pffft_pc_fir    fir;
+    struct pffft_pc_input  input;
 } MOD_PFFFT_ALIGN;
 
 
@@ -143,18 +156,20 @@ void pffft_static_init(struct pffft_static *w) {
    just re-implement and then validate in a quickcheck test.
 */
 
+static inline void pffft_pc_worker_init(struct pffft_pc_worker *w,
+                                        struct ilog *ilog) {
+    memset(w,0,sizeof(*w));
+    w->ilog = ilog;
+    pffft_static_init(&w->fft);
+}
 
-static inline void pffft_ols_pc_init(struct pffft_ols_pc *s,
-                                     float *impulse,
-                                     int nb_el,
-                                     struct ilog *ilog) {
-    //LOG("pffft_ols_init\n");
+static inline int pffft_pc_fir_init(struct pffft_pc_worker *w,
+                                    struct pffft_pc_fir *s,
+                                    float *impulse,
+                                    int nb_el) {
 
-    // Clear the whole state.
-    memset(s,0,sizeof(*s));
-    s->ilog = ilog;
-
-    pffft_static_init(&s->fft);
+    if (!impulse) return 0;
+    if (nb_el == 0) return 0;
 
     // Split the impulse in chunks and pre-compute FFT.
     int n = MOD_PFFFT_SIZE;
@@ -184,9 +199,9 @@ static inline void pffft_ols_pc_init(struct pffft_ols_pc *s,
         }
 
         //LOG("pffft_ols_init: pre trans\n");
-        pffft_transform(&s->fft.setup,
+        pffft_transform(&w->fft.setup,
                         ir_chunk_padded, ir_chunk_fft,
-                        s->work,
+                        w->work,
                         PFFFT_FORWARD);
         //LOG("pffft_ols_init: post trans\n");
 
@@ -199,16 +214,40 @@ static inline void pffft_ols_pc_init(struct pffft_ols_pc *s,
     }
     //LOG("pffft_ols_init: done\n");
 
+    return s->nb_partitions;
+    
 }
 
-void vector_log_write_floats_fd(int fd, uint32_t cmd,
-                                const float *vec, uint32_t len);
+static inline void pffft_pc_input_init(struct pffft_pc_input *s,
+                                       int nb_partitions) {
+    memset(s,0,sizeof(*s));
+    s->nb_partitions = nb_partitions;
+}
 
 
+static inline void pffft_pc_init(struct pffft_pc *s,
+                                     float *impulse,
+                                     int nb_el,
+                                     struct ilog *ilog) {
+    // Clear the whole state.
+    memset(s,0,sizeof(*s));
 
-static inline void pffft_ols_pc_tick(struct pffft_ols_pc *s,
-                                     const float *in,
-                                     float *out) {
+    // The worker contains all the state necessary to run the
+    // algorithm except for the input and FIR data.
+    pffft_pc_worker_init(&s->worker, ilog);
+
+    // FIR and input are stored separately
+    int nbp = pffft_pc_fir_init(&s->worker, &s->fir, impulse, nb_el);
+    ASSERT(nbp <= MOD_PFFFT_NB_PARTITIONS);
+
+    pffft_pc_input_init(&s->input, nbp);
+
+}
+
+
+static inline void pffft_pc_tick(struct pffft_pc *s,
+                                 const float *in,
+                                 float *out) {
     //LOG("pffft_ols_tick\n");
     //ilog_floats(s->ilog, 0, in, 256);
 
@@ -219,22 +258,27 @@ static inline void pffft_ols_pc_tick(struct pffft_ols_pc *s,
     int n_div_2 = n/2;
 
     for(int k=0; k<n_div_2; k++) {
-        float *old = &s->overlap_in[k];
-        float *new = &s->overlap_in[k + n_div_2];
+        float *old = &s->input.overlap_in[k];
+        float *new = &s->input.overlap_in[k + n_div_2];
         /* Shift previous input into left (older) slot. */
         *old = *new;
         /* Copy new nput into right (newer) slot. */
         *new = in[k];
     }
 
+    /* The number of partitions to compute is always determined by the
+       FIR.  The input might have more delay partitions to accomodate
+       other, longer FIRs, but not less. */
+    ASSERT(s->input.nb_partitions >= s->fir.nb_partitions);
+
     /* Compute the FFT of the overlapped input and place it in the FFT
        delay line in the correct slot. */
-    int b_cur_input = s->next_block;
-    s->next_block = (s->next_block + 1) % s->nb_partitions;
-    pffft_transform(&s->fft.setup,
-                    s->overlap_in,
-                    s->input[b_cur_input].freq,
-                    s->work,
+    int b_cur_input = s->input.next_block;
+    s->input.next_block = (s->input.next_block + 1) % s->input.nb_partitions;
+    pffft_transform(&s->worker.fft.setup,
+                    s->input.overlap_in,
+                    s->input.input[b_cur_input].freq,
+                    s->worker.work,
                     PFFFT_FORWARD);
 
     /* Perform frequency domain convolution for all the blocks in the
@@ -244,31 +288,33 @@ static inline void pffft_ols_pc_tick(struct pffft_ols_pc *s,
     // FIXME: Use the ab <- a*b method
 
     //LOG("fd:\n");
-    float *o = s->output.freq;
+    float *o = s->worker.output.freq;
 
     /* Current block. */
-    pffft_zconvolve_no_accu(&s->fft.setup,
-                            s->input[b_cur_input].freq,
-                            s->filter[0].freq,
+    pffft_zconvolve_no_accu(&s->worker.fft.setup,
+                            s->input.input[b_cur_input].freq,
+                            s->fir.filter[0].freq,
                             o, 1.0f);
     //LOG("pffft_ols_tick: convolve 0 done, li=%d\n",
     //    (int)ilog_floats(s->ilog, 0, o, n);
 
     /* Delayed blocks. */
-    for (int b_filter=1; b_filter < s->nb_partitions; b_filter++) {
-        int b_input = (s->nb_partitions + b_cur_input - b_filter) % s->nb_partitions;
-        pffft_zconvolve_accumulate(&s->fft.setup,
-                                   s->input[b_input].freq,
-                                   s->filter[b_filter].freq,
+    for (int b_filter=1; b_filter < s->fir.nb_partitions; b_filter++) {
+        // FIXME: split off in inline function
+        int inbp = s->input.nb_partitions;
+        int b_input = (inbp + b_cur_input - b_filter) % inbp;
+        pffft_zconvolve_accumulate(&s->worker.fft.setup,
+                                   s->input.input[b_input].freq,
+                                   s->fir.filter[b_filter].freq,
                                    o, 1.0f);
         //LOG("pffft_ols_tick: convolve %d done\n", b_filter);
         //ilog_floats(s->ilog, 0, o, n);
     }
 
     /* Transform back. */
-    pffft_transform(&s->fft.setup,
-                    o, s->overlap_out,
-                    s->work,
+    pffft_transform(&s->worker.fft.setup,
+                    o, s->worker.overlap_out,
+                    s->worker.work,
                     PFFFT_BACKWARD);
 
     //LOG("overlap_out=%d\n",
@@ -280,7 +326,7 @@ static inline void pffft_ols_pc_tick(struct pffft_ols_pc *s,
     /* Save the non-overlapping part of the output. */
     //LOG("pffft_ols_tick: pre out\n");
     for (int k=0; k<n_div_2; k++) {
-        out[k] = s->overlap_out[k + n_div_2];
+        out[k] = s->worker.overlap_out[k + n_div_2];
     }
 
     //LOG("out=%d\n",
@@ -307,6 +353,14 @@ static inline void pffft_ols_pc_tick(struct pffft_ols_pc *s,
 //   separate, e.g. it is possible that an input has delays for 4
 //   partitions to support a 4-partition FIR, but another filter using
 //   the same input could have less partitions.
+//
+// - there are actually 3 parts of state:
+//   - fft setup
+//   - fir
+//   - delay line
+//
+//   The fft setup is actually the state of the "worker" that performs
+//   the FFT.  Can this be split up already?
 
 
 
