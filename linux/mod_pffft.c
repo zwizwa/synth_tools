@@ -73,8 +73,6 @@ struct pffft_partition {
 struct pffft_pc_worker {
     /* Worker state. */
     struct pffft_static fft;              // pffft state (coefficients)
-    struct pffft_partition output;        // Output FD accumulator
-    float overlap_out[MOD_PFFFT_SIZE];    // Transformed TD output accu
     float work[MOD_PFFFT_SIZE];
     struct ilog *ilog;                    // optional ilog binary logger for logging float blocks
 } MOD_PFFFT_ALIGN;
@@ -93,6 +91,12 @@ struct pffft_pc_input {
     uint32_t nb_partitions;                                  // number of FIR partitions actually populated
 } MOD_PFFFT_ALIGN;
 
+struct pffft_pc_output {
+    struct pffft_partition output;        // Output FD accumulator
+    float overlap_out[MOD_PFFFT_SIZE];    // Transformed TD output accu
+} MOD_PFFFT_ALIGN;
+
+
 
 // FD = Frequency Domain
 // TD = Time Domain
@@ -100,6 +104,7 @@ struct pffft_pc { // overlap save partitioned convolution
     struct pffft_pc_worker worker;
     struct pffft_pc_fir    fir;
     struct pffft_pc_input  input;
+    struct pffft_pc_output output;
 } MOD_PFFFT_ALIGN;
 
 
@@ -224,6 +229,9 @@ static inline void pffft_pc_input_init(struct pffft_pc_input *s,
     s->nb_partitions = nb_partitions;
 }
 
+static inline void pffft_pc_output_init(struct pffft_pc_output *s) {
+    memset(s,0,sizeof(*s));
+}
 
 static inline void pffft_pc_init(struct pffft_pc *s,
                                      float *impulse,
@@ -236,20 +244,20 @@ static inline void pffft_pc_init(struct pffft_pc *s,
     // algorithm except for the input and FIR data.
     pffft_pc_worker_init(&s->worker, ilog);
 
-    // FIR and input are stored separately
+    // FIR, input delay line and output accumulator are stored separately.
     int nbp = pffft_pc_fir_init(&s->worker, &s->fir, impulse, nb_el);
     ASSERT(nbp <= MOD_PFFFT_NB_PARTITIONS);
 
     pffft_pc_input_init(&s->input, nbp);
+    pffft_pc_output_init(&s->output);
 
 }
 
-
-static inline void pffft_pc_tick(struct pffft_pc *s,
-                                 const float *in,
-                                 float *out) {
+static inline int pffft_pc_input_tick(struct pffft_pc_worker *w,
+                                      struct pffft_pc_input *s,
+                                      const float *in) {
     //LOG("pffft_ols_tick\n");
-    //ilog_floats(s->ilog, 0, in, 256);
+    //ilog_floats(w->ilog, 0, in, 256);
 
     /* Overlap the input: keep a separate delay line for the real
        input.  Input/output block size is half of the FFT size
@@ -258,8 +266,8 @@ static inline void pffft_pc_tick(struct pffft_pc *s,
     int n_div_2 = n/2;
 
     for(int k=0; k<n_div_2; k++) {
-        float *old = &s->input.overlap_in[k];
-        float *new = &s->input.overlap_in[k + n_div_2];
+        float *old = &s->overlap_in[k];
+        float *new = &s->overlap_in[k + n_div_2];
         /* Shift previous input into left (older) slot. */
         *old = *new;
         /* Copy new nput into right (newer) slot. */
@@ -269,17 +277,35 @@ static inline void pffft_pc_tick(struct pffft_pc *s,
     /* The number of partitions to compute is always determined by the
        FIR.  The input might have more delay partitions to accomodate
        other, longer FIRs, but not less. */
-    ASSERT(s->input.nb_partitions >= s->fir.nb_partitions);
 
     /* Compute the FFT of the overlapped input and place it in the FFT
        delay line in the correct slot. */
-    int b_cur_input = s->input.next_block;
-    s->input.next_block = (s->input.next_block + 1) % s->input.nb_partitions;
-    pffft_transform(&s->worker.fft.setup,
-                    s->input.overlap_in,
-                    s->input.input[b_cur_input].freq,
-                    s->worker.work,
+    int b_cur_input = s->next_block;
+    s->next_block = (s->next_block + 1) % s->nb_partitions;
+    pffft_transform(&w->fft.setup,
+                    s->overlap_in,
+                    s->input[b_cur_input].freq,
+                    w->work,
                     PFFFT_FORWARD);
+
+    return b_cur_input;
+
+}
+
+#if 0
+static inline float *pffft_pc_input_partition(struct pffft_pc_input *in,
+                                              int b_filter) {
+    int inbp = in->nb_partitions;
+    int b_cur_inptut = in->next_block - 1;
+    int b_input = (inbp*2 + b_cur_input - b_filter) % inbp;
+}
+#endif
+
+static inline void pffft_pc_convolve_tick(struct pffft_pc_worker *w,
+                                          const struct pffft_pc_input *in,
+                                          const struct pffft_pc_fir *fir,
+                                          struct pffft_pc_output *out,
+                                          int b_cur_input) {
 
     /* Perform frequency domain convolution for all the blocks in the
        FFT delay line.  The most recent input block (b_first) is
@@ -288,33 +314,41 @@ static inline void pffft_pc_tick(struct pffft_pc *s,
     // FIXME: Use the ab <- a*b method
 
     //LOG("fd:\n");
-    float *o = s->worker.output.freq;
+    float *o = out->output.freq;
 
     /* Current block. */
-    pffft_zconvolve_no_accu(&s->worker.fft.setup,
-                            s->input.input[b_cur_input].freq,
-                            s->fir.filter[0].freq,
+    pffft_zconvolve_no_accu(&w->fft.setup,
+                            in->input[b_cur_input].freq,
+                            fir->filter[0].freq,
                             o, 1.0f);
     //LOG("pffft_ols_tick: convolve 0 done, li=%d\n",
     //    (int)ilog_floats(s->ilog, 0, o, n);
 
     /* Delayed blocks. */
-    for (int b_filter=1; b_filter < s->fir.nb_partitions; b_filter++) {
+    for (int b_filter=1; b_filter < fir->nb_partitions; b_filter++) {
         // FIXME: split off in inline function
-        int inbp = s->input.nb_partitions;
+        int inbp = in->nb_partitions;
         int b_input = (inbp + b_cur_input - b_filter) % inbp;
-        pffft_zconvolve_accumulate(&s->worker.fft.setup,
-                                   s->input.input[b_input].freq,
-                                   s->fir.filter[b_filter].freq,
+        pffft_zconvolve_accumulate(&w->fft.setup,
+                                   in->input[b_input].freq,
+                                   fir->filter[b_filter].freq,
                                    o, 1.0f);
         //LOG("pffft_ols_tick: convolve %d done\n", b_filter);
         //ilog_floats(s->ilog, 0, o, n);
     }
 
+}
+
+static inline void pffft_pc_output_tick(struct pffft_pc_worker *w,
+                                        struct pffft_pc_output *out_accu,
+                                        float *out) {
+    //LOG("fd:\n");
+    float *o = out_accu->output.freq;
+
     /* Transform back. */
-    pffft_transform(&s->worker.fft.setup,
-                    o, s->worker.overlap_out,
-                    s->worker.work,
+    pffft_transform(&w->fft.setup,
+                    o, out_accu->overlap_out,
+                    w->work,
                     PFFFT_BACKWARD);
 
     //LOG("overlap_out=%d\n",
@@ -325,14 +359,39 @@ static inline void pffft_pc_tick(struct pffft_pc *s,
 
     /* Save the non-overlapping part of the output. */
     //LOG("pffft_ols_tick: pre out\n");
+
+    int n = MOD_PFFFT_SIZE;
+    int n_div_2 = n/2;
+
     for (int k=0; k<n_div_2; k++) {
-        out[k] = s->worker.overlap_out[k + n_div_2];
+        out[k] = out_accu->overlap_out[k + n_div_2];
     }
 
     //LOG("out=%d\n",
     //    (int)ilog_floats(s->ilog, 0, out, n/2));
 
-    //LOG("pffft_ols_tick: post out\n");
+}
+
+
+static inline void pffft_pc_tick(struct pffft_pc *s,
+                                 const float *in,
+                                 float *out) {
+
+    /* Make sure the input and FIR are compatible. */
+    ASSERT(s->input.nb_partitions >= s->fir.nb_partitions);
+
+    /* Push a new block into the input delay line. */
+    int b_cur_input = pffft_pc_input_tick(&s->worker, &s->input, in);
+
+    /* Convolve into FD accumulator. */
+    // FIXME: separate out the output
+    pffft_pc_convolve_tick(&s->worker,
+                           &s->input,
+                           &s->fir,
+                           &s->output,
+                           b_cur_input);
+
+    pffft_pc_output_tick(&s->worker, &s->output, out);
 
 }
 
