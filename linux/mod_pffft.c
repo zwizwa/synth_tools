@@ -1,7 +1,8 @@
 /* This module wraps the pffft library from
    https://github.com/marton78/pffft
    d321d006467fcdcafc4298901c27541a18da598c
-   And provides:
+
+   Together with some ns*.h NS modules it provides:
 
    - replacement initialization function and struct for static data allocation
 
@@ -10,9 +11,10 @@
 
    - delay line for partitioned convolution using OLS modeled after ns_ols.h
 
-   - code factored for matrix fir  (transform i/o once, compute matrix in FD)
+   - code factored for single channel and matrix fir (transform i/o
+     once, compute matrix in FD)
 
-   See pffft/LICENCE.txt
+   For partent project license see pffft/LICENCE.txt
 
    Terminology:
 
@@ -28,7 +30,10 @@
    data is delayed to compute fast convolution of multiple sections
    using OLS
 
-   Note that the OLS PC code has been moved into ns_pc.h and ns_pc_matrix_pc.h
+   All static code is written as NS modules
+   - ns_pffft.h          static pffft wrapper
+   - ns_pc.h             single channel fir
+   - ns_pc_matrix_pc.h   matrix fir
 
 */
 
@@ -51,94 +56,26 @@
 #ifndef MOD_PFFFT
 #define MOD_PFFFT
 
-// #define PFFFT_SIMD_DISABLE // debug
-
-
+// #define PFFFT_SIMD_DISABLE // for debug
 #include "macros.h"
 #include "ilog.h"
 #include "pffft_common.c"
 #include "pffft.c"
 
-/* These are hardcoded for the default use case which supports 256
-   sample blocks OLS partitioned convolution. */
-#ifndef  MOD_PFFFT_CUSTOM
-#define  MOD_PFFFT_SIZE              512
-#define  MOD_PFFFT_MAX_NB_PARTITIONS 5
-#endif
-
-#define MOD_PFFFT_PARTITION_SIZE (MOD_PFFFT_SIZE/2)
-#define MOD_PFFFT_MAX_FIR_SIZE (MOD_PFFFT_MAX_NB_PARTITIONS * MOD_PFFFT_PARTITION_SIZE)
-
 /* All float arrays need to be aligned to 4 float vector boundaries
    for the Neon implementation.  The algorithm will silently produce
    bad results if not aligned properly. */
-#define MOD_PFFFT_ALIGN __attribute__((aligned(16)))
-
-struct pffft_static {
-    float data[MOD_PFFFT_SIZE];
-    SETUP_STRUCT setup;
-} MOD_PFFFT_ALIGN;
-
-/* A buffer that can hold a real TD signal or a complex FD signal
-   (half spectrum in pffft vector format) */
-struct pffft_data {
-    float data[MOD_PFFFT_SIZE];
-} MOD_PFFFT_ALIGN;
+#define MOD_PFFFT_ALIGN  __attribute__((aligned(16)))
 
 
-
-/* The PFFFT_REAL transform produces only half of the complex
-   spectrum, so 256 complex bins for 512 bytes real input size.  These
-   are then grouped in 4 float vectors on ARM Neon */
-#define  MOD_PFFFT_NCVEC         ((MOD_PFFFT_SIZE/2)/SIMD_SZ)
-
-
-/* This replaces
-   SETUP_STRUCT *FUNC_NEW_SETUP(int N, pffft_transform_t transform)
-   from pffft/pffft_priv_impl.h
-   with static allocation, i.e. a struct and an init function
-   Only implemented for PFFFT_REAL
-*/
-void pffft_static_init(struct pffft_static *w) {
-    SETUP_STRUCT *s = &w->setup;
-    int N = MOD_PFFFT_SIZE;
-    int k, m;
-
-    s->N = N;
-    s->transform = PFFFT_REAL;
-    /* nb of complex simd vectors */
-    s->Ncvec = MOD_PFFFT_NCVEC;
-    s->data = (v4sf *)&w->data[0];
-    s->e = (float*)s->data;
-    s->twiddle = (float *)(s->data + (2*s->Ncvec*(SIMD_SZ-1))/SIMD_SZ);
-
-    for (k=0; k < s->Ncvec; ++k) {
-        int i = k/SIMD_SZ;
-        int j = k%SIMD_SZ;
-        for (m=0; m < SIMD_SZ-1; ++m) {
-            float A = -2*(float)M_PI*(m+1)*k / N;
-            s->e[(2*(i*3 + m) + 0) * SIMD_SZ + j] = FUNC_COS(A);
-            s->e[(2*(i*3 + m) + 1) * SIMD_SZ + j] = FUNC_SIN(A);
-        }
-    }
-    rffti1_ps(N/SIMD_SZ, s->twiddle, s->ifac);
-
-    /* check that N is decomposable with allowed prime factors */
-    for (k=0, m=1; k < s->ifac[1]; ++k) { m *= s->ifac[2+k]; }
-    if (m != N/SIMD_SZ) {
-        ABORT;
-    }
-}
+/* Default parameterization. */
+#define NS(name) pffft_r512##name
+#define pffft_r512_fft_size           512
+#define pffft_r512_max_nb_partitions  5
+#include "ns_pffft.h"
+#undef NS
 
 
-
-
-
-
-
-
-
-
-
+//#define MOD_PFFFT_MAX_FIR_SIZE (MOD_PFFFT_MAX_NB_PARTITIONS * MOD_PFFFT_PARTITION_SIZE)
 
 #endif

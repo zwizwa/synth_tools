@@ -2,30 +2,30 @@
 // It is in principle not dependent on the FFT implementation, just the FFT size used in the structs.
 
 struct NS(_pc_worker) {
-    struct pffft_static fft;  // pffft state (coefficients, sizes)
-    struct pffft_data work;   // temporary buffer for pffft functions
-    struct ilog *ilog;        // optional ilog binary logger for logging float blocks
+    struct NS(_static) fft;  // pffft state (coefficients, sizes)
+    struct NS(_data) work;   // temporary buffer for pffft functions
+    struct ilog *ilog;       // optional ilog binary logger for logging float blocks
 } MOD_PFFFT_ALIGN;
 
 struct NS(_pc_fir) {
     /* FIR partitions, TD zero-padded and transformed to FD. */
-    struct pffft_data filter[MOD_PFFFT_MAX_NB_PARTITIONS];
+    struct NS(_data) filter[NS(_max_nb_partitions)];
     /* Number of partitions actuall populated. */
     uint32_t nb_partitions;
 } MOD_PFFFT_ALIGN;
 
 struct NS(_pc_input) {
     /* Previous + current input block concatenated (TD) */
-    struct pffft_data overlap_in;
+    struct NS(_data) overlap_in;
     /* Input delay line, overlapped, transformed to FD */
-    struct pffft_data input[MOD_PFFFT_MAX_NB_PARTITIONS];
+    struct NS(_data) input[NS(_max_nb_partitions)];
     /* Location to write the next input block. */
     int next_block;
 } MOD_PFFFT_ALIGN;
 
 struct NS(_pc_output) {
-    struct pffft_data output;      // Output FD accumulator
-    struct pffft_data overlap_out; // Transformed TD output accu
+    struct NS(_data) output;      // Output FD accumulator
+    struct NS(_data) overlap_out; // Transformed TD output accu
 } MOD_PFFFT_ALIGN;
 
 /* Bundled state to perform overlap save partitioned convolution on a
@@ -42,7 +42,7 @@ static inline void NS(_pc_worker_init)(struct NS(_pc_worker) *w,
                                        struct ilog *ilog) {
     memset(w,0,sizeof(*w));
     w->ilog = ilog;
-    pffft_static_init(&w->fft);
+    NS(_static_init)(&w->fft);
 }
 
 static inline void NS(_pc_fir_init)(struct NS(_pc_worker) *w,
@@ -57,7 +57,7 @@ static inline void NS(_pc_fir_init)(struct NS(_pc_worker) *w,
     }
 
     // Split the impulse in chunks and pre-compute FFT.
-    int n = MOD_PFFFT_SIZE;
+    int n = NS(_fft_size);
     float scale = 1.0f / ((float)n);
 
     int offset = 0;
@@ -67,7 +67,7 @@ static inline void NS(_pc_fir_init)(struct NS(_pc_worker) *w,
 
     // LOG("nb_el = %d, nb_partitions = %d\n", nb_el, s->nb_partitions);
 
-    ASSERT(s->nb_partitions <= MOD_PFFFT_MAX_NB_PARTITIONS);
+    ASSERT(s->nb_partitions <= NS(_max_nb_partitions));
     ASSERT(s->nb_partitions >= 1);
 
     for (int block = 0; block < s->nb_partitions; block++) {
@@ -133,7 +133,7 @@ static inline void NS(_pc_input_tick)(struct NS(_pc_worker) *w,
     /* Overlap the input: keep a separate delay line for the real
        input.  Input/output block size is half of the FFT size
        NS(_pc_logn), e.g. 256 float blocks means 512 point FFTs. */
-    int n = MOD_PFFFT_SIZE;
+    int n = NS(_fft_size);
     int n_div_2 = n/2;
 
     for(int k=0; k<n_div_2; k++) {
@@ -154,7 +154,7 @@ static inline void NS(_pc_input_tick)(struct NS(_pc_worker) *w,
        here to keep the implementation of the matrix FIR simpler,
        i.e. make it more uniform. */
     int b_cur_input = s->next_block;
-    s->next_block = (s->next_block + 1) % MOD_PFFFT_MAX_NB_PARTITIONS;
+    s->next_block = (s->next_block + 1) % NS(_max_nb_partitions);
     pffft_transform(&w->fft.setup,
                     s->overlap_in.data,
                     s->input[b_cur_input].data,
@@ -169,7 +169,7 @@ static inline void NS(_pc_input_tick)(struct NS(_pc_worker) *w,
 
 static inline const float *NS(_pc_input_partition)(const struct NS(_pc_input) *in,
                                                int b_filter) {
-    int inbp = MOD_PFFFT_MAX_NB_PARTITIONS;
+    int inbp = NS(_max_nb_partitions);
     int b_cur_input = in->next_block - 1;
     int b_input = (inbp*2 + b_cur_input - b_filter) % inbp;
     return in->input[b_input].data;
@@ -231,7 +231,7 @@ static inline void NS(_pc_output_tick)(struct NS(_pc_worker) *w,
     /* Save the non-overlapping part of the output. */
     //LOG("pffft_ols_tick: pre out\n");
 
-    int n = MOD_PFFFT_SIZE;
+    int n = NS(_fft_size);
     int n_div_2 = n/2;
 
     for (int k=0; k<n_div_2; k++) {
