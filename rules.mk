@@ -117,6 +117,7 @@ HOST_ELF := \
 	$(UC_TOOLS)/linux/keylog.dynamic.host.elf \
 	linux/test_pffft.dynamic.host.elf \
 	$(UC_TOOLS)/linux/test_worksteal.dynamic.host.elf \
+	linux/test_lace.dynamic.host.elf \
 
 HOST_ELF_DIS := \
 	linux/clock.dynamic.host.elf \
@@ -357,7 +358,7 @@ linux/lib.host.a: $(LIB_HOST_A_OBJECTS)
 	export LD=linux/dynamic.host.ld ; \
 	export MAP=$(patsubst %.elf,%.map,$@) ; \
 	export O=$< ; \
-	export LDLIBS="$(A_HOST) -Wl,--gc-sections -lpthread -ljack -lasound -lfftw3f -lm `pkg-config libpulse-simple --cflags --libs`" ; \
+	export LDLIBS="$(A_HOST) -Wl,--gc-sections -lpthread -ljack -lasound -lfftw3f -lm `pkg-config libpulse-simple --cflags --libs` `pkg-config lace --cflags --libs`" ; \
 	export TYPE=elf ; \
 	export UC_TOOLS=$(UC_TOOLS)/ ; \
 	$$BUILD 2>&1

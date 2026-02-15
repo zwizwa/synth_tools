@@ -1,3 +1,7 @@
+-- 2026-02-15 revisit:
+-- . I want to generate a Lace executor
+
+
 -- 2025-12-28 revisit:
 
 -- The point of this is to capture most of the existing

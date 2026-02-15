@@ -1,9 +1,21 @@
 #include "pd_tools.h"
 #include "cproc.h"
 
-/* Next:
+/* Playground for Pure Data
 
-   Add a loader for "double buffered" dynamic objects.
+   Wish list:
+
+   - There will be shared functionality, so this is structured as a pd
+     lib instead of a collection of externals.
+
+   - Implement partitioned convolution on top of pffft
+
+   - Integrate work-stealing scheduler for parallel computation of dsp
+     graphs.  ( Can be done isolated first. )
+
+   - Worker threads for FIR coefficient computation
+
+   - "double buffered" dynamic objects.
 
 */
 
