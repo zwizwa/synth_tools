@@ -1,7 +1,4 @@
-// FIXME: This still relies on pfft_ wrappers in mod_pfft.c, which should also be parameterized.
-// It is in principle not dependent on the FFT implementation, just the FFT size used in the structs.
-
-/* Note: Matrix filter.
+/* Matrix filter.
 
    For multi-channel filtering when there is input fan-out and output
    summing, the fanout and summing can be done in the frequency domain
@@ -18,14 +15,6 @@ struct NS(_pc_matrix_state) {
     struct NS(_pc_output) output[NS(_pc_matrix_nb_out)];
 } MOD_PFFFT_ALIGN;
 
-struct NS(_pc_matrix_fir) {
-    const float *impulse;
-    int nb_el;
-};
-struct NS(_pc_matrix_firs) {
-    struct NS(_pc_matrix_fir) firs[NS(_pc_matrix_nb_in)][NS(_pc_matrix_nb_out)];
-};
-
 static inline void NS(_pc_matrix_fir_init)(struct NS(_pc_matrix_state) *s,
                                            int i,  // input index
                                            int o,  // output index
@@ -37,26 +26,15 @@ static inline void NS(_pc_matrix_fir_init)(struct NS(_pc_matrix_state) *s,
 
 
 static inline void NS(_pc_matrix_init)(struct NS(_pc_matrix_state) *s,
-                                       struct NS(_pc_matrix_firs) *firs,
                                        struct ilog *ilog) {
 
     // The worker contains all the state necessary to run the
     // algorithm except for the input and FIR data.
     NS(_pc_worker_init)(&s->worker, ilog);
 
-    if (!firs) {
-        memset(&s->fir, 0, sizeof(s->fir));
-    }
-    else {
-        for (int o=0; o<NS(_pc_matrix_nb_out); o++) {
-            for (int i=0; i<NS(_pc_matrix_nb_in); i++) {
-                NS(_pc_matrix_fir_init)(
-                    s, i, o,
-                    firs->firs[i][o].impulse,
-                    firs->firs[i][o].nb_el);
-            }
-        }
-    }
+    // Note that the individual filters need to be initialized.  They
+    // are set to mute by default.
+    memset(&s->fir, 0, sizeof(s->fir));
 
     for (int i=0; i<NS(_pc_matrix_nb_in); i++) {
         NS(_pc_input_init)(&s->input[i]);
