@@ -73,7 +73,7 @@ static inline void NS(_pc_fir_init)(struct NS(_pc_worker) *w,
     for (int block = 0; block < s->nb_partitions; block++) {
         //LOG("block %d\n", block);
         float *ir_chunk_fft = (float*)s->filter[block].data;
-        float ir_chunk_padded[n];
+        float MOD_PFFFT_ALIGN ir_chunk_padded[n];
         memset(ir_chunk_padded, 0, sizeof(ir_chunk_padded));
         for (int i=0; i<chunk_size; i++) {
             int oi = offset + i;
@@ -84,10 +84,10 @@ static inline void NS(_pc_fir_init)(struct NS(_pc_worker) *w,
         }
 
         //LOG("pffft_ols_init: pre trans\n");
-        pffft_transform(&w->fft.setup,
-                        ir_chunk_padded, ir_chunk_fft,
-                        w->work.data,
-                        PFFFT_FORWARD);
+        mod_pffft_transform(&w->fft.setup,
+                            ir_chunk_padded, ir_chunk_fft,
+                            w->work.data,
+                            PFFFT_FORWARD);
         //LOG("pffft_ols_init: post trans\n");
 
         //LOG("block %d, timei=%d, freqi=%d\n",
@@ -155,11 +155,11 @@ static inline void NS(_pc_input_tick)(struct NS(_pc_worker) *w,
        i.e. make it more uniform. */
     int b_cur_input = s->next_block;
     s->next_block = (s->next_block + 1) % NS(_max_nb_partitions);
-    pffft_transform(&w->fft.setup,
-                    s->overlap_in.data,
-                    s->input[b_cur_input].data,
-                    w->work.data,
-                    PFFFT_FORWARD);
+    mod_pffft_transform(&w->fft.setup,
+                        s->overlap_in.data,
+                        s->input[b_cur_input].data,
+                        w->work.data,
+                        PFFFT_FORWARD);
 
 }
 
@@ -217,10 +217,10 @@ static inline void NS(_pc_output_tick)(struct NS(_pc_worker) *w,
     float *o = out_accu->output.data;
 
     /* Transform back. */
-    pffft_transform(&w->fft.setup,
-                    o, out_accu->overlap_out.data,
-                    w->work.data,
-                    PFFFT_BACKWARD);
+    mod_pffft_transform(&w->fft.setup,
+                        o, out_accu->overlap_out.data,
+                        w->work.data,
+                        PFFFT_BACKWARD);
 
     //LOG("overlap_out=%d\n",
     //    (int)ilog_floats(s->ilog, 0, s->overlap_out, n));

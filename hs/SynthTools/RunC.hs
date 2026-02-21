@@ -225,14 +225,16 @@ runRawWith cfg input = do
 -- 0x1xxxx is synth_tools number collection protocol with BE uc_tools
 -- tagging and LE data, where F 32 is 32 bit float and 5(S) 32 is
 -- signed 32 bit integer.
-tag_floats = 0x1F320000
-tag_ints   = 0x15320000  
+tag_floats  = 0x1F320000
+tag_ints    = 0x15320000  
 
 runFloat c a = runRawWith (4, tag_floats, putFloatle, getFloatle, c, a)
 runInt32 c a = runRawWith (4, tag_ints,   putInt32le, getInt32le, c, a)
 
 floatRunner c a = runRaw (4, tag_floats,  putFloatle, getFloatle, c, a)
 int32Runner c a = runRaw (4, tag_ints,    putInt32le, getInt32le, c, a)
+
+
 
 -- readInt321 :: Handle -> Int -> IO [Int]
 -- readInt321 handle nb = do

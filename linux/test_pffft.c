@@ -11,24 +11,24 @@ PFFFT_Setup *pffft_init(void) {
 #else
 // include the pffft code into this compilation unit
 #include "mod_pffft.c"
-static struct pffft_static pffft_static;
-PFFFT_Setup *pffft_init(void) {
-    pffft_static_init(&pffft_static);
-    return &pffft_static.setup;
+static struct pffft_r512_static pffft_r512_static;
+PFFFT_Setup *pffft_r512_init(void) {
+    pffft_r512_static_init(&pffft_r512_static);
+    return &pffft_r512_static.setup;
 }
 #endif
 
 #include "macros.h"
 
 int main(int argc, char **argv) {
-    PFFFT_Setup *setup = pffft_init();
-    float input[MOD_PFFFT_SIZE] = {1};
-    float output[MOD_PFFFT_SIZE] = {};
-    float work[MOD_PFFFT_SIZE*2] = {};
+    PFFFT_Setup *setup = pffft_r512_init();
+    float input[512] = {1};
+    float output[512] = {};
+    float work[512] = {};
     pffft_direction_t direction = PFFFT_FORWARD;
     pffft_transform(setup, input, output, work, direction);
     LOG("test_pffft.c\n");
-    for (int i=0; i<MOD_PFFFT_SIZE; i++) {
+    for (int i=0; i<512; i++) {
         LOG("%f\n", output[i]);
     }
     return 0;

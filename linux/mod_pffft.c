@@ -65,16 +65,47 @@
 /* All float arrays need to be aligned to 4 float vector boundaries
    for the Neon implementation.  The algorithm will silently produce
    bad results if not aligned properly. */
-#define MOD_PFFFT_ALIGN  __attribute__((aligned(16)))
+#define MOD_PFFFT_ALIGN_BYTES 16
+#define MOD_PFFFT_ALIGN  __attribute__((aligned(MOD_PFFFT_ALIGN_BYTES)))
+static inline void assert_pffft_align(const void *ptr) {
+    if (1) {
+        uintptr_t addr = (uintptr_t)ptr;
+        uintptr_t align_error = addr % MOD_PFFFT_ALIGN_BYTES;
+        if (unlikely(align_error)) {
+            fprintf(stderr, "bad pffft align %p\n", ptr);
+        }
+    }
+}
+
+/* Wrap the pffft_transform call */
+static inline void mod_pffft_transform(PFFFT_Setup *setup, const float *input, float *output, float *work, pffft_direction_t direction) {
+    // fprintf(stderr, "%p %p %p\n", input, output, work);
+    assert_pffft_align(input);
+    assert_pffft_align(output);
+    assert_pffft_align(work);
+    pffft_transform(setup, input, output, work, direction);
+}
+
+static inline void mod_pffft_transform_ordered(PFFFT_Setup *setup, const float *input, float *output, float *work, pffft_direction_t direction) {
+    assert_pffft_align(input);
+    assert_pffft_align(output);
+    assert_pffft_align(work);
+    pffft_transform_ordered(setup, input, output, work, direction);
+}
 
 
-/* Default parameterization. */
+/* Default parameterizations. */
 #define NS(name) pffft_r512##name
 #define pffft_r512_fft_size           512
 #define pffft_r512_max_nb_partitions  5
 #include "ns_pffft.h"
 #undef NS
 
+#define NS(name) pffft_r256##name
+#define pffft_r256_fft_size           256
+#define pffft_r256_max_nb_partitions  10
+#include "ns_pffft.h"
+#undef NS
 
 //#define MOD_PFFFT_MAX_FIR_SIZE (MOD_PFFFT_MAX_NB_PARTITIONS * MOD_PFFFT_PARTITION_SIZE)
 

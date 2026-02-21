@@ -39,13 +39,11 @@ static inline void NS(_pc_par_tick)(struct NS(_pc_par_state) *s,
                                     float * const* in,
                                     float **out) {
 
-    /* Push new blocks into the input delay lines. */
-    for (int i=0; i<NS(_pc_par_nb); i++) {
-        NS(_pc_input_tick)(&s->worker, &s->input[i], in[i]);
-    }
-
     /* Compute the spectral multiplication for the FIR matrix. */
     for (int c=0; c<NS(_pc_par_nb); c++) {
+
+        /* Push new block into the input delay line. */
+        NS(_pc_input_tick)(&s->worker, &s->input[c], in[c]);
 
         /* FD convolve into FD accumulator. */
         NS(_pc_convolve_tick)(&s->worker,

@@ -8,15 +8,15 @@
 
 */
 struct NS(_static) {
-    float data[NS(_fft_size)];
+    float MOD_PFFFT_ALIGN data[NS(_fft_size)];
     SETUP_STRUCT setup;
-} MOD_PFFFT_ALIGN;
+};
 
 /* A buffer that can hold a real TD signal or a complex FD signal
    (half spectrum in pffft vector format) */
 struct NS(_data) {
-    float data[NS(_fft_size)];
-} MOD_PFFFT_ALIGN;
+    float MOD_PFFFT_ALIGN data[NS(_fft_size)];
+};
 
 
 
