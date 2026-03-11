@@ -3,7 +3,7 @@
 #include <unistd.h>
 
 /* The point here is to execute a DSP flow graph.
-   In the end I want to make
+   In the end I want to make a generator or an evaluator.
 */
 
 

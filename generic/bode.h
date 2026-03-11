@@ -1,5 +1,5 @@
-#ifndef MOD_BODE
-#define MOD_BODE
+#ifndef BODE_H
+#define BODE_H
 
 /* Compute bode plot from FFT.
    Modeled after octave/synth_tools.m fft_to_spectrum() */
@@ -26,8 +26,7 @@ struct bode {
     struct bode_vec *vec;
 };
 
-
-static void bode_fft_to_spectrum(struct bode *bode, const complex_float *fft1) {
+static inline void bode_fft_to_spectrum(struct bode *bode, const complex_float *fft1) {
 
     /* The fftw output is not normalized, so scale it down. */
     float scale = 1.0f / sqrtf((float)bode->size);
@@ -63,10 +62,10 @@ static void bode_fft_to_spectrum(struct bode *bode, const complex_float *fft1) {
    ...
 
 */
-static int bode_svg_path_db_inner(const struct bode *bode,
-                                  float pixels_per_decade,
-                                  char sep,
-                                  char *dst, int room) {
+static inline int bode_svg_path_db_inner(const struct bode *bode,
+                                         float pixels_per_decade,
+                                         char sep,
+                                         char *dst, int room) {
 
 
     /* This is the data we're fitting onto the grid. */
@@ -103,9 +102,9 @@ static int bode_svg_path_db_inner(const struct bode *bode,
     return size;
 
 }
-static char *bode_svg_path_db(const struct bode *bode,
-                              float pixels_per_decade,
-                              char sep) {
+static inline char *bode_svg_path_db(const struct bode *bode,
+                                     float pixels_per_decade,
+                                     char sep) {
     int size = bode_svg_path_db_inner(bode, pixels_per_decade, sep, NULL, 0);
     // LOG("size = %d\n", size);
     int room = size + 1;
@@ -114,7 +113,6 @@ static char *bode_svg_path_db(const struct bode *bode,
     // LOG("buf:\n%s\n", buf);
     return buf;
 }
-
 
 
 #endif
