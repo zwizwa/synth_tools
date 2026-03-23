@@ -115,4 +115,44 @@ static inline char *bode_svg_path_db(const struct bode *bode,
 }
 
 
+/* Compute the SVG path string needed to plot an equidistant signal
+
+   M x y
+   L x y
+   L x y
+   ...
+
+*/
+static inline int svg_path_linear_inner(float *f, int stride, int nf,
+                                        char sep,
+                                        char *dst, int room) {
+    char tag = 'M';
+    int size = 0;
+    for (int n=0; n<nf; n++) {
+        float x = n;
+        float y = f[n * stride];
+        int chunk = snprintf(dst, room, "%c %f %f%c", tag, x, y, sep);
+        // LOG("chunk = %d\n", chunk);
+        tag = 'L';
+        if (dst != NULL) {
+            dst += chunk;
+            room -= chunk;
+        }
+        size += chunk;
+    }
+    return size;
+
+}
+static inline char *svg_path_linear(float *f, int stride, int nf,
+                                    char sep) {
+    int size = svg_path_linear_inner(f, stride, nf, sep, NULL, 0);
+    // LOG("size = %d\n", size);
+    int room = size + 1;
+    char *buf = malloc(room);
+    svg_path_linear_inner(f, stride, nf, sep, buf, room);
+    // LOG("buf:\n%s\n", buf);
+    return buf;
+}
+
+
 #endif
