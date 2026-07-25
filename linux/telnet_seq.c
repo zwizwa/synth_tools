@@ -6,6 +6,9 @@
 #define _POSIX_C_SOURCE 1
 #define _GNU_SOURCE
 
+#define TELNET_WORD_MODE
+#include "telnet.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -90,14 +93,12 @@ static inline void process_midi(jack_nframes_t nframes) {
         }
     }
 }
-static int process (jack_nframes_t nframes, void *arg) {
+static int process(jack_nframes_t nframes, void *arg) {
     /* Order is important. */
     process_midi(nframes);
     return 0;
 }
 
-#define TELNET_WORD_MODE
-#include "mod_telnet.c"
 
 void telnet_write_output(struct telnet *, const uint8_t *bytes, uintptr_t len) {
     fwrite(bytes, 1, len, stdout);

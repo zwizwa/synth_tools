@@ -47,7 +47,8 @@
 #define TELNET_LOG(...)
 //#define TELNET_LOG LOG
 #define TELNET_WORD_MODE
-#include "mod_telnet.c"
+//#include "mod_telnet.c"
+#include "telnet.h"
 
 #define NOINLINE __attribute__((__noinline__))
 
