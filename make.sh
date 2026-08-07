@@ -1,5 +1,11 @@
 #!/bin/sh
-exec /i/exo/nix/cached-nix-shell.sh synth_tools --exec make -j$(nproc) "$@"
+cd $(dirname "$0")
+[ -z "$MAKEFLAGS" ] && export MAKEFLAGS="-j$(nproc)"
+
+exec /i/exo/nix/cached-nix-shell.sh synth_tools --exec make "$@"
+
+# exec /i/exo/nix/cached-nix-shell.sh synth_tools --exec make -j$(nproc) "$@"
+# exec cached-nix-shell synth_tools --exec make -C . "$@"
 
 
 
