@@ -1284,10 +1284,10 @@ void handle_erlang_stdin(struct app *app) {
        protocol on stdin, since hub.c might be hosting a
        lot of in-image functionality later. */
     uint8_t size_be[4];
-    assert_read(0, size_be, 4);
+    assert_read_fixed(0, size_be, 4);
     uint32_t size = read_be(size_be, 4);
     uint8_t buf[size];
-    assert_read(0, buf, size);
+    assert_read_fixed(0, buf, size);
     ASSERT(size >= 2);
     uint16_t tag = read_be(buf, 2);
     switch(tag) {
@@ -1304,7 +1304,7 @@ void handle_erlang_stdin(struct app *app) {
 void handle_from_rt(struct app *app) {
     /* Event from jack thread. */
     struct rt_event ev;
-    assert_read(app->alsa_pipefd[0], &ev, sizeof(ev));
+    assert_read_fixed(app->alsa_pipefd[0], &ev, sizeof(ev));
     switch(ev.cmd) {
     case RT_EVENT_MIDI_CLOCK: {
         if (mmc_running(&app->mmc)) {

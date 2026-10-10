@@ -180,10 +180,10 @@ int main(int argc, char **argv) {
        might be hosting a lot of in-image functionality later. */
     for(;;) {
         uint8_t size_be[4];
-        assert_read(0, size_be, 4);
+        assert_read_fixed(0, size_be, 4);
         uint32_t size = read_be(size_be, 4);
         uint8_t buf[size];
-        assert_read(0, buf, size);
+        assert_read_fixed(0, buf, size);
         ASSERT(size >= 2);
         uint16_t tag = read_be(buf, 2);
         switch(tag) {

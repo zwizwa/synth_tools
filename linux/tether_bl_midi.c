@@ -279,7 +279,7 @@ int main(int argc, char **argv) {
             for (int i=0; i<nb_ports; i++) {
                 if( pfd[i].revents & POLLIN) {
                     uint8_t buf[1024];
-                    size_t size = assert_read(pfd[i].fd, buf, sizeof(buf));
+                    size_t size = assert_read_once(pfd[i].fd, buf, sizeof(buf));
                     for (size_t i=0; i<size; i++) {
                         (push[i])(s, buf[i]);
                     }

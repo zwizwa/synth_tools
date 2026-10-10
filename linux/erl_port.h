@@ -31,8 +31,8 @@
 
 static inline int assert_read_packet1(int fd, void *buf) {
     uint8_t size;
-    assert_read(fd, &size, 1);
-    assert_read(fd, buf, size);
+    assert_read_fixed(fd, &size, 1);
+    assert_read_fixed(fd, buf, size);
     return size;
 }
 static inline int assert_read_packet1_cstring(int fd, char *buf) {
@@ -65,7 +65,7 @@ static inline void assert_read_packet4_static(int fd, void *buf, ssize_t buf_siz
     uint32_t *size = buf;
     *size = assert_read_u32(0);
     ASSERT(4 + *size <= buf_size);
-    assert_read(0, buf + 4, *size);
+    assert_read_fixed(0, buf + 4, *size);
 }
 
 

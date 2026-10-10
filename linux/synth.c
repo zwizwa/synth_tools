@@ -463,7 +463,7 @@ int main(int argc, char **argv) {
             if (pfd[0].revents & POLLIN) {
                 // FIXME: only used to signal exit
                 uint8_t buf[4];
-                assert_read(0, buf, sizeof(buf));
+                assert_read_once(0, buf, sizeof(buf));
                 exit(1);
             }
             else {

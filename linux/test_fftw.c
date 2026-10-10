@@ -1,5 +1,5 @@
 /* Compute bode diagram */
-#include "mod_bode.c"
+#include "bode.h"
 
 /* FFT implementation. */
 #include <fftw3.h>

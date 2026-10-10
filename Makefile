@@ -35,3 +35,10 @@ studio_elf: $(STUDIO_ELF)
 
 rs_a: $(RS_A_HOST)
 
+# The host.nix now has env and shell targets. The former is a link
+# that contains a bin directory that can be added to path before
+# invoking make.  See make.sh
+env: host.nix
+	nix-build host.nix -A env -o env
+
+
