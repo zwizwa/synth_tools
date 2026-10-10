@@ -1,44 +1,59 @@
 #!/bin/sh
 cd $(dirname "$0")
-[ -z "$MAKEFLAGS" ] && export MAKEFLAGS="-j$(nproc)"
+# See https://claude.ai/chat/70d1132d-8cdc-481b-ab52-e273da4c6782
+#
+# Basic idea:
+#
+# - Top level make /i/exo/jobserver.mk will invoke us like this:
+#   +synth_tools/make.sh
+#
+# - That '+' indicates that MAKEFLAGS environment variable is set,
+#   which contains something like "-j28 --jobserver-auth=fifo:/tmp/GMfifo29453"
+#
+# - cached-nix-shell will pass that environment variable to the make
+#   that runs inside the shell environment
+#
+# - in case we do not see any MAKEFLAGS, just set them to start a parallel build
+#
+# - the host.nix file supports both building with nix shell and using
+#   an explicitly generated build environment tree (env) that can be
+#   deployed on hosts without nix tools
+#
+# - the old /i/exo/nix config is left here as well
 
-exec /i/exo/nix/cached-nix-shell.sh synth_tools --exec make "$@"
+# echo "MAKE=$MAKE"
+# echo "MAKEFLAGS=$MAKEFLAGS"
 
-# exec /i/exo/nix/cached-nix-shell.sh synth_tools --exec make -j$(nproc) "$@"
-# exec cached-nix-shell synth_tools --exec make -C . "$@"
+if [ -z "$MAKEFLAGS" ]; then
+    export MAKEFLAGS="-j$(nproc)"
+    # echo "setting MAKEFLAGS=$MAKEFLAGS"
+fi
 
+using_shell() {
+    exec cached-nix-shell host.nix -A shell --exec make -C . "$@"
+}
 
+using_exo_shell() {
+    # This is the old approach which has package builders for all
+    # projects, where we can reuse the context to do a local build
+    # here.  But it does not expose the build tools separately.
+    exec /i/exo/nix/cached-nix-shell.sh synth_tools --exec make "$@"
+}
 
+using_env() {
+    # If the env is not built then we need to build it 
+    if [ ! -d $(readlink -f ./env) ]; then
+        echo "Running nix-build to create the missing ./env"
+        nix-build host.nix -A env -o env || exit 1
+    fi
 
+    # -L uses the link's timestamp instead of the target
+    make -L env 
+    # export PATH=$(readlink -f env)/bin:$PATH
+    export PATH=$(readlink -f env)/bin
+    exec make "$@"
+}
 
-# # Incremental builds bound to the build tools.
-# HERE=$(dirname "$0")
-# PWD=$(pwd)
-
-# # If EXO_ENV is nonzero we are inside the environment created by
-# # /i/exo/env.sh which has all tools in the PATH.  This makes
-# # incremental builds a little faster as no nix expressions need to be
-# # evaluated.  The build tools available in this environment are those
-# # installed by nix.build.sh /i/exo/exo-dev/flake.nix in
-# # ~/.result/exo-dev
-# #
-# # Note that the exo redo build needs a make.input file that contains a
-# # list of all the source files that when changed will retrigger a build.
-# #
-# # This is what exo redo will execute:
-# # (cd /i/exo ; . env.sh ; ./synth_tools/make.sh -C synth_tools)
-# if [ ! -z "$EXO_ENV" ]; then
-#     cd $HERE
-#     exec make -j${NPROC} "$@"
-# fi
-
-# # Otherwise use "nix develop" to expose the build environment defined
-# # in flake.nix
-# cd $HERE
-
-# # This repository is a flake that can be used with nix develop.
-# # Use that by default.
-# if [ -z "$EXO_ENV" ]; then
-#     NIX=/run/current-system/sw/bin/nix
-#     exec $NIX develop --print-build-logs --command make -C ${PWD} "$@"
-# fi
+# using_env "$@"
+# using_shell "$@"
+using_exo_shell "$@"
